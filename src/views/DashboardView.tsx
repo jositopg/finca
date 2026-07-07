@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import { Download, Plus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
@@ -51,18 +51,42 @@ export function DashboardView({ onNavigate }: Props) {
     (p) => p.estado === 'uso_propio' || p.estado === 'vivienda_habitual',
   ).length
 
+  function handleExportJSON() {
+    const data = {
+      exportadoEn: new Date().toISOString(),
+      propiedades,
+      transacciones,
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `finca-backup-${format(now, 'yyyy-MM-dd')}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="flex flex-col pb-24">
       {/* Header */}
       <div className="px-5 pt-12 pb-5">
         <div className="flex items-center justify-between mb-1">
           <h1 className="font-display text-2xl font-bold text-on-surface">Finca</h1>
-          <button
-            onClick={refreshData}
-            className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
-          >
-            <RefreshCw size={18} className={isLoadingData ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleExportJSON}
+              title="Exportar copia de seguridad (JSON)"
+              className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
+            >
+              <Download size={18} />
+            </button>
+            <button
+              onClick={refreshData}
+              className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
+            >
+              <RefreshCw size={18} className={isLoadingData ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
         <p className="text-sm text-outline-variant capitalize">
           {format(now, "MMMM 'de' yyyy", { locale: es })}
