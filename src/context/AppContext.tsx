@@ -96,10 +96,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // Fallback: si después de 8s no carga GIS, mostramos la pantalla de login
+    const fallback = setTimeout(() => setAuthState('unauthenticated'), 8000)
+
     const checkGIS = () => {
       if (window.google?.accounts?.oauth2) {
+        clearTimeout(fallback)
         initGIS()
-        // If we have a valid token already (session), try silent request
         if (getAccessToken()) {
           setAuthState('authenticated')
           const meta = getSheetMeta()
@@ -108,20 +111,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             loadData(meta.spreadsheetId)
           }
         } else {
-          const meta = getSheetMeta()
-          if (meta) {
-            // Previous session exists, try silent token request
-            setAuthState('loading')
-            requestToken()
-          } else {
-            setAuthState('unauthenticated')
-          }
+          // Sin sesión previa → siempre mostrar login
+          setAuthState('unauthenticated')
         }
       } else {
         setTimeout(checkGIS, 100)
       }
     }
     checkGIS()
+    return () => clearTimeout(fallback)
   }, [initGIS])
 
   async function loadData(spreadsheetId: string) {
