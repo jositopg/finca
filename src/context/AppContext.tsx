@@ -7,24 +7,16 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import {
-  getAccessToken,
-  initTokenClient,
-  requestToken,
-  requestTokenWithConsent,
-  revokeToken,
-} from '../api/auth'
+import { getAccessToken, initTokenClient, requestToken, revokeToken } from '../api/auth'
 import { setupSpreadsheet } from '../api/setup'
 import {
   addPropiedad,
   addTransaccion,
   deletePropiedad,
   deleteTransaccion,
-  getSheetMeta,
   getPropiedades,
   getTransacciones,
   migrateHeaders,
-  saveSheetMeta,
   type SheetMeta,
   updatePropiedad,
   updateTransaccion,
@@ -62,34 +54,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [isLoadingData, setIsLoadingData] = useState(false)
   const gisReady = useRef(false)
 
+  // Always resolve the spreadsheet by searching Drive — never trust a
+  // locally cached id. This is what makes multiple devices converge on the
+  // same sheet instead of silently drifting onto separate copies.
+  async function connectAndLoad() {
+    setIsLoadingData(true)
+    try {
+      const meta = await setupSpreadsheet()
+      setSheetMeta(meta)
+      migrateHeaders(meta.spreadsheetId).catch(() => {})
+      await loadData(meta.spreadsheetId)
+    } catch (err) {
+      console.error('Setup failed', err)
+      setAuthState('unauthenticated')
+      setIsLoadingData(false)
+    }
+  }
+
   const initGIS = useCallback(() => {
     initTokenClient(
       async (token) => {
         if (!token) return
         setAuthState('authenticated')
-
-        // First time setup or reconnect
-        let meta = getSheetMeta()
-        if (!meta) {
-          setIsLoadingData(true)
-          try {
-            meta = await setupSpreadsheet()
-            setSheetMeta(meta)
-          } catch (err) {
-            console.error('Setup failed', err)
-            setAuthState('unauthenticated')
-            return
-          } finally {
-            setIsLoadingData(false)
-          }
-        } else {
-          setSheetMeta(meta)
-        }
-
-        // Migrate sheet headers if needed (silent, best-effort)
-        migrateHeaders(meta.spreadsheetId).catch(() => {})
-
-        await loadData(meta.spreadsheetId)
+        await connectAndLoad()
       },
       (err) => {
         console.error('Auth error', err)
@@ -109,11 +96,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         initGIS()
         if (getAccessToken()) {
           setAuthState('authenticated')
-          const meta = getSheetMeta()
-          if (meta) {
-            setSheetMeta(meta)
-            loadData(meta.spreadsheetId)
-          }
+          connectAndLoad()
         } else {
           // Sin sesión previa → siempre mostrar login
           setAuthState('unauthenticated')
@@ -166,11 +149,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(() => {
     if (!gisReady.current) return
-    if (getSheetMeta()) {
-      requestToken()
-    } else {
-      requestTokenWithConsent()
-    }
+    requestToken()
   }, [])
 
   const logout = useCallback(() => {
@@ -246,7 +225,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const updated = { ...propiedad!, folderId: folder.id }
       await updatePropiedad(sheetMeta.spreadsheetId, updated)
       setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
-      saveSheetMeta(sheetMeta)
       return folder.id
     },
     [sheetMeta, propiedades],

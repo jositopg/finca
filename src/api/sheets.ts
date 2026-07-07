@@ -8,21 +8,6 @@ export interface SheetMeta {
   rootFolderId: string
 }
 
-const STORAGE_KEY = 'finca_sheet_meta'
-
-export function getSheetMeta(): SheetMeta | null {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  return raw ? (JSON.parse(raw) as SheetMeta) : null
-}
-
-export function saveSheetMeta(meta: SheetMeta): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(meta))
-}
-
-export function clearSheetMeta(): void {
-  localStorage.removeItem(STORAGE_KEY)
-}
-
 // ─── Schema migration ─────────────────────────────────────────────────────────
 
 const PROP_HEADERS = [

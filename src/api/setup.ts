@@ -1,6 +1,6 @@
 import { apiPost, getAccessToken } from './auth'
 import { findFileInFolder, getOrCreateFolder } from './drive'
-import { type SheetMeta, saveSheetMeta } from './sheets'
+import type { SheetMeta } from './sheets'
 
 const PROP_HEADERS = [
   'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
@@ -21,9 +21,7 @@ export async function setupSpreadsheet(): Promise<SheetMeta> {
   // Look for an existing spreadsheet — this makes multi-device work
   const existing = await findFileInFolder(rootFolder.id, SHEET_NAME)
   if (existing) {
-    const meta: SheetMeta = { spreadsheetId: existing.id, rootFolderId: rootFolder.id }
-    saveSheetMeta(meta)
-    return meta
+    return { spreadsheetId: existing.id, rootFolderId: rootFolder.id }
   }
 
   // Create new spreadsheet
@@ -64,7 +62,5 @@ export async function setupSpreadsheet(): Promise<SheetMeta> {
     },
   )
 
-  const meta: SheetMeta = { spreadsheetId, rootFolderId: rootFolder.id }
-  saveSheetMeta(meta)
-  return meta
+  return { spreadsheetId, rootFolderId: rootFolder.id }
 }

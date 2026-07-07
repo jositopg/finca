@@ -13,6 +13,15 @@ export interface DriveFile {
   createdTime?: string
 }
 
+// When duplicates exist (e.g. created by different devices before this
+// file was found), always resolve to the same one — the oldest — so every
+// device converges on a single canonical file instead of picking whichever
+// the Drive API happens to return first.
+function oldest(files: DriveFile[]): DriveFile | null {
+  if (files.length === 0) return null
+  return [...files].sort((a, b) => (a.createdTime ?? '').localeCompare(b.createdTime ?? ''))[0]
+}
+
 // ─── Folders ──────────────────────────────────────────────────────────────────
 
 export async function createFolder(
@@ -35,10 +44,10 @@ export async function findFolder(
     : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
 
   const res = await apiGet<{ files: DriveFile[] }>(
-    `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)`,
+    `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)`,
   )
 
-  return res.files[0] ?? null
+  return oldest(res.files)
 }
 
 export async function getOrCreateFolder(
@@ -56,9 +65,9 @@ export async function findFileInFolder(
 ): Promise<DriveFile | null> {
   const q = `name='${name}' and '${folderId}' in parents and trashed=false`
   const res = await apiGet<{ files: DriveFile[] }>(
-    `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)`,
+    `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)`,
   )
-  return res.files[0] ?? null
+  return oldest(res.files)
 }
 
 // ─── Files ────────────────────────────────────────────────────────────────────
