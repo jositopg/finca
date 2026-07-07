@@ -28,10 +28,18 @@ self.addEventListener('fetch', (e) => {
     return
   }
 
-  // For navigation requests: serve from cache, fall back to network
+  // For navigation requests: always go to network first so index.html
+  // (and the hashed asset paths it references) stays current after a
+  // deploy. Only fall back to the cached shell when offline.
   if (request.mode === 'navigate') {
     e.respondWith(
-      caches.match('/').then((cached) => cached ?? fetch(request)),
+      fetch(request)
+        .then((res) => {
+          const clone = res.clone()
+          caches.open(CACHE).then((c) => c.put('/', clone))
+          return res
+        })
+        .catch(() => caches.match('/')),
     )
     return
   }
