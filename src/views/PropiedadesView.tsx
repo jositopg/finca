@@ -14,6 +14,7 @@ import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransactionItem } from '../components/TransactionItem'
@@ -34,6 +35,14 @@ interface Props {
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+// Días desde/hasta el fin de contrato. Si ya pasó la fecha, el contrato
+// sigue vigente por tácita reconducción (no vence solo, hay que rescindirlo).
+function contratoEstado(contratoFin?: string): { dias: number; vencido: boolean; alerta: boolean } | null {
+  if (!contratoFin) return null
+  const dias = differenceInDays(parseISO(contratoFin), new Date())
+  return { dias, vencido: dias < 0, alerta: dias <= 60 }
 }
 
 function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }[] {
@@ -185,11 +194,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const grupos = groupByMonth(txsFiltradas)
 
-    // Contract expiry warning
-    const diasParaFin = propiedad.contratoFin
-      ? differenceInDays(parseISO(propiedad.contratoFin), new Date())
-      : null
-    const contratoAlerta = diasParaFin !== null && diasParaFin <= 60
+    // Contract expiry warning (tácita reconducción si ya venció)
+    const estadoContrato = contratoEstado(propiedad.contratoFin)
+    const contratoAlerta = estadoContrato?.alerta ?? false
 
     return (
       <div className="flex flex-col pb-24">
@@ -260,7 +267,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                   </span>
                 )}
               </div>
-              {propiedad.contratoFin && (
+              {propiedad.contratoFin && estadoContrato && (
                 <div className="flex items-center gap-1.5">
                   {contratoAlerta && <AlertTriangle size={12} className="text-warning" />}
                   <span
@@ -270,11 +277,22 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                   >
                     Contrato hasta{' '}
                     {format(parseISO(propiedad.contratoFin), 'd MMM yyyy', { locale: es })}
-                    {contratoAlerta && ` — vence en ${diasParaFin} días`}
+                    {estadoContrato.vencido
+                      ? ' — en tácita reconducción'
+                      : contratoAlerta
+                        ? ` — vence en ${estadoContrato.dias} días`
+                        : ''}
                   </span>
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Contrato de alquiler */}
+        {propiedad.estado === 'alquilado' && (
+          <div className="px-5 mb-4">
+            <ContratoAlquiler propiedad={propiedad} />
           </div>
         )}
 
@@ -494,10 +512,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               )
               const ingresos = txsAnio.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
               const gastos = txsAnio.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
-              const diasFin = p.contratoFin
-                ? differenceInDays(parseISO(p.contratoFin), new Date())
-                : null
-              const alertaContrato = diasFin !== null && diasFin <= 60
+              const estadoContratoP = contratoEstado(p.contratoFin)
+              const alertaContrato = estadoContratoP?.alerta ?? false
 
               return (
                 <button
@@ -523,10 +539,10 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                         label={ESTADO_LABELS[p.estado]}
                         variant={ESTADO_BADGE_VARIANT[p.estado]}
                       />
-                      {alertaContrato && (
-                        <span className="text-xs text-warning font-medium flex items-center gap-1">
-                          <AlertTriangle size={11} />
-                          {diasFin}d
+                      {alertaContrato && estadoContratoP && (
+                        <span className="text-xs text-warning font-medium flex items-center gap-1 text-right">
+                          <AlertTriangle size={11} className="flex-shrink-0" />
+                          {estadoContratoP.vencido ? 'Tácita reconducción' : `${estadoContratoP.dias}d`}
                         </span>
                       )}
                     </div>

@@ -13,6 +13,7 @@ export interface SheetMeta {
 const PROP_HEADERS = [
   'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
   'inquilinoNombre', 'alquilerMensual', 'contratoFin', 'notas',
+  'contratoArchivoId', 'contratoArchivoNombre',
 ]
 
 const TX_HEADERS = [
@@ -22,7 +23,7 @@ const TX_HEADERS = [
 
 export async function migrateHeaders(spreadsheetId: string): Promise<void> {
   const [propHead, txHead] = await Promise.all([
-    apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/propiedades!A1:K1`),
+    apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/propiedades!A1:M1`),
     apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/transacciones!A1:J1`),
   ])
 
@@ -31,7 +32,7 @@ export async function migrateHeaders(spreadsheetId: string): Promise<void> {
   if (!propHead.values?.[0] || propHead.values[0].length < PROP_HEADERS.length) {
     promises.push(
       apiPut(
-        `${BASE}/${spreadsheetId}/values/propiedades!A1:K1?valueInputOption=RAW`,
+        `${BASE}/${spreadsheetId}/values/propiedades!A1:M1?valueInputOption=RAW`,
         { values: [PROP_HEADERS] },
       ),
     )
@@ -64,6 +65,8 @@ function rowToPropiedad(row: string[]): Propiedad {
     alquilerMensual: row[8] ? parseFloat(row[8]) : undefined,
     contratoFin: row[9] || undefined,
     notas: row[10] || undefined,
+    contratoArchivoId: row[11] || undefined,
+    contratoArchivoNombre: row[12] || undefined,
   }
 }
 
@@ -95,6 +98,8 @@ function propiedadToRow(p: Propiedad): string[] {
     p.alquilerMensual != null ? p.alquilerMensual.toFixed(2) : '',
     p.contratoFin ?? '',
     p.notas ?? '',
+    p.contratoArchivoId ?? '',
+    p.contratoArchivoNombre ?? '',
   ]
 }
 
@@ -117,7 +122,7 @@ function transaccionToRow(t: Transaccion): string[] {
 
 export async function getPropiedades(spreadsheetId: string): Promise<Propiedad[]> {
   const res = await apiGet<{ values?: string[][] }>(
-    `${BASE}/${spreadsheetId}/values/propiedades!A2:K`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A2:M`,
   )
   if (!res.values || res.values.length === 0) return []
   return res.values.filter((r) => r[0]).map(rowToPropiedad)
@@ -128,7 +133,7 @@ export async function addPropiedad(
   propiedad: Propiedad,
 ): Promise<void> {
   await apiPost(
-    `${BASE}/${spreadsheetId}/values/propiedades!A:K:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A:M:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { values: [propiedadToRow(propiedad)] },
   )
 }
@@ -142,7 +147,7 @@ export async function updatePropiedad(
   if (idx === -1) throw new Error('Propiedad no encontrada')
   const row = idx + 2
   await apiPut(
-    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:K${row}?valueInputOption=RAW`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:M${row}?valueInputOption=RAW`,
     { values: [propiedadToRow(propiedad)] },
   )
 }
@@ -156,8 +161,8 @@ export async function deletePropiedad(
   if (idx === -1) return
   const row = idx + 2
   await apiPut(
-    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:K${row}?valueInputOption=RAW`,
-    { values: [Array(11).fill('')] },
+    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:M${row}?valueInputOption=RAW`,
+    { values: [Array(13).fill('')] },
   )
 }
 

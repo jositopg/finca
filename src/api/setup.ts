@@ -5,6 +5,7 @@ import type { SheetMeta } from './sheets'
 const PROP_HEADERS = [
   'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
   'inquilinoNombre', 'alquilerMensual', 'contratoFin', 'notas',
+  'contratoArchivoId', 'contratoArchivoNombre',
 ]
 const TX_HEADERS = [
   'id', 'propiedadId', 'fecha', 'tipo', 'importe', 'categoria',

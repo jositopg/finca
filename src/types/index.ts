@@ -21,6 +21,8 @@ export interface Propiedad {
   alquilerMensual?: number
   contratoFin?: string // YYYY-MM-DD
   notas?: string
+  contratoArchivoId?: string // Drive file ID del contrato de alquiler
+  contratoArchivoNombre?: string
 }
 
 export interface Transaccion {
@@ -67,6 +69,8 @@ export const CATEGORIAS_GASTO = [
 
 export const CATEGORIAS_INGRESO = [
   'Alquiler mensual',
+  'Electricidad (repercutida)',
+  'Agua (repercutida)',
   'Fianza recibida',
   'Devolución de fianza',
   'Otros ingresos',
