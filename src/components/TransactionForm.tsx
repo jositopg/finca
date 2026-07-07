@@ -4,9 +4,13 @@ import { format } from 'date-fns'
 import { Button } from './Button'
 import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
-import { CATEGORIAS_GASTO, CATEGORIAS_INGRESO } from '../types'
+import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO } from '../types'
 import { useApp } from '../context/AppContext'
 import { uploadFile } from '../api/drive'
+
+function fmt(n: number) {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 interface Props {
   propiedades: Propiedad[]
@@ -45,6 +49,12 @@ export function TransactionForm({
   const fileRef = useRef<HTMLInputElement>(null)
 
   const categorias = tipo === 'ingreso' ? CATEGORIAS_INGRESO : CATEGORIAS_GASTO
+
+  const propiedadSeleccionada = propiedades.find((p) => p.id === propiedadId)
+  const reparto =
+    tipo === 'gasto' && propiedadSeleccionada
+      ? calcularReparto(categoria, parseFloat(importe.replace(',', '.')) || 0, propiedadSeleccionada.reparto)
+      : null
 
   function validate(): boolean {
     const e: Record<string, string> = {}
@@ -169,6 +179,17 @@ export function TransactionForm({
           </option>
         ))}
       </Select>
+
+      {reparto && reparto.modo !== 'incluido' && (
+        <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 text-xs">
+          <span className="text-outline-variant">
+            Tuyo: <span className="font-medium text-on-surface">{fmt(reparto.propietario)} €</span>
+          </span>
+          <span className="text-primary font-medium">
+            Inquilino: {fmt(reparto.inquilino)} €
+          </span>
+        </div>
+      )}
 
       <div className="flex gap-3">
         <div className="flex-1">

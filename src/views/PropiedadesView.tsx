@@ -21,6 +21,7 @@ import { TransactionItem } from '../components/TransactionItem'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
+  calcularReparto,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   TIPO_LABELS,
@@ -58,7 +59,7 @@ function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }
 }
 
 // ── Fiscal summary component ───────────────────────────────────────────────────
-function FiscalSummary({ txs }: { txs: Transaccion[] }) {
+function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Propiedad }) {
   const years = useMemo(() => {
     const set = new Set(txs.map((t) => t.fecha.slice(0, 4)))
     const cur = new Date().getFullYear().toString()
@@ -81,6 +82,13 @@ function FiscalSummary({ txs }: { txs: Transaccion[] }) {
     }, {})
 
   const categorias = Object.entries(porCategoria).sort(([, a], [, b]) => b - a)
+
+  const repercutible = txsAnio
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => {
+      const r = calcularReparto(t.categoria, t.importe, propiedad.reparto)
+      return s + (r?.inquilino ?? 0)
+    }, 0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -127,6 +135,13 @@ function FiscalSummary({ txs }: { txs: Transaccion[] }) {
           </p>
         </div>
       </div>
+
+      {repercutible > 0 && (
+        <div className="flex items-center justify-between bg-surface-low rounded-xl p-3">
+          <span className="text-xs text-outline-variant">A repercutir al inquilino</span>
+          <span className="text-sm font-bold text-primary tabular-nums">{fmt(repercutible)} €</span>
+        </div>
+      )}
 
       {/* Category breakdown */}
       {categorias.length > 0 && (
@@ -401,6 +416,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                         <TransactionItem
                           key={tx.id}
                           tx={tx}
+                          propiedad={propiedad}
                           onDelete={(id) => setConfirmDelete({ type: 'tx', id })}
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
@@ -449,7 +465,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         </BottomSheet>
 
         <BottomSheet open={showFiscal} onClose={() => setShowFiscal(false)} title="Resumen fiscal">
-          <FiscalSummary txs={txs} />
+          <FiscalSummary txs={txs} propiedad={propiedad} />
         </BottomSheet>
 
         <ConfirmDialog

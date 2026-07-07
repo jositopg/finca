@@ -203,6 +203,7 @@ export function TransaccionesView() {
                         <TransactionItem
                           key={tx.id}
                           tx={tx}
+                          propiedad={prop}
                           propiedadNombre={propiedades.length > 1 ? prop?.nombre : undefined}
                           onDelete={(id) => setConfirmId(id)}
                           onOpenFile={(id) =>

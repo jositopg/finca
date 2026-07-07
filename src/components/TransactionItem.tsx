@@ -1,17 +1,24 @@
 import { FileText, Paperclip, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import type { Transaccion } from '../types'
+import { calcularReparto, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   tx: Transaccion
+  propiedad?: Propiedad
   propiedadNombre?: string
   onDelete?: (id: string) => void
   onOpenFile?: (fileId: string) => void
 }
 
-export function TransactionItem({ tx, propiedadNombre, onDelete, onOpenFile }: Props) {
+function fmt(n: number) {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+export function TransactionItem({ tx, propiedad, propiedadNombre, onDelete, onOpenFile }: Props) {
   const isIngreso = tx.tipo === 'ingreso'
+  const reparto =
+    !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
 
   return (
     <div className="flex items-start gap-3 py-3.5 border-b border-surface-high last:border-0">
@@ -57,6 +64,13 @@ export function TransactionItem({ tx, propiedadNombre, onDelete, onOpenFile }: P
                 </button>
               )}
             </div>
+            {reparto && reparto.modo !== 'incluido' && (
+              <p className="text-xs text-primary mt-0.5">
+                {reparto.modo === 'no_incluido'
+                  ? `Repercutible al inquilino: ${fmt(reparto.inquilino)} €`
+                  : `Inquilino ${fmt(reparto.inquilino)} € · Tuyo ${fmt(reparto.propietario)} €`}
+              </p>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 flex-shrink-0">

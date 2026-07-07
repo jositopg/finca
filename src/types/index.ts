@@ -23,6 +23,7 @@ export interface Propiedad {
   notas?: string
   contratoArchivoId?: string // Drive file ID del contrato de alquiler
   contratoArchivoNombre?: string
+  reparto?: Reparto // quién paga agua/luz/basuras/IBI
 }
 
 export interface Transaccion {
@@ -36,6 +37,80 @@ export interface Transaccion {
   archivos: string[] // Drive file IDs
   creadoEn: string
   referencia?: string // nº factura / referencia
+}
+
+// ─── Reparto de suministros y tasas ────────────────────────────────────────────
+// Para propiedades en alquiler: quién corre con el gasto de agua, luz,
+// basuras e IBI — íntegro en el precio del alquiler, a cargo del inquilino,
+// o repartido en un porcentaje.
+export type SuministroModo = 'incluido' | 'no_incluido' | 'parcial'
+
+export interface RepartoConcepto {
+  modo: SuministroModo
+  porcentajeInquilino?: number // 0-100, solo si modo === 'parcial'
+}
+
+export type ConceptoReparto = 'agua' | 'luz' | 'basuras' | 'ibi'
+
+export interface Reparto {
+  agua?: RepartoConcepto
+  luz?: RepartoConcepto
+  basuras?: RepartoConcepto
+  ibi?: RepartoConcepto
+}
+
+export const CONCEPTO_LABELS: Record<ConceptoReparto, string> = {
+  agua: 'Agua',
+  luz: 'Luz',
+  basuras: 'Tasa de basuras',
+  ibi: 'IBI',
+}
+
+// Categoría de gasto que corresponde a cada concepto repartible.
+export const CONCEPTO_CATEGORIA: Record<ConceptoReparto, string> = {
+  agua: 'Agua',
+  luz: 'Electricidad',
+  basuras: 'Tasa de basuras',
+  ibi: 'IBI',
+}
+
+export interface RepartoCalculado {
+  concepto: ConceptoReparto
+  modo: SuministroModo
+  propietario: number
+  inquilino: number
+}
+
+// Dado un gasto (categoría + importe), calcula cuánto corresponde al
+// propietario y cuánto es repercutible al inquilino, según la
+// configuración de reparto de la propiedad. Devuelve null si la
+// categoría no es una de las repartibles o no hay configuración.
+export function calcularReparto(
+  categoria: string,
+  importe: number,
+  reparto: Reparto | undefined,
+): RepartoCalculado | null {
+  if (!reparto) return null
+  const concepto = (Object.keys(CONCEPTO_CATEGORIA) as ConceptoReparto[]).find(
+    (c) => CONCEPTO_CATEGORIA[c] === categoria,
+  )
+  if (!concepto) return null
+  const config = reparto[concepto]
+  if (!config) return null
+
+  if (config.modo === 'incluido') {
+    return { concepto, modo: 'incluido', propietario: importe, inquilino: 0 }
+  }
+  if (config.modo === 'no_incluido') {
+    return { concepto, modo: 'no_incluido', propietario: 0, inquilino: importe }
+  }
+  const pctInquilino = (config.porcentajeInquilino ?? 0) / 100
+  return {
+    concepto,
+    modo: 'parcial',
+    propietario: importe * (1 - pctInquilino),
+    inquilino: importe * pctInquilino,
+  }
 }
 
 export interface ResumenPropiedad {
@@ -53,6 +128,7 @@ export const CATEGORIAS_GASTO = [
   'Gas',
   'Telefonía / Internet',
   'IBI',
+  'Tasa de basuras',
   'IRPF / Retención',
   'Otros impuestos',
   'Comunidad de propietarios',

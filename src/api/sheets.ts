@@ -1,5 +1,5 @@
 import { apiGet, apiPost, apiPut } from './auth'
-import type { Propiedad, Transaccion } from '../types'
+import type { Propiedad, Reparto, Transaccion } from '../types'
 
 const BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -13,7 +13,7 @@ export interface SheetMeta {
 const PROP_HEADERS = [
   'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
   'inquilinoNombre', 'alquilerMensual', 'contratoFin', 'notas',
-  'contratoArchivoId', 'contratoArchivoNombre',
+  'contratoArchivoId', 'contratoArchivoNombre', 'reparto',
 ]
 
 const TX_HEADERS = [
@@ -23,7 +23,7 @@ const TX_HEADERS = [
 
 export async function migrateHeaders(spreadsheetId: string): Promise<void> {
   const [propHead, txHead] = await Promise.all([
-    apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/propiedades!A1:M1`),
+    apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/propiedades!A1:N1`),
     apiGet<{ values?: string[][] }>(`${BASE}/${spreadsheetId}/values/transacciones!A1:J1`),
   ])
 
@@ -32,7 +32,7 @@ export async function migrateHeaders(spreadsheetId: string): Promise<void> {
   if (!propHead.values?.[0] || propHead.values[0].length < PROP_HEADERS.length) {
     promises.push(
       apiPut(
-        `${BASE}/${spreadsheetId}/values/propiedades!A1:M1?valueInputOption=RAW`,
+        `${BASE}/${spreadsheetId}/values/propiedades!A1:N1?valueInputOption=RAW`,
         { values: [PROP_HEADERS] },
       ),
     )
@@ -67,6 +67,7 @@ function rowToPropiedad(row: string[]): Propiedad {
     notas: row[10] || undefined,
     contratoArchivoId: row[11] || undefined,
     contratoArchivoNombre: row[12] || undefined,
+    reparto: row[13] ? (JSON.parse(row[13]) as Reparto) : undefined,
   }
 }
 
@@ -100,6 +101,7 @@ function propiedadToRow(p: Propiedad): string[] {
     p.notas ?? '',
     p.contratoArchivoId ?? '',
     p.contratoArchivoNombre ?? '',
+    p.reparto ? JSON.stringify(p.reparto) : '',
   ]
 }
 
@@ -122,7 +124,7 @@ function transaccionToRow(t: Transaccion): string[] {
 
 export async function getPropiedades(spreadsheetId: string): Promise<Propiedad[]> {
   const res = await apiGet<{ values?: string[][] }>(
-    `${BASE}/${spreadsheetId}/values/propiedades!A2:M`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A2:N`,
   )
   if (!res.values || res.values.length === 0) return []
   return res.values.filter((r) => r[0]).map(rowToPropiedad)
@@ -133,7 +135,7 @@ export async function addPropiedad(
   propiedad: Propiedad,
 ): Promise<void> {
   await apiPost(
-    `${BASE}/${spreadsheetId}/values/propiedades!A:M:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A:N:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { values: [propiedadToRow(propiedad)] },
   )
 }
@@ -147,7 +149,7 @@ export async function updatePropiedad(
   if (idx === -1) throw new Error('Propiedad no encontrada')
   const row = idx + 2
   await apiPut(
-    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:M${row}?valueInputOption=RAW`,
+    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:N${row}?valueInputOption=RAW`,
     { values: [propiedadToRow(propiedad)] },
   )
 }
@@ -161,8 +163,8 @@ export async function deletePropiedad(
   if (idx === -1) return
   const row = idx + 2
   await apiPut(
-    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:M${row}?valueInputOption=RAW`,
-    { values: [Array(13).fill('')] },
+    `${BASE}/${spreadsheetId}/values/propiedades!A${row}:N${row}?valueInputOption=RAW`,
+    { values: [Array(14).fill('')] },
   )
 }
 

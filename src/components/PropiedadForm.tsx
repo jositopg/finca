@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import { Button } from './Button'
 import { Input, Select, Textarea } from './Input'
-import type { Propiedad, PropiedadEstado, PropiedadTipo } from '../types'
-import { ESTADO_LABELS, TIPO_LABELS } from '../types'
+import type {
+  ConceptoReparto,
+  Propiedad,
+  PropiedadEstado,
+  PropiedadTipo,
+  Reparto,
+  RepartoConcepto,
+  SuministroModo,
+} from '../types'
+import { CONCEPTO_LABELS, ESTADO_LABELS, TIPO_LABELS } from '../types'
 
 interface Props {
   initial?: Partial<Propiedad>
@@ -12,6 +20,63 @@ interface Props {
 
 function uuid() {
   return crypto.randomUUID()
+}
+
+const MODO_LABELS: Record<SuministroModo, string> = {
+  incluido: 'Incluido',
+  no_incluido: 'No incluido',
+  parcial: 'Parcial',
+}
+
+function RepartoRow({
+  concepto,
+  value,
+  onChange,
+}: {
+  concepto: ConceptoReparto
+  value?: RepartoConcepto
+  onChange: (v: RepartoConcepto) => void
+}) {
+  const modo = value?.modo ?? 'incluido'
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-on-surface">{CONCEPTO_LABELS[concepto]}</p>
+      <div className="flex gap-1.5">
+        {(['incluido', 'no_incluido', 'parcial'] as SuministroModo[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() =>
+              onChange({
+                modo: m,
+                porcentajeInquilino: m === 'parcial' ? (value?.porcentajeInquilino ?? 50) : undefined,
+              })
+            }
+            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              modo === m ? 'bg-on-surface text-surface' : 'bg-surface-lowest text-outline-variant'
+            }`}
+          >
+            {MODO_LABELS[m]}
+          </button>
+        ))}
+      </div>
+      {modo === 'parcial' && (
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={value?.porcentajeInquilino ?? 50}
+            onChange={(e) =>
+              onChange({ modo: 'parcial', porcentajeInquilino: Number(e.target.value) })
+            }
+            className="w-16 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+          <span className="text-xs text-outline-variant">% a cargo del inquilino</span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function PropiedadForm({ initial, onSave, onCancel }: Props) {
@@ -25,6 +90,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   )
   const [contratoFin, setContratoFin] = useState(initial?.contratoFin ?? '')
   const [notas, setNotas] = useState(initial?.notas ?? '')
+  const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   function validate(): boolean {
@@ -49,6 +115,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
       contratoFin: contratoFin || undefined,
       notas: notas.trim() || undefined,
+      reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
     }
 
     onSave(propiedad)
@@ -139,6 +206,42 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
               />
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Reparto de suministros y tasas — solo si está alquilado */}
+      {esAlquiler && (
+        <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
+          <div className="-mb-1">
+            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+              Agua, luz, basuras e IBI
+            </p>
+            <p className="text-xs text-outline-variant mt-0.5">
+              Indica quién los paga para calcular después, al registrar cada
+              factura, qué parte te corresponde a ti y qué parte es repercutible
+              al inquilino
+            </p>
+          </div>
+          <RepartoRow
+            concepto="agua"
+            value={reparto.agua}
+            onChange={(v) => setReparto((r) => ({ ...r, agua: v }))}
+          />
+          <RepartoRow
+            concepto="luz"
+            value={reparto.luz}
+            onChange={(v) => setReparto((r) => ({ ...r, luz: v }))}
+          />
+          <RepartoRow
+            concepto="basuras"
+            value={reparto.basuras}
+            onChange={(v) => setReparto((r) => ({ ...r, basuras: v }))}
+          />
+          <RepartoRow
+            concepto="ibi"
+            value={reparto.ibi}
+            onChange={(v) => setReparto((r) => ({ ...r, ibi: v }))}
+          />
         </div>
       )}
 
