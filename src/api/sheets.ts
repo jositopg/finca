@@ -127,12 +127,24 @@ function transaccionToRow(t: Transaccion): string[] {
 
 // ─── Propiedades ─────────────────────────────────────────────────────────────
 
-export async function getPropiedades(spreadsheetId: string): Promise<Propiedad[]> {
+async function getRawPropiedadRows(spreadsheetId: string): Promise<string[][]> {
   const res = await apiGet<{ values?: string[][] }>(
     `${BASE}/${spreadsheetId}/values/propiedades!A2:P`,
   )
-  if (!res.values || res.values.length === 0) return []
-  return res.values.filter((r) => r[0]).map(rowToPropiedad)
+  return res.values ?? []
+}
+
+// Busca la fila real (1-indexada, incluyendo la cabecera) de un id en los
+// datos crudos de la hoja — huecos de borrados anteriores no desplazan este
+// cálculo, a diferencia de calcularlo sobre una lista ya filtrada.
+function findRowById(rows: string[][], id: string): number | null {
+  const idx = rows.findIndex((r) => r[0] === id)
+  return idx === -1 ? null : idx + 2
+}
+
+export async function getPropiedades(spreadsheetId: string): Promise<Propiedad[]> {
+  const rows = await getRawPropiedadRows(spreadsheetId)
+  return rows.filter((r) => r[0]).map(rowToPropiedad)
 }
 
 export async function addPropiedad(
@@ -149,10 +161,9 @@ export async function updatePropiedad(
   spreadsheetId: string,
   propiedad: Propiedad,
 ): Promise<void> {
-  const all = await getPropiedades(spreadsheetId)
-  const idx = all.findIndex((p) => p.id === propiedad.id)
-  if (idx === -1) throw new Error('Propiedad no encontrada')
-  const row = idx + 2
+  const rows = await getRawPropiedadRows(spreadsheetId)
+  const row = findRowById(rows, propiedad.id)
+  if (row === null) throw new Error('Propiedad no encontrada')
   await apiPut(
     `${BASE}/${spreadsheetId}/values/propiedades!A${row}:P${row}?valueInputOption=RAW`,
     { values: [propiedadToRow(propiedad)] },
@@ -163,10 +174,9 @@ export async function deletePropiedad(
   spreadsheetId: string,
   propiedadId: string,
 ): Promise<void> {
-  const all = await getPropiedades(spreadsheetId)
-  const idx = all.findIndex((p) => p.id === propiedadId)
-  if (idx === -1) return
-  const row = idx + 2
+  const rows = await getRawPropiedadRows(spreadsheetId)
+  const row = findRowById(rows, propiedadId)
+  if (row === null) return
   await apiPut(
     `${BASE}/${spreadsheetId}/values/propiedades!A${row}:P${row}?valueInputOption=RAW`,
     { values: [Array(16).fill('')] },
@@ -175,12 +185,16 @@ export async function deletePropiedad(
 
 // ─── Transacciones ───────────────────────────────────────────────────────────
 
-export async function getTransacciones(spreadsheetId: string): Promise<Transaccion[]> {
+async function getRawTransaccionRows(spreadsheetId: string): Promise<string[][]> {
   const res = await apiGet<{ values?: string[][] }>(
     `${BASE}/${spreadsheetId}/values/transacciones!A2:J`,
   )
-  if (!res.values || res.values.length === 0) return []
-  return res.values.filter((r) => r[0]).map(rowToTransaccion)
+  return res.values ?? []
+}
+
+export async function getTransacciones(spreadsheetId: string): Promise<Transaccion[]> {
+  const rows = await getRawTransaccionRows(spreadsheetId)
+  return rows.filter((r) => r[0]).map(rowToTransaccion)
 }
 
 export async function addTransaccion(
@@ -197,10 +211,9 @@ export async function updateTransaccion(
   spreadsheetId: string,
   transaccion: Transaccion,
 ): Promise<void> {
-  const all = await getTransacciones(spreadsheetId)
-  const idx = all.findIndex((t) => t.id === transaccion.id)
-  if (idx === -1) throw new Error('Transacción no encontrada')
-  const row = idx + 2
+  const rows = await getRawTransaccionRows(spreadsheetId)
+  const row = findRowById(rows, transaccion.id)
+  if (row === null) throw new Error('Transacción no encontrada')
   await apiPut(
     `${BASE}/${spreadsheetId}/values/transacciones!A${row}:J${row}?valueInputOption=RAW`,
     { values: [transaccionToRow(transaccion)] },
@@ -211,10 +224,9 @@ export async function deleteTransaccion(
   spreadsheetId: string,
   transaccionId: string,
 ): Promise<void> {
-  const all = await getTransacciones(spreadsheetId)
-  const idx = all.findIndex((t) => t.id === transaccionId)
-  if (idx === -1) return
-  const row = idx + 2
+  const rows = await getRawTransaccionRows(spreadsheetId)
+  const row = findRowById(rows, transaccionId)
+  if (row === null) return
   await apiPut(
     `${BASE}/${spreadsheetId}/values/transacciones!A${row}:J${row}?valueInputOption=RAW`,
     { values: [Array(10).fill('')] },
