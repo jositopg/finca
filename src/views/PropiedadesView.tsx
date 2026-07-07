@@ -14,6 +14,7 @@ import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
@@ -301,6 +302,13 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Cobro de renta — acceso rápido */}
+        {propiedad.estado === 'alquilado' && propiedad.alquilerMensual && (
+          <div className="px-5 mb-4">
+            <CobroRenta propiedad={propiedad} />
           </div>
         )}
 
