@@ -147,6 +147,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await loadData(sheetMeta.spreadsheetId)
   }, [sheetMeta])
 
+  // Re-fetch whenever the app comes back to the foreground, so edits made
+  // on another device (or another tab) show up without a manual refresh.
+  useEffect(() => {
+    if (!sheetMeta) return
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        loadData(sheetMeta!.spreadsheetId)
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleVisibility)
+    }
+  }, [sheetMeta])
+
   const login = useCallback(() => {
     if (!gisReady.current) return
     if (getSheetMeta()) {
