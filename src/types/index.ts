@@ -19,11 +19,26 @@ export interface Propiedad {
   // Optional extended fields (added in v2 schema)
   inquilinoNombre?: string
   alquilerMensual?: number
+  contratoInicio?: string // YYYY-MM-DD
   contratoFin?: string // YYYY-MM-DD
   notas?: string
   contratoArchivoId?: string // Drive file ID del contrato de alquiler
   contratoArchivoNombre?: string
   reparto?: Reparto // quién paga agua/luz/basuras/IBI
+  historialContratos?: ContratoHistorico[] // alquileres anteriores ya terminados
+}
+
+// Snapshot de un alquiler ya terminado, guardado al pulsar "Terminar
+// contrato" — permite que una propiedad tenga varios inquilinos/contratos
+// a lo largo del tiempo sin perder el histórico de cada uno.
+export interface ContratoHistorico {
+  id: string
+  inquilinoNombre?: string
+  alquilerMensual?: number
+  fechaInicio?: string // YYYY-MM-DD
+  fechaFin: string // YYYY-MM-DD — fecha real en que terminó
+  contratoArchivoId?: string
+  contratoArchivoNombre?: string
 }
 
 export interface Transaccion {

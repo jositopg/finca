@@ -88,6 +88,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [alquilerMensual, setAlquilerMensual] = useState(
     initial?.alquilerMensual ? initial.alquilerMensual.toString() : '',
   )
+  const [contratoInicio, setContratoInicio] = useState(initial?.contratoInicio ?? '')
   const [contratoFin, setContratoFin] = useState(initial?.contratoFin ?? '')
   const [notas, setNotas] = useState(initial?.notas ?? '')
   const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
@@ -113,9 +114,13 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       creadoEn: initial?.creadoEn ?? new Date().toISOString(),
       inquilinoNombre: inquilinoNombre.trim() || undefined,
       alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
+      contratoInicio: contratoInicio || undefined,
       contratoFin: contratoFin || undefined,
       notas: notas.trim() || undefined,
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
+      historialContratos: initial?.historialContratos,
+      contratoArchivoId: initial?.contratoArchivoId,
+      contratoArchivoNombre: initial?.contratoArchivoNombre,
     }
 
     onSave(propiedad)
@@ -186,15 +191,21 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             value={inquilinoNombre}
             onChange={(e) => setInquilinoNombre(e.target.value)}
           />
+          <Input
+            label="Alquiler mensual € (opcional)"
+            type="text"
+            inputMode="decimal"
+            placeholder="800 o 800,50"
+            value={alquilerMensual}
+            onChange={(e) => setAlquilerMensual(e.target.value)}
+          />
           <div className="flex gap-3">
             <div className="flex-1">
               <Input
-                label="Alquiler mensual € (opcional)"
-                type="text"
-                inputMode="decimal"
-                placeholder="800 o 800,50"
-                value={alquilerMensual}
-                onChange={(e) => setAlquilerMensual(e.target.value)}
+                label="Inicio del contrato (opcional)"
+                type="date"
+                value={contratoInicio}
+                onChange={(e) => setContratoInicio(e.target.value)}
               />
             </div>
             <div className="flex-1">

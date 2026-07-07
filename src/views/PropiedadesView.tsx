@@ -16,6 +16,8 @@ import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
+import { HistorialAlquileres } from '../components/HistorialAlquileres'
+import { TerminarContrato } from '../components/TerminarContrato'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransactionItem } from '../components/TransactionItem'
@@ -305,10 +307,17 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         )}
 
-        {/* Cobro de renta — acceso rápido */}
-        {propiedad.estado === 'alquilado' && propiedad.alquilerMensual && (
-          <div className="px-5 mb-4">
-            <CobroRenta propiedad={propiedad} />
+        {/* Cobro de renta y fin de contrato — acceso rápido */}
+        {propiedad.estado === 'alquilado' && (
+          <div className="px-5 mb-4 flex gap-2">
+            {propiedad.alquilerMensual && (
+              <div className="flex-1">
+                <CobroRenta propiedad={propiedad} />
+              </div>
+            )}
+            <div className="flex-1">
+              <TerminarContrato propiedad={propiedad} />
+            </div>
           </div>
         )}
 
@@ -316,6 +325,13 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         {propiedad.estado === 'alquilado' && (
           <div className="px-5 mb-4">
             <ContratoAlquiler propiedad={propiedad} />
+          </div>
+        )}
+
+        {/* Historial de alquileres anteriores */}
+        {propiedad.historialContratos && propiedad.historialContratos.length > 0 && (
+          <div className="px-5 mb-4">
+            <HistorialAlquileres propiedad={propiedad} />
           </div>
         )}
 

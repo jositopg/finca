@@ -6,6 +6,7 @@ const PROP_HEADERS = [
   'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
   'inquilinoNombre', 'alquilerMensual', 'contratoFin', 'notas',
   'contratoArchivoId', 'contratoArchivoNombre', 'reparto',
+  'contratoInicio', 'historialContratos',
 ]
 const TX_HEADERS = [
   'id', 'propiedadId', 'fecha', 'tipo', 'importe', 'categoria',
