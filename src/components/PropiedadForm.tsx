@@ -105,6 +105,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [notas, setNotas] = useState(initial?.notas ?? '')
   const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
 
   function validate(): boolean {
     const e: Record<string, string> = {}
@@ -114,7 +115,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   }
 
   function handleSubmit() {
+    if (saving) return
     if (!validate()) return
+    setSaving(true)
 
     const propiedad: Propiedad = {
       id: initial?.id ?? uuid(),
@@ -279,8 +282,8 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         <Button variant="secondary" fullWidth onClick={onCancel}>
           Cancelar
         </Button>
-        <Button fullWidth onClick={handleSubmit}>
-          {initial?.id ? 'Guardar cambios' : 'Añadir propiedad'}
+        <Button fullWidth onClick={handleSubmit} disabled={saving}>
+          {saving ? 'Guardando...' : initial?.id ? 'Guardar cambios' : 'Añadir propiedad'}
         </Button>
       </div>
     </div>
