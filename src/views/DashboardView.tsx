@@ -1,8 +1,16 @@
 import { useState } from 'react'
-import { Download, Plus, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
+import {
+  Download,
+  FileSpreadsheet,
+  Plus,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
+import { exportarASheets } from '../api/setup'
 import { BottomSheet } from '../components/BottomSheet'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
@@ -20,9 +28,11 @@ function fmt(n: number) {
 }
 
 export function DashboardView({ onNavigate }: Props) {
-  const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx } = useApp()
+  const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx, ensureDriveAccess } =
+    useApp()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const now = new Date()
   const currentMonth = format(now, 'yyyy-MM')
@@ -66,6 +76,20 @@ export function DashboardView({ onNavigate }: Props) {
     URL.revokeObjectURL(url)
   }
 
+  async function handleExportSheets() {
+    setExporting(true)
+    try {
+      await ensureDriveAccess()
+      const { url } = await exportarASheets(propiedades, transacciones)
+      window.open(url, '_blank')
+    } catch (err) {
+      console.error('Export to Sheets error', err)
+      alert('No se pudo exportar a Google Sheets. Inténtalo de nuevo.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col pb-24">
       {/* Header */}
@@ -73,6 +97,14 @@ export function DashboardView({ onNavigate }: Props) {
         <div className="flex items-center justify-between mb-1">
           <h1 className="font-display text-2xl font-bold text-on-surface">Finca</h1>
           <div className="flex items-center gap-1">
+            <button
+              onClick={handleExportSheets}
+              disabled={exporting || propiedades.length === 0}
+              title="Exportar a Google Sheets"
+              className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors disabled:opacity-40"
+            >
+              <FileSpreadsheet size={18} className={exporting ? 'animate-pulse' : ''} />
+            </button>
             <button
               onClick={handleExportJSON}
               title="Exportar copia de seguridad (JSON)"

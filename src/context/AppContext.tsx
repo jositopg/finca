@@ -7,8 +7,15 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { getAccessToken, initTokenClient, requestToken, revokeToken } from '../api/auth'
-import { setupSpreadsheet } from '../api/setup'
+import {
+  getAccessToken,
+  getCurrentEmail,
+  initTokenClient,
+  onAuthStateChange,
+  requestToken,
+  signInWithGoogleSupabase,
+  signOutSupabase,
+} from '../api/auth'
 import {
   addPropiedad,
   addTransaccion,
@@ -16,19 +23,19 @@ import {
   deleteTransaccion,
   getPropiedades,
   getTransacciones,
-  migrateHeaders,
-  type SheetMeta,
   updatePropiedad,
   updateTransaccion,
-} from '../api/sheets'
+} from '../api/db'
 import { getOrCreateFolder } from '../api/drive'
 import type { Propiedad, Transaccion } from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 
+const ROOT_FOLDER_NAME = 'Finca — Gestión de Propiedades'
+
 interface AppContextValue {
   authState: AuthState
-  sheetMeta: SheetMeta | null
+  driveReady: boolean
   propiedades: Propiedad[]
   transacciones: Transaccion[]
   isLoadingData: boolean
@@ -41,6 +48,7 @@ interface AppContextValue {
   addTx: (t: Transaccion) => Promise<void>
   updateTx: (t: Transaccion) => Promise<void>
   deleteTx: (id: string) => Promise<void>
+  ensureDriveAccess: () => Promise<void>
   ensurePropFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
 
@@ -48,74 +56,44 @@ const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>('loading')
-  const [sheetMeta, setSheetMeta] = useState<SheetMeta | null>(null)
   const [propiedades, setPropiedades] = useState<Propiedad[]>([])
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   const [isLoadingData, setIsLoadingData] = useState(false)
+  const [driveReady, setDriveReady] = useState(false)
   const gisReady = useRef(false)
-
-  // Always resolve the spreadsheet by searching Drive — never trust a
-  // locally cached id. This is what makes multiple devices converge on the
-  // same sheet instead of silently drifting onto separate copies.
-  async function connectAndLoad() {
-    setIsLoadingData(true)
-    try {
-      const meta = await setupSpreadsheet()
-      setSheetMeta(meta)
-      migrateHeaders(meta.spreadsheetId).catch(() => {})
-      await loadData(meta.spreadsheetId)
-    } catch (err) {
-      console.error('Setup failed', err)
-      setAuthState('unauthenticated')
-      setIsLoadingData(false)
-    }
-  }
+  const rootFolderId = useRef<string | null>(null)
+  const driveWaiters = useRef<{ resolve: () => void; reject: (e: unknown) => void }[]>([])
 
   const initGIS = useCallback(() => {
     initTokenClient(
-      async (token) => {
-        if (!token) return
-        setAuthState('authenticated')
-        await connectAndLoad()
+      () => {
+        setDriveReady(true)
+        driveWaiters.current.forEach((w) => w.resolve())
+        driveWaiters.current = []
       },
       (err) => {
-        console.error('Auth error', err)
-        setAuthState('unauthenticated')
+        driveWaiters.current.forEach((w) => w.reject(err))
+        driveWaiters.current = []
       },
     )
     gisReady.current = true
   }, [])
 
   useEffect(() => {
-    // Fallback: si después de 8s no carga GIS, mostramos la pantalla de login
-    const fallback = setTimeout(() => setAuthState('unauthenticated'), 8000)
-
     const checkGIS = () => {
       if (window.google?.accounts?.oauth2) {
-        clearTimeout(fallback)
         initGIS()
-        if (getAccessToken()) {
-          setAuthState('authenticated')
-          connectAndLoad()
-        } else {
-          // Sin sesión previa → siempre mostrar login
-          setAuthState('unauthenticated')
-        }
       } else {
         setTimeout(checkGIS, 100)
       }
     }
     checkGIS()
-    return () => clearTimeout(fallback)
   }, [initGIS])
 
-  async function loadData(spreadsheetId: string) {
+  async function loadData() {
     setIsLoadingData(true)
     try {
-      const [props, txs] = await Promise.all([
-        getPropiedades(spreadsheetId),
-        getTransacciones(spreadsheetId),
-      ])
+      const [props, txs] = await Promise.all([getPropiedades(), getTransacciones()])
       setPropiedades(props)
       setTransacciones(txs)
     } catch (err) {
@@ -125,19 +103,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const refreshData = useCallback(async () => {
-    if (!sheetMeta) return
-    await loadData(sheetMeta.spreadsheetId)
-  }, [sheetMeta])
-
-  // Re-fetch whenever the app comes back to the foreground, so edits made
-  // on another device (or another tab) show up without a manual refresh.
   useEffect(() => {
-    if (!sheetMeta) return
-    function handleVisibility() {
-      if (document.visibilityState === 'visible') {
-        loadData(sheetMeta!.spreadsheetId)
+    let mounted = true
+
+    getCurrentEmail().then((email) => {
+      if (!mounted) return
+      if (email) {
+        setAuthState('authenticated')
+        loadData()
+      } else {
+        setAuthState('unauthenticated')
       }
+    })
+
+    const unsubscribe = onAuthStateChange((email) => {
+      if (!mounted) return
+      if (email) {
+        setAuthState('authenticated')
+        loadData()
+      } else {
+        setAuthState('unauthenticated')
+        setPropiedades([])
+        setTransacciones([])
+      }
+    })
+
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [])
+
+  const refreshData = useCallback(async () => {
+    await loadData()
+  }, [])
+
+  // Re-fetch al volver a primer plano, para que los cambios hechos en otro
+  // dispositivo (o pestaña) aparezcan sin refresco manual.
+  useEffect(() => {
+    if (authState !== 'authenticated') return
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') loadData()
     }
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('focus', handleVisibility)
@@ -145,96 +151,87 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('focus', handleVisibility)
     }
-  }, [sheetMeta])
+  }, [authState])
 
   const login = useCallback(() => {
-    if (!gisReady.current) return
-    requestToken()
+    signInWithGoogleSupabase().catch((err) => console.error('Login error', err))
   }, [])
 
   const logout = useCallback(() => {
-    revokeToken()
-    setPropiedades([])
-    setTransacciones([])
-    setSheetMeta(null)
-    setAuthState('unauthenticated')
+    signOutSupabase().catch((err) => console.error('Logout error', err))
   }, [])
 
-  const addProp = useCallback(
-    async (p: Propiedad) => {
-      if (!sheetMeta) return
-      await addPropiedad(sheetMeta.spreadsheetId, p)
-      setPropiedades((prev) => [...prev, p])
-    },
-    [sheetMeta],
-  )
+  // Pide el token de Drive/Sheets solo la primera vez que hace falta
+  // (adjuntar un archivo o exportar a Sheets), no en el login.
+  const ensureDriveAccess = useCallback((): Promise<void> => {
+    if (getAccessToken()) {
+      setDriveReady(true)
+      return Promise.resolve()
+    }
+    if (!gisReady.current) {
+      return Promise.reject(new Error('Google Identity Services no está listo todavía'))
+    }
+    return new Promise((resolve, reject) => {
+      driveWaiters.current.push({ resolve, reject })
+      requestToken()
+    })
+  }, [])
 
-  const updateProp = useCallback(
-    async (p: Propiedad) => {
-      if (!sheetMeta) return
-      await updatePropiedad(sheetMeta.spreadsheetId, p)
-      setPropiedades((prev) => prev.map((x) => (x.id === p.id ? p : x)))
-    },
-    [sheetMeta],
-  )
+  const addProp = useCallback(async (p: Propiedad) => {
+    await addPropiedad(p)
+    setPropiedades((prev) => [...prev, p])
+  }, [])
 
-  const deleteProp = useCallback(
-    async (id: string) => {
-      if (!sheetMeta) return
-      await deletePropiedad(sheetMeta.spreadsheetId, id)
-      setPropiedades((prev) => prev.filter((x) => x.id !== id))
-      setTransacciones((prev) => prev.filter((t) => t.propiedadId !== id))
-    },
-    [sheetMeta],
-  )
+  const updateProp = useCallback(async (p: Propiedad) => {
+    await updatePropiedad(p)
+    setPropiedades((prev) => prev.map((x) => (x.id === p.id ? p : x)))
+  }, [])
 
-  const addTx = useCallback(
-    async (t: Transaccion) => {
-      if (!sheetMeta) return
-      await addTransaccion(sheetMeta.spreadsheetId, t)
-      setTransacciones((prev) => [t, ...prev])
-    },
-    [sheetMeta],
-  )
+  const deleteProp = useCallback(async (id: string) => {
+    await deletePropiedad(id)
+    setPropiedades((prev) => prev.filter((x) => x.id !== id))
+    setTransacciones((prev) => prev.filter((t) => t.propiedadId !== id))
+  }, [])
 
-  const updateTx = useCallback(
-    async (t: Transaccion) => {
-      if (!sheetMeta) return
-      await updateTransaccion(sheetMeta.spreadsheetId, t)
-      setTransacciones((prev) => prev.map((x) => (x.id === t.id ? t : x)))
-    },
-    [sheetMeta],
-  )
+  const addTx = useCallback(async (t: Transaccion) => {
+    await addTransaccion(t)
+    setTransacciones((prev) => [t, ...prev])
+  }, [])
 
-  const deleteTx = useCallback(
-    async (id: string) => {
-      if (!sheetMeta) return
-      await deleteTransaccion(sheetMeta.spreadsheetId, id)
-      setTransacciones((prev) => prev.filter((x) => x.id !== id))
-    },
-    [sheetMeta],
-  )
+  const updateTx = useCallback(async (t: Transaccion) => {
+    await updateTransaccion(t)
+    setTransacciones((prev) => prev.map((x) => (x.id === t.id ? t : x)))
+  }, [])
+
+  const deleteTx = useCallback(async (id: string) => {
+    await deleteTransaccion(id)
+    setTransacciones((prev) => prev.filter((x) => x.id !== id))
+  }, [])
 
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
-      if (!sheetMeta) throw new Error('No hay sesión activa')
       const propiedad = propiedades.find((p) => p.id === propiedadId)
       if (propiedad?.folderId) return propiedad.folderId
 
-      const folder = await getOrCreateFolder(nombre, sheetMeta.rootFolderId)
+      await ensureDriveAccess()
+      if (!rootFolderId.current) {
+        const root = await getOrCreateFolder(ROOT_FOLDER_NAME)
+        rootFolderId.current = root.id
+      }
+      const folder = await getOrCreateFolder(nombre, rootFolderId.current)
       const updated = { ...propiedad!, folderId: folder.id }
-      await updatePropiedad(sheetMeta.spreadsheetId, updated)
+      await updatePropiedad(updated)
       setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
       return folder.id
     },
-    [sheetMeta, propiedades],
+    [propiedades, ensureDriveAccess],
   )
 
   return (
     <AppContext.Provider
       value={{
         authState,
-        sheetMeta,
+        driveReady,
         propiedades,
         transacciones,
         isLoadingData,
@@ -247,6 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addTx,
         updateTx,
         deleteTx,
+        ensureDriveAccess,
         ensurePropFolder,
       }}
     >

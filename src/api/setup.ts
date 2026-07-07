@@ -1,68 +1,60 @@
 import { apiPost, getAccessToken } from './auth'
 import { findFileInFolder, getOrCreateFolder } from './drive'
-import type { SheetMeta } from './sheets'
-
-const PROP_HEADERS = [
-  'id', 'nombre', 'direccion', 'tipo', 'estado', 'folderId', 'creadoEn',
-  'inquilinoNombre', 'alquilerMensual', 'contratoFin', 'notas',
-  'contratoArchivoId', 'contratoArchivoNombre', 'reparto',
-  'contratoInicio', 'historialContratos',
-]
-const TX_HEADERS = [
-  'id', 'propiedadId', 'fecha', 'tipo', 'importe', 'categoria',
-  'descripcion', 'archivos', 'creadoEn', 'referencia',
-]
+import { writeExport } from './sheets'
+import type { Propiedad, Transaccion } from '../types'
 
 const ROOT_FOLDER_NAME = 'Finca — Gestión de Propiedades'
-const SHEET_NAME = 'Finca — Base de datos'
+const EXPORT_SHEET_NAME = 'Finca — Exportado'
 
-export async function setupSpreadsheet(): Promise<SheetMeta> {
-  // Always get or create the root folder
+export interface ExportResult {
+  spreadsheetId: string
+  url: string
+}
+
+// Crea (o reutiliza, por nombre) una hoja de cálculo en la carpeta de Drive
+// de la app y vuelca en ella el estado actual de propiedades y
+// transacciones. Requiere que ya se haya concedido el token de Drive
+// (ensureDriveAccess en AppContext).
+export async function exportarASheets(
+  propiedades: Propiedad[],
+  transacciones: Transaccion[],
+): Promise<ExportResult> {
   const rootFolder = await getOrCreateFolder(ROOT_FOLDER_NAME)
 
-  // Look for an existing spreadsheet — this makes multi-device work
-  const existing = await findFileInFolder(rootFolder.id, SHEET_NAME)
+  const existing = await findFileInFolder(rootFolder.id, EXPORT_SHEET_NAME)
+  let spreadsheetId: string
+
   if (existing) {
-    return { spreadsheetId: existing.id, rootFolderId: rootFolder.id }
+    spreadsheetId = existing.id
+  } else {
+    const sheet = await apiPost<{ spreadsheetId: string }>(
+      'https://sheets.googleapis.com/v4/spreadsheets',
+      {
+        properties: { title: EXPORT_SHEET_NAME },
+        sheets: [
+          { properties: { title: 'propiedades', index: 0 } },
+          { properties: { title: 'transacciones', index: 1 } },
+        ],
+      },
+    )
+    spreadsheetId = sheet.spreadsheetId
+
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${rootFolder.id}&removeParents=root&fields=id,parents`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${getAccessToken()}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    )
   }
 
-  // Create new spreadsheet
-  const sheet = await apiPost<{ spreadsheetId: string }>(
-    'https://sheets.googleapis.com/v4/spreadsheets',
-    {
-      properties: { title: SHEET_NAME },
-      sheets: [
-        { properties: { title: 'propiedades', index: 0 } },
-        { properties: { title: 'transacciones', index: 1 } },
-      ],
-    },
-  )
+  await writeExport(spreadsheetId, propiedades, transacciones)
 
-  const spreadsheetId = sheet.spreadsheetId
-
-  // Move into root folder
-  await fetch(
-    `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${rootFolder.id}&removeParents=root&fields=id,parents`,
-    {
-      method: 'PATCH',
-      headers: {
-        Authorization: `Bearer ${getAccessToken()}`,
-        'Content-Type': 'application/json',
-      },
-    },
-  )
-
-  // Write full headers (v2 schema)
-  await apiPost(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-    {
-      data: [
-        { range: 'propiedades!A1', values: [PROP_HEADERS] },
-        { range: 'transacciones!A1', values: [TX_HEADERS] },
-      ],
-      valueInputOption: 'RAW',
-    },
-  )
-
-  return { spreadsheetId, rootFolderId: rootFolder.id }
+  return {
+    spreadsheetId,
+    url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+  }
 }

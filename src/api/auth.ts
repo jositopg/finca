@@ -1,3 +1,38 @@
+import { supabase } from './supabase'
+
+// ─── Login de la app (Supabase Auth + Google) ─────────────────────────────────
+// Esto es lo que decide si el usuario está "dentro" de la app y da acceso a
+// las tablas de Supabase (vía RLS). Separado del flujo de abajo, que solo
+// concede el token de Drive/Sheets y se pide bajo demanda.
+
+export async function signInWithGoogleSupabase(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+  if (error) throw error
+}
+
+export async function signOutSupabase(): Promise<void> {
+  await supabase.auth.signOut()
+}
+
+export async function getCurrentEmail(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user?.email ?? null
+}
+
+export function onAuthStateChange(callback: (email: string | null) => void): () => void {
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    callback(session?.user?.email ?? null)
+  })
+  return () => data.subscription.unsubscribe()
+}
+
+// ─── Acceso a Google Drive/Sheets (bajo demanda) ──────────────────────────────
+// Se pide la primera vez que hace falta adjuntar un archivo o exportar a
+// Sheets — no forma parte del login de la app.
+
 // Minimal Google Identity Services type declarations
 interface GisTokenResponse {
   access_token: string
