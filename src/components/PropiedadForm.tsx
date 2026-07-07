@@ -46,7 +46,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       folderId: initial?.folderId ?? '',
       creadoEn: initial?.creadoEn ?? new Date().toISOString(),
       inquilinoNombre: inquilinoNombre.trim() || undefined,
-      alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual) : undefined,
+      alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
       contratoFin: contratoFin || undefined,
       notas: notas.trim() || undefined,
     }
@@ -105,11 +105,16 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       {/* Inquilino — solo si está alquilado */}
       {esAlquiler && (
         <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
-          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide -mb-1">
-            Datos del inquilino
-          </p>
+          <div className="-mb-1">
+            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+              Datos del inquilino
+            </p>
+            <p className="text-xs text-outline-variant mt-0.5">
+              Opcional — puedes rellenarlos ahora o más adelante
+            </p>
+          </div>
           <Input
-            label="Nombre del inquilino"
+            label="Nombre del inquilino (opcional)"
             placeholder="Juan García López"
             value={inquilinoNombre}
             onChange={(e) => setInquilinoNombre(e.target.value)}
@@ -117,17 +122,17 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
           <div className="flex gap-3">
             <div className="flex-1">
               <Input
-                label="Alquiler mensual (€)"
-                type="number"
+                label="Alquiler mensual € (opcional)"
+                type="text"
                 inputMode="decimal"
-                placeholder="800"
+                placeholder="800 o 800,50"
                 value={alquilerMensual}
                 onChange={(e) => setAlquilerMensual(e.target.value)}
               />
             </div>
             <div className="flex-1">
               <Input
-                label="Fin del contrato"
+                label="Fin del contrato (opcional)"
                 type="date"
                 value={contratoFin}
                 onChange={(e) => setContratoFin(e.target.value)}

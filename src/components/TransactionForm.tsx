@@ -49,7 +49,7 @@ export function TransactionForm({
   function validate(): boolean {
     const e: Record<string, string> = {}
     if (!propiedadId) e.propiedad = 'Selecciona una propiedad'
-    if (!importe || parseFloat(importe) <= 0) e.importe = 'Importe inválido'
+    if (!importe || parseFloat(importe.replace(',', '.')) <= 0) e.importe = 'Importe inválido'
     if (!categoria) e.categoria = 'Selecciona una categoría'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -72,7 +72,7 @@ export function TransactionForm({
         propiedadId,
         fecha,
         tipo,
-        importe: parseFloat(importe),
+        importe: parseFloat(importe.replace(',', '.')),
         categoria,
         descripcion,
         archivos: archivoIds,
@@ -139,10 +139,8 @@ export function TransactionForm({
         <div className="flex-1">
           <Input
             label="Importe (€)"
-            type="number"
+            type="text"
             inputMode="decimal"
-            step="0.01"
-            min="0"
             placeholder="0,00"
             value={importe}
             onChange={(e) => setImporte(e.target.value)}
