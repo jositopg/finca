@@ -1,5 +1,11 @@
 export type PropiedadTipo = 'piso' | 'casa' | 'local' | 'garaje' | 'otro'
-export type PropiedadEstado = 'alquilado' | 'vacio' | 'reforma' | 'venta'
+export type PropiedadEstado =
+  | 'alquilado'
+  | 'vacio'
+  | 'reforma'
+  | 'venta'
+  | 'uso_propio'
+  | 'vivienda_habitual'
 export type TransaccionTipo = 'ingreso' | 'gasto'
 
 export interface Propiedad {
@@ -10,6 +16,11 @@ export interface Propiedad {
   estado: PropiedadEstado
   folderId: string
   creadoEn: string
+  // Optional extended fields (added in v2 schema)
+  inquilinoNombre?: string
+  alquilerMensual?: number
+  contratoFin?: string // YYYY-MM-DD
+  notas?: string
 }
 
 export interface Transaccion {
@@ -22,18 +33,7 @@ export interface Transaccion {
   descripcion: string
   archivos: string[] // Drive file IDs
   creadoEn: string
-}
-
-export interface Archivo {
-  id: string
-  nombre: string
-  mimeType: string
-  tamano: number
-  propiedadId: string
-  transaccionId: string
-  webViewLink: string
-  thumbnailLink?: string
-  creadoEn: string
+  referencia?: string // nº factura / referencia
 }
 
 export interface ResumenPropiedad {
@@ -85,4 +85,18 @@ export const ESTADO_LABELS: Record<PropiedadEstado, string> = {
   vacio: 'Vacío',
   reforma: 'En reforma',
   venta: 'En venta',
+  uso_propio: 'Uso propio',
+  vivienda_habitual: 'Vivienda habitual',
+}
+
+export const ESTADO_BADGE_VARIANT: Record<
+  PropiedadEstado,
+  'success' | 'warning' | 'error' | 'outline' | 'default'
+> = {
+  alquilado: 'success',
+  vacio: 'warning',
+  reforma: 'outline',
+  venta: 'error',
+  uso_propio: 'default',
+  vivienda_habitual: 'default',
 }

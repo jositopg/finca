@@ -50,6 +50,17 @@ export async function getOrCreateFolder(
   return createFolder(name, parentId)
 }
 
+export async function findFileInFolder(
+  folderId: string,
+  name: string,
+): Promise<DriveFile | null> {
+  const q = `name='${name}' and '${folderId}' in parents and trashed=false`
+  const res = await apiGet<{ files: DriveFile[] }>(
+    `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)`,
+  )
+  return res.files[0] ?? null
+}
+
 // ─── Files ────────────────────────────────────────────────────────────────────
 
 export async function uploadFile(

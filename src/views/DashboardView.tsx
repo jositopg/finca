@@ -8,7 +8,7 @@ import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
-import { ESTADO_LABELS, TIPO_LABELS, type Propiedad } from '../types'
+import { ESTADO_BADGE_VARIANT, ESTADO_LABELS, TIPO_LABELS, type Propiedad } from '../types'
 import type { View } from '../components/Nav'
 
 interface Props {
@@ -19,19 +19,8 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const ESTADO_VARIANT: Record<
-  string,
-  'success' | 'warning' | 'error' | 'outline' | 'default'
-> = {
-  alquilado: 'success',
-  vacio: 'warning',
-  reforma: 'outline',
-  venta: 'error',
-}
-
 export function DashboardView({ onNavigate }: Props) {
-  const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx } =
-    useApp()
+  const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx } = useApp()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
 
@@ -47,8 +36,6 @@ export function DashboardView({ onNavigate }: Props) {
     .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentMonth))
     .reduce((s, t) => s + t.importe, 0)
 
-  const balanceMes = ingresosMes - gastosMes
-
   const ingresosAnio = transacciones
     .filter((t) => t.tipo === 'ingreso' && t.fecha.startsWith(currentYear))
     .reduce((s, t) => s + t.importe, 0)
@@ -57,10 +44,17 @@ export function DashboardView({ onNavigate }: Props) {
     .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentYear))
     .reduce((s, t) => s + t.importe, 0)
 
+  // Quick stats
+  const alquiladas = propiedades.filter((p) => p.estado === 'alquilado').length
+  const vacias = propiedades.filter((p) => p.estado === 'vacio').length
+  const propias = propiedades.filter(
+    (p) => p.estado === 'uso_propio' || p.estado === 'vivienda_habitual',
+  ).length
+
   return (
     <div className="flex flex-col pb-24">
       {/* Header */}
-      <div className="px-5 pt-12 pb-6">
+      <div className="px-5 pt-12 pb-5">
         <div className="flex items-center justify-between mb-1">
           <h1 className="font-display text-2xl font-bold text-on-surface">Finca</h1>
           <button
@@ -71,65 +65,92 @@ export function DashboardView({ onNavigate }: Props) {
           </button>
         </div>
         <p className="text-sm text-outline-variant capitalize">
-          {format(now, 'MMMM yyyy', { locale: es })}
+          {format(now, "MMMM 'de' yyyy", { locale: es })}
         </p>
       </div>
 
+      {/* Quick stats */}
+      {propiedades.length > 0 && (
+        <div className="px-5 mb-5">
+          <div className="flex gap-2">
+            <div className="flex-1 bg-surface-lowest rounded-xl shadow-soft px-3 py-2.5 text-center">
+              <p className="text-lg font-bold text-on-surface">{propiedades.length}</p>
+              <p className="text-xs text-outline-variant">Total</p>
+            </div>
+            {alquiladas > 0 && (
+              <div className="flex-1 bg-success-container/60 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-success">{alquiladas}</p>
+                <p className="text-xs text-success/70">Alquiladas</p>
+              </div>
+            )}
+            {vacias > 0 && (
+              <div className="flex-1 bg-warning-container/60 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-warning">{vacias}</p>
+                <p className="text-xs text-warning/70">Vacías</p>
+              </div>
+            )}
+            {propias > 0 && (
+              <div className="flex-1 bg-surface-low rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-on-surface">{propias}</p>
+                <p className="text-xs text-outline-variant">Propias</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Monthly summary */}
-      <div className="px-5 mb-6">
+      <div className="px-5 mb-5">
         <div className="bg-surface-lowest rounded-2xl shadow-soft p-5">
           <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
             Este mes
           </p>
-          <div className="flex items-end justify-between mb-4">
-            <div>
-              <p className="text-xs text-outline-variant mb-0.5">Balance</p>
-              <p
-                className={`font-display text-3xl font-bold tracking-tight ${
-                  balanceMes >= 0 ? 'text-success' : 'text-error'
-                }`}
-              >
-                {balanceMes >= 0 ? '+' : ''}
-                {fmt(balanceMes)} €
-              </p>
-            </div>
-          </div>
-          <div className="flex gap-4">
+          <p
+            className={`font-display text-3xl font-bold tracking-tight mb-4 ${
+              ingresosMes - gastosMes >= 0 ? 'text-success' : 'text-error'
+            }`}
+          >
+            {ingresosMes - gastosMes >= 0 ? '+' : ''}
+            {fmt(ingresosMes - gastosMes)} €
+          </p>
+          <div className="flex gap-3">
             <div className="flex-1 bg-success-container/50 rounded-xl p-3">
               <div className="flex items-center gap-1.5 mb-1">
                 <TrendingUp size={14} className="text-success" />
                 <span className="text-xs text-success font-medium">Ingresos</span>
               </div>
-              <p className="text-sm font-bold text-success tabular-nums">
-                {fmt(ingresosMes)} €
-              </p>
+              <p className="text-sm font-bold text-success tabular-nums">{fmt(ingresosMes)} €</p>
             </div>
             <div className="flex-1 bg-surface-low rounded-xl p-3">
               <div className="flex items-center gap-1.5 mb-1">
                 <TrendingDown size={14} className="text-outline-variant" />
                 <span className="text-xs text-outline-variant font-medium">Gastos</span>
               </div>
-              <p className="text-sm font-bold text-on-surface tabular-nums">
-                {fmt(gastosMes)} €
-              </p>
+              <p className="text-sm font-bold text-on-surface tabular-nums">{fmt(gastosMes)} €</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Year summary pill */}
+      {/* Year summary */}
       {(ingresosAnio > 0 || gastosAnio > 0) && (
-        <div className="px-5 mb-6">
-          <div className="flex items-center gap-2 bg-surface-low rounded-xl px-4 py-3">
-            <span className="text-xs text-outline-variant flex-1">
-              Año {currentYear}
-            </span>
+        <div className="px-5 mb-5">
+          <div className="flex items-center gap-3 bg-surface-low rounded-xl px-4 py-3">
+            <span className="text-xs text-outline-variant">Año {currentYear}</span>
             <span className="text-xs text-success font-medium tabular-nums">
               +{fmt(ingresosAnio)} €
             </span>
             <span className="text-outline-variant/40">·</span>
             <span className="text-xs text-on-surface font-medium tabular-nums">
               -{fmt(gastosAnio)} €
+            </span>
+            <span
+              className={`ml-auto text-xs font-bold tabular-nums ${
+                ingresosAnio - gastosAnio >= 0 ? 'text-success' : 'text-error'
+              }`}
+            >
+              {ingresosAnio - gastosAnio >= 0 ? '+' : ''}
+              {fmt(ingresosAnio - gastosAnio)} €
             </span>
           </div>
         </div>
@@ -201,32 +222,17 @@ export function DashboardView({ onNavigate }: Props) {
         </button>
       )}
 
-      {/* Sheets */}
-      <BottomSheet
-        open={showAddProp}
-        onClose={() => setShowAddProp(false)}
-        title="Nueva propiedad"
-      >
+      <BottomSheet open={showAddProp} onClose={() => setShowAddProp(false)} title="Nueva propiedad">
         <PropiedadForm
-          onSave={async (p) => {
-            await addProp(p)
-            setShowAddProp(false)
-          }}
+          onSave={async (p) => { await addProp(p); setShowAddProp(false) }}
           onCancel={() => setShowAddProp(false)}
         />
       </BottomSheet>
 
-      <BottomSheet
-        open={showAddTx}
-        onClose={() => setShowAddTx(false)}
-        title="Nueva transacción"
-      >
+      <BottomSheet open={showAddTx} onClose={() => setShowAddTx(false)} title="Nueva transacción">
         <TransactionForm
           propiedades={propiedades}
-          onSave={async (t) => {
-            await addTx(t)
-            setShowAddTx(false)
-          }}
+          onSave={async (t) => { await addTx(t); setShowAddTx(false) }}
           onCancel={() => setShowAddTx(false)}
         />
       </BottomSheet>
@@ -252,37 +258,29 @@ function PropiedadCard({
       onClick={onClick}
       className="w-full text-left bg-surface-lowest rounded-2xl shadow-soft p-4 hover:shadow-card transition-shadow"
     >
-      <div className="flex items-start justify-between gap-2 mb-3">
+      <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
           <p className="font-medium text-on-surface text-sm truncate">{propiedad.nombre}</p>
           {propiedad.direccion && (
-            <p className="text-xs text-outline-variant truncate mt-0.5">
-              {propiedad.direccion}
-            </p>
+            <p className="text-xs text-outline-variant truncate mt-0.5">{propiedad.direccion}</p>
           )}
         </div>
-        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Badge label={TIPO_LABELS[propiedad.tipo]} />
           <Badge
             label={ESTADO_LABELS[propiedad.estado]}
-            variant={ESTADO_VARIANT[propiedad.estado]}
+            variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
           />
-          <Badge label={TIPO_LABELS[propiedad.tipo]} />
         </div>
       </div>
       <div className="flex items-center gap-3 text-xs">
-        <span className="text-success tabular-nums">
-          +{ingresosMes.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-        </span>
+        <span className="text-success tabular-nums">+{fmt(ingresosMes)} €</span>
         <span className="text-outline-variant/40">·</span>
-        <span className="text-on-surface tabular-nums">
-          -{gastosMes.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
-        </span>
-        <span className="text-outline-variant/40">·</span>
+        <span className="text-on-surface tabular-nums">-{fmt(gastosMes)} €</span>
         <span
-          className={`font-medium tabular-nums ${balance >= 0 ? 'text-success' : 'text-error'}`}
+          className={`ml-auto font-medium tabular-nums ${balance >= 0 ? 'text-success' : 'text-error'}`}
         >
-          {balance >= 0 ? '+' : ''}
-          {balance.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €
+          {balance >= 0 ? '+' : ''}{fmt(balance)} €
         </span>
       </div>
     </button>

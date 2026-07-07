@@ -23,6 +23,7 @@ import {
   getSheetMeta,
   getPropiedades,
   getTransacciones,
+  migrateHeaders,
   saveSheetMeta,
   type SheetMeta,
   updatePropiedad,
@@ -84,6 +85,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else {
           setSheetMeta(meta)
         }
+
+        // Migrate sheet headers if needed (silent, best-effort)
+        migrateHeaders(meta.spreadsheetId).catch(() => {})
 
         await loadData(meta.spreadsheetId)
       },

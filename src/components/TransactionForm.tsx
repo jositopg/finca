@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { Paperclip, X, Upload } from 'lucide-react'
 import { format } from 'date-fns'
 import { Button } from './Button'
-import { Input, Select, Textarea } from './Input'
+import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
 import { CATEGORIAS_GASTO, CATEGORIAS_INGRESO } from '../types'
 import { useApp } from '../context/AppContext'
@@ -38,6 +38,7 @@ export function TransactionForm({
     defaultTipo === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0],
   )
   const [descripcion, setDescripcion] = useState('')
+  const [referencia, setReferencia] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -56,17 +57,13 @@ export function TransactionForm({
 
   async function handleSubmit() {
     if (!validate()) return
-
     setUploading(true)
     try {
       let archivoIds: string[] = []
-
       if (pendingFiles.length > 0) {
         const propiedad = propiedades.find((p) => p.id === propiedadId)!
         const folderId = await ensurePropFolder(propiedadId, propiedad.nombre)
-        const uploaded = await Promise.all(
-          pendingFiles.map((f) => uploadFile(f, folderId)),
-        )
+        const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
         archivoIds = uploaded.map((f) => f.id)
       }
 
@@ -80,6 +77,7 @@ export function TransactionForm({
         descripcion,
         archivos: archivoIds,
         creadoEn: new Date().toISOString(),
+        referencia: referencia.trim() || undefined,
       }
 
       onSave(tx)
@@ -107,9 +105,7 @@ export function TransactionForm({
             key={t}
             onClick={() => {
               setTipo(t)
-              setCategoria(
-                t === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0],
-              )
+              setCategoria(t === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0])
             }}
             className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
               tipo === t
@@ -176,12 +172,24 @@ export function TransactionForm({
         ))}
       </Select>
 
-      <Textarea
-        label="Descripción (opcional)"
-        placeholder="Factura julio, reparación grifo..."
-        value={descripcion}
-        onChange={(e) => setDescripcion(e.target.value)}
-      />
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Input
+            label="Descripción (opcional)"
+            placeholder="Factura julio, grifo cocina..."
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+          />
+        </div>
+        <div className="flex-1">
+          <Input
+            label="Nº factura / ref."
+            placeholder="F-2024-001"
+            value={referencia}
+            onChange={(e) => setReferencia(e.target.value)}
+          />
+        </div>
+      </div>
 
       {/* File attach */}
       <div className="flex flex-col gap-2">
@@ -197,10 +205,7 @@ export function TransactionForm({
               >
                 <Paperclip size={14} className="text-outline-variant flex-shrink-0" />
                 <span className="text-xs text-on-surface truncate flex-1">{f.name}</span>
-                <button
-                  onClick={() => removeFile(i)}
-                  className="text-outline-variant hover:text-error"
-                >
+                <button onClick={() => removeFile(i)} className="text-outline-variant hover:text-error">
                   <X size={14} />
                 </button>
               </div>

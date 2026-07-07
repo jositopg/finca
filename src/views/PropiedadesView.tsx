@@ -1,25 +1,31 @@
-import { useState } from 'react'
-import { ArrowLeft, Edit2, ExternalLink, Plus, Trash2 } from 'lucide-react'
-import { format } from 'date-fns'
+import { useState, useMemo } from 'react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Edit2,
+  ExternalLink,
+  Plus,
+  BarChart2,
+  Trash2,
+  User,
+} from 'lucide-react'
+import { format, differenceInDays, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from '../components/BottomSheet'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransactionItem } from '../components/TransactionItem'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
-import { ESTADO_LABELS, TIPO_LABELS, type Propiedad } from '../types'
-
-const ESTADO_BADGE_VARIANT: Record<
-  string,
-  'success' | 'warning' | 'error' | 'outline' | 'default'
-> = {
-  alquilado: 'success',
-  vacio: 'warning',
-  reforma: 'outline',
-  venta: 'error',
-}
+import {
+  ESTADO_BADGE_VARIANT,
+  ESTADO_LABELS,
+  TIPO_LABELS,
+  type Propiedad,
+  type Transaccion,
+} from '../types'
 
 interface Props {
   selectedId?: string
@@ -30,42 +36,163 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }[] {
+  const map = new Map<string, Transaccion[]>()
+  for (const tx of txs) {
+    const mes = tx.fecha.slice(0, 7)
+    if (!map.has(mes)) map.set(mes, [])
+    map.get(mes)!.push(tx)
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([mes, items]) => ({ mes, items }))
+}
+
+// ── Fiscal summary component ───────────────────────────────────────────────────
+function FiscalSummary({ txs }: { txs: Transaccion[] }) {
+  const years = useMemo(() => {
+    const set = new Set(txs.map((t) => t.fecha.slice(0, 4)))
+    const cur = new Date().getFullYear().toString()
+    set.add(cur)
+    return [...set].sort().reverse()
+  }, [txs])
+
+  const [anio, setAnio] = useState(years[0])
+
+  const txsAnio = txs.filter((t) => t.fecha.startsWith(anio))
+  const ingresos = txsAnio.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
+  const gastos = txsAnio.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+
+  // Group gastos by category
+  const porCategoria = txsAnio
+    .filter((t) => t.tipo === 'gasto')
+    .reduce<Record<string, number>>((acc, t) => {
+      acc[t.categoria] = (acc[t.categoria] ?? 0) + t.importe
+      return acc
+    }, {})
+
+  const categorias = Object.entries(porCategoria).sort(([, a], [, b]) => b - a)
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Year selector */}
+      <div className="flex gap-2">
+        {years.map((y) => (
+          <button
+            key={y}
+            onClick={() => setAnio(y)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              anio === y
+                ? 'bg-on-surface text-surface'
+                : 'bg-surface-low text-outline-variant'
+            }`}
+          >
+            {y}
+          </button>
+        ))}
+      </div>
+
+      {/* Totals */}
+      <div className="flex gap-3">
+        <div className="flex-1 bg-success-container/50 rounded-xl p-3">
+          <p className="text-xs text-success mb-0.5">Ingresos</p>
+          <p className="text-base font-bold text-success tabular-nums">+{fmt(ingresos)} €</p>
+        </div>
+        <div className="flex-1 bg-surface-low rounded-xl p-3">
+          <p className="text-xs text-outline-variant mb-0.5">Gastos</p>
+          <p className="text-base font-bold text-on-surface tabular-nums">-{fmt(gastos)} €</p>
+        </div>
+        <div
+          className={`flex-1 rounded-xl p-3 ${
+            ingresos - gastos >= 0 ? 'bg-success-container/30' : 'bg-error-container/30'
+          }`}
+        >
+          <p className="text-xs text-outline-variant mb-0.5">Rendimiento</p>
+          <p
+            className={`text-base font-bold tabular-nums ${
+              ingresos - gastos >= 0 ? 'text-success' : 'text-error'
+            }`}
+          >
+            {ingresos - gastos >= 0 ? '+' : ''}
+            {fmt(ingresos - gastos)} €
+          </p>
+        </div>
+      </div>
+
+      {/* Category breakdown */}
+      {categorias.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-1">
+            Desglose de gastos
+          </p>
+          {categorias.map(([cat, importe]) => (
+            <div key={cat} className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-xs text-on-surface truncate">{cat}</span>
+                  <span className="text-xs font-medium text-on-surface tabular-nums ml-2">
+                    {fmt(importe)} €
+                  </span>
+                </div>
+                <div className="h-1 bg-surface-high rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-on-surface/30 rounded-full"
+                    style={{ width: `${Math.round((importe / gastos) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {txsAnio.length === 0 && (
+        <p className="text-sm text-outline-variant text-center py-4">
+          Sin movimientos en {anio}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Main view ────────────────────────────────────────────────────────────────
 export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const { propiedades, transacciones, addProp, updateProp, deleteProp, addTx, deleteTx } =
     useApp()
   const [showAddProp, setShowAddProp] = useState(false)
   const [editProp, setEditProp] = useState<Propiedad | null>(null)
   const [showAddTx, setShowAddTx] = useState(false)
+  const [showFiscal, setShowFiscal] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
 
   const propiedad = propiedades.find((p) => p.id === selectedId)
 
-  // ── Propiedad detail view ──────────────────────────────────────────────────
+  // ── Property detail view ───────────────────────────────────────────────────
   if (propiedad) {
     const txs = transacciones
       .filter((t) => t.propiedadId === propiedad.id)
       .sort((a, b) => b.fecha.localeCompare(a.fecha))
 
-    const txsFiltradas = filterMes
-      ? txs.filter((t) => t.fecha.startsWith(filterMes))
-      : txs
+    const txsFiltradas = filterMes ? txs.filter((t) => t.fecha.startsWith(filterMes)) : txs
 
-    const ingresos = txsFiltradas
-      .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + t.importe, 0)
+    const ingresos = txsFiltradas.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
+    const gastos = txsFiltradas.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
 
-    const gastos = txsFiltradas
-      .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + t.importe, 0)
-
-    // Build list of months with activity
     const meses = [...new Set(txs.map((t) => t.fecha.slice(0, 7)))].sort().reverse()
     const currentMonth = format(new Date(), 'yyyy-MM')
     if (!meses.includes(currentMonth)) meses.unshift(currentMonth)
 
+    const grupos = groupByMonth(txsFiltradas)
+
+    // Contract expiry warning
+    const diasParaFin = propiedad.contratoFin
+      ? differenceInDays(parseISO(propiedad.contratoFin), new Date())
+      : null
+    const contratoAlerta = diasParaFin !== null && diasParaFin <= 60
+
     return (
       <div className="flex flex-col pb-24">
-        {/* Header */}
         <div className="px-5 pt-12 pb-4">
           <button
             onClick={() => onSelectId(undefined)}
@@ -85,29 +212,27 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </div>
             <div className="flex gap-2 flex-shrink-0">
               <button
+                onClick={() => setShowFiscal(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-surface-low text-outline-variant hover:text-on-surface transition-colors"
+                title="Resumen fiscal"
+              >
+                <BarChart2 size={15} />
+              </button>
+              <button
                 onClick={() => setEditProp(propiedad)}
                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-surface-low text-outline-variant hover:text-on-surface transition-colors"
               >
                 <Edit2 size={15} />
               </button>
               <button
-                onClick={async () => {
-                  if (
-                    confirm(
-                      `¿Eliminar "${propiedad.nombre}"?\nSe borrarán también todas sus transacciones.`,
-                    )
-                  ) {
-                    await deleteProp(propiedad.id)
-                    onSelectId(undefined)
-                  }
-                }}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-error-container text-error hover:bg-error hover:text-on-primary transition-colors"
+                onClick={() => setConfirmDelete({ type: 'prop', id: propiedad.id })}
+                className="w-8 h-8 flex items-center justify-center rounded-xl bg-error-container text-error transition-colors"
               >
                 <Trash2 size={15} />
               </button>
             </div>
           </div>
-          <div className="flex gap-2 mt-3">
+          <div className="flex gap-2 mt-3 flex-wrap">
             <Badge
               label={ESTADO_LABELS[propiedad.estado]}
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
@@ -116,27 +241,69 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         </div>
 
+        {/* Inquilino info */}
+        {propiedad.estado === 'alquilado' && propiedad.inquilinoNombre && (
+          <div className="px-5 mb-4">
+            <div
+              className={`rounded-xl p-4 flex flex-col gap-1 ${
+                contratoAlerta ? 'bg-warning-container' : 'bg-surface-low'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <User size={14} className="text-outline-variant" />
+                <span className="text-sm font-medium text-on-surface">
+                  {propiedad.inquilinoNombre}
+                </span>
+                {propiedad.alquilerMensual && (
+                  <span className="text-xs text-success font-medium ml-auto">
+                    {fmt(propiedad.alquilerMensual)} €/mes
+                  </span>
+                )}
+              </div>
+              {propiedad.contratoFin && (
+                <div className="flex items-center gap-1.5">
+                  {contratoAlerta && <AlertTriangle size={12} className="text-warning" />}
+                  <span
+                    className={`text-xs ${
+                      contratoAlerta ? 'text-warning font-medium' : 'text-outline-variant'
+                    }`}
+                  >
+                    Contrato hasta{' '}
+                    {format(parseISO(propiedad.contratoFin), 'd MMM yyyy', { locale: es })}
+                    {contratoAlerta && ` — vence en ${diasParaFin} días`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Notas */}
+        {propiedad.notas && (
+          <div className="px-5 mb-4">
+            <p className="text-xs text-outline-variant bg-surface-low rounded-xl px-4 py-3">
+              {propiedad.notas}
+            </p>
+          </div>
+        )}
+
         {/* Month selector */}
         <div className="px-5 overflow-x-auto scrollbar-none mb-4">
           <div className="flex gap-2">
             <button
               onClick={() => setFilterMes('')}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                filterMes === ''
-                  ? 'bg-on-surface text-surface'
-                  : 'bg-surface-low text-outline-variant'
+                filterMes === '' ? 'bg-on-surface text-surface' : 'bg-surface-low text-outline-variant'
               }`}
             >
               Todo
             </button>
-            {meses.slice(0, 12).map((m) => (
+            {meses.slice(0, 18).map((m) => (
               <button
                 key={m}
                 onClick={() => setFilterMes(m)}
                 className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors capitalize ${
-                  filterMes === m
-                    ? 'bg-on-surface text-surface'
-                    : 'bg-surface-low text-outline-variant'
+                  filterMes === m ? 'bg-on-surface text-surface' : 'bg-surface-low text-outline-variant'
                 }`}
               >
                 {format(new Date(m + '-01'), 'MMM yy', { locale: es })}
@@ -151,34 +318,25 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             <div className="flex gap-3">
               <div className="flex-1 text-center">
                 <p className="text-xs text-outline-variant mb-0.5">Ingresos</p>
-                <p className="text-lg font-bold text-success tabular-nums">
-                  +{fmt(ingresos)} €
-                </p>
+                <p className="text-lg font-bold text-success tabular-nums">+{fmt(ingresos)} €</p>
               </div>
               <div className="w-px bg-surface-high" />
               <div className="flex-1 text-center">
                 <p className="text-xs text-outline-variant mb-0.5">Gastos</p>
-                <p className="text-lg font-bold text-on-surface tabular-nums">
-                  -{fmt(gastos)} €
-                </p>
+                <p className="text-lg font-bold text-on-surface tabular-nums">-{fmt(gastos)} €</p>
               </div>
               <div className="w-px bg-surface-high" />
               <div className="flex-1 text-center">
                 <p className="text-xs text-outline-variant mb-0.5">Balance</p>
-                <p
-                  className={`text-lg font-bold tabular-nums ${
-                    ingresos - gastos >= 0 ? 'text-success' : 'text-error'
-                  }`}
-                >
-                  {ingresos - gastos >= 0 ? '+' : ''}
-                  {fmt(ingresos - gastos)} €
+                <p className={`text-lg font-bold tabular-nums ${ingresos - gastos >= 0 ? 'text-success' : 'text-error'}`}>
+                  {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Transactions */}
+        {/* Transactions grouped by month */}
         <div className="px-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
@@ -204,19 +362,37 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               </Button>
             </div>
           ) : (
-            <div className="bg-surface-lowest rounded-2xl shadow-soft px-4">
-              {txsFiltradas.map((tx) => (
-                <TransactionItem
-                  key={tx.id}
-                  tx={tx}
-                  onDelete={async (id) => {
-                    if (confirm('¿Eliminar esta transacción?')) await deleteTx(id)
-                  }}
-                  onOpenFile={(id) => {
-                    window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
-                  }}
-                />
-              ))}
+            <div className="flex flex-col gap-4">
+              {grupos.map(({ mes, items }) => {
+                const totalMes = items.reduce(
+                  (s, t) => s + (t.tipo === 'ingreso' ? t.importe : -t.importe),
+                  0,
+                )
+                return (
+                  <div key={mes}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-outline-variant capitalize">
+                        {format(new Date(mes + '-01'), 'MMMM yyyy', { locale: es })}
+                      </span>
+                      <span className={`text-xs font-medium tabular-nums ${totalMes >= 0 ? 'text-success' : 'text-error'}`}>
+                        {totalMes >= 0 ? '+' : ''}{fmt(totalMes)} €
+                      </span>
+                    </div>
+                    <div className="bg-surface-lowest rounded-2xl shadow-soft px-4">
+                      {items.map((tx) => (
+                        <TransactionItem
+                          key={tx.id}
+                          tx={tx}
+                          onDelete={(id) => setConfirmDelete({ type: 'tx', id })}
+                          onOpenFile={(id) =>
+                            window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -236,42 +412,59 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         )}
 
-        {/* Sheets */}
-        <BottomSheet
-          open={showAddTx}
-          onClose={() => setShowAddTx(false)}
-          title="Nueva transacción"
-        >
+        {/* Bottom sheets */}
+        <BottomSheet open={showAddTx} onClose={() => setShowAddTx(false)} title="Nueva transacción">
           <TransactionForm
             propiedades={propiedades}
             defaultPropiedadId={propiedad.id}
-            onSave={async (t) => {
-              await addTx(t)
-              setShowAddTx(false)
-            }}
+            onSave={async (t) => { await addTx(t); setShowAddTx(false) }}
             onCancel={() => setShowAddTx(false)}
           />
         </BottomSheet>
 
-        <BottomSheet
-          open={!!editProp}
-          onClose={() => setEditProp(null)}
-          title="Editar propiedad"
-        >
+        <BottomSheet open={!!editProp} onClose={() => setEditProp(null)} title="Editar propiedad">
           <PropiedadForm
             initial={editProp ?? undefined}
-            onSave={async (p) => {
-              await updateProp(p)
-              setEditProp(null)
-            }}
+            onSave={async (p) => { await updateProp(p); setEditProp(null) }}
             onCancel={() => setEditProp(null)}
           />
         </BottomSheet>
+
+        <BottomSheet open={showFiscal} onClose={() => setShowFiscal(false)} title="Resumen fiscal">
+          <FiscalSummary txs={txs} />
+        </BottomSheet>
+
+        <ConfirmDialog
+          open={confirmDelete?.type === 'prop'}
+          title={`Eliminar "${propiedad.nombre}"`}
+          message="Se borrarán también todas sus transacciones. Esta acción no se puede deshacer."
+          confirmLabel="Eliminar propiedad"
+          onConfirm={async () => {
+            await deleteProp(propiedad.id)
+            setConfirmDelete(null)
+            onSelectId(undefined)
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+
+        <ConfirmDialog
+          open={confirmDelete?.type === 'tx'}
+          title="Eliminar transacción"
+          message="Esta acción no se puede deshacer."
+          confirmLabel="Eliminar"
+          onConfirm={async () => {
+            if (confirmDelete) await deleteTx(confirmDelete.id)
+            setConfirmDelete(null)
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
       </div>
     )
   }
 
   // ── Properties list ────────────────────────────────────────────────────────
+  const currentAnio = new Date().getFullYear().toString()
+
   return (
     <div className="flex flex-col pb-24">
       <div className="px-5 pt-12 pb-6">
@@ -287,9 +480,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
       <div className="px-5">
         {propiedades.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12 text-center">
-            <p className="text-sm text-outline-variant">
-              Aún no tienes propiedades registradas.
-            </p>
+            <p className="text-sm text-outline-variant">Aún no tienes propiedades registradas.</p>
             <Button onClick={() => setShowAddProp(true)}>
               <Plus size={14} />
               Añadir primera propiedad
@@ -298,13 +489,15 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         ) : (
           <div className="flex flex-col gap-3">
             {propiedades.map((p) => {
-              const txs = transacciones.filter((t) => t.propiedadId === p.id)
-              const ingresos = txs
-                .filter((t) => t.tipo === 'ingreso')
-                .reduce((s, t) => s + t.importe, 0)
-              const gastos = txs
-                .filter((t) => t.tipo === 'gasto')
-                .reduce((s, t) => s + t.importe, 0)
+              const txsAnio = transacciones.filter(
+                (t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio),
+              )
+              const ingresos = txsAnio.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
+              const gastos = txsAnio.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+              const diasFin = p.contratoFin
+                ? differenceInDays(parseISO(p.contratoFin), new Date())
+                : null
+              const alertaContrato = diasFin !== null && diasFin <= 60
 
               return (
                 <button
@@ -314,12 +507,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0">
-                      <p className="font-medium text-on-surface text-sm truncate">
-                        {p.nombre}
-                      </p>
+                      <p className="font-medium text-on-surface text-sm truncate">{p.nombre}</p>
                       {p.direccion && (
-                        <p className="text-xs text-outline-variant truncate mt-0.5">
-                          {p.direccion}
+                        <p className="text-xs text-outline-variant truncate mt-0.5">{p.direccion}</p>
+                      )}
+                      {p.inquilinoNombre && (
+                        <p className="text-xs text-outline-variant/70 truncate mt-0.5">
+                          {p.inquilinoNombre}
+                          {p.alquilerMensual ? ` · ${fmt(p.alquilerMensual)} €/mes` : ''}
                         </p>
                       )}
                     </div>
@@ -328,14 +523,22 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                         label={ESTADO_LABELS[p.estado]}
                         variant={ESTADO_BADGE_VARIANT[p.estado]}
                       />
+                      {alertaContrato && (
+                        <span className="text-xs text-warning font-medium flex items-center gap-1">
+                          <AlertTriangle size={11} />
+                          {diasFin}d
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-outline-variant">
-                    <span>{txs.length} movimientos</span>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="text-outline-variant">{currentAnio}</span>
+                    <span className="text-success tabular-nums">+{fmt(ingresos)} €</span>
                     <span className="text-outline-variant/40">·</span>
-                    <span className="text-success">+{fmt(ingresos)} €</span>
-                    <span className="text-outline-variant/40">·</span>
-                    <span className="text-on-surface">-{fmt(gastos)} €</span>
+                    <span className="text-on-surface tabular-nums">-{fmt(gastos)} €</span>
+                    <span className={`ml-auto font-medium tabular-nums ${ingresos - gastos >= 0 ? 'text-success' : 'text-error'}`}>
+                      {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
+                    </span>
                   </div>
                 </button>
               )
@@ -344,16 +547,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         )}
       </div>
 
-      <BottomSheet
-        open={showAddProp}
-        onClose={() => setShowAddProp(false)}
-        title="Nueva propiedad"
-      >
+      <BottomSheet open={showAddProp} onClose={() => setShowAddProp(false)} title="Nueva propiedad">
         <PropiedadForm
-          onSave={async (p) => {
-            await addProp(p)
-            setShowAddProp(false)
-          }}
+          onSave={async (p) => { await addProp(p); setShowAddProp(false) }}
           onCancel={() => setShowAddProp(false)}
         />
       </BottomSheet>
