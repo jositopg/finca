@@ -38,6 +38,25 @@ function RepartoRow({
   onChange: (v: RepartoConcepto) => void
 }) {
   const modo = value?.modo ?? 'incluido'
+  const [importeStr, setImporteStr] = useState(
+    value?.importeIncluido != null ? value.importeIncluido.toString() : '',
+  )
+
+  function handleModoClick(m: SuministroModo) {
+    if (m === 'parcial') {
+      const inicial = value?.importeIncluido ?? 0
+      setImporteStr(inicial ? inicial.toString() : '')
+      onChange({ modo: m, importeIncluido: inicial })
+    } else {
+      onChange({ modo: m, importeIncluido: undefined })
+    }
+  }
+
+  function handleImporteChange(raw: string) {
+    setImporteStr(raw)
+    onChange({ modo: 'parcial', importeIncluido: parseFloat(raw.replace(',', '.')) || 0 })
+  }
+
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-on-surface">{CONCEPTO_LABELS[concepto]}</p>
@@ -46,12 +65,7 @@ function RepartoRow({
           <button
             key={m}
             type="button"
-            onClick={() =>
-              onChange({
-                modo: m,
-                porcentajeInquilino: m === 'parcial' ? (value?.porcentajeInquilino ?? 50) : undefined,
-              })
-            }
+            onClick={() => handleModoClick(m)}
             className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               modo === m ? 'bg-on-surface text-surface' : 'bg-surface-lowest text-outline-variant'
             }`}
@@ -63,16 +77,14 @@ function RepartoRow({
       {modo === 'parcial' && (
         <div className="flex items-center gap-2">
           <input
-            type="number"
-            min={0}
-            max={100}
-            value={value?.porcentajeInquilino ?? 50}
-            onChange={(e) =>
-              onChange({ modo: 'parcial', porcentajeInquilino: Number(e.target.value) })
-            }
-            className="w-16 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+            type="text"
+            inputMode="decimal"
+            placeholder="30"
+            value={importeStr}
+            onChange={(e) => handleImporteChange(e.target.value)}
+            className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
-          <span className="text-xs text-outline-variant">% a cargo del inquilino</span>
+          <span className="text-xs text-outline-variant">€/factura incluidos en la renta</span>
         </div>
       )}
     </div>

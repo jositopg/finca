@@ -57,12 +57,13 @@ export interface Transaccion {
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────
 // Para propiedades en alquiler: quién corre con el gasto de agua, luz,
 // basuras e IBI — íntegro en el precio del alquiler, a cargo del inquilino,
-// o repartido en un porcentaje.
+// o una cantidad fija incluida en la renta (el resto de cada factura se
+// repercute al inquilino).
 export type SuministroModo = 'incluido' | 'no_incluido' | 'parcial'
 
 export interface RepartoConcepto {
   modo: SuministroModo
-  porcentajeInquilino?: number // 0-100, solo si modo === 'parcial'
+  importeIncluido?: number // €/factura que cubre el propietario, solo si modo === 'parcial'
 }
 
 export type ConceptoReparto = 'agua' | 'luz' | 'basuras' | 'ibi'
@@ -119,12 +120,12 @@ export function calcularReparto(
   if (config.modo === 'no_incluido') {
     return { concepto, modo: 'no_incluido', propietario: 0, inquilino: importe }
   }
-  const pctInquilino = (config.porcentajeInquilino ?? 0) / 100
+  const propietario = Math.min(config.importeIncluido ?? 0, importe)
   return {
     concepto,
     modo: 'parcial',
-    propietario: importe * (1 - pctInquilino),
-    inquilino: importe * pctInquilino,
+    propietario,
+    inquilino: importe - propietario,
   }
 }
 
