@@ -137,6 +137,34 @@ export function calcularReparto(
   }
 }
 
+// ─── Renta de locales: IGIC + retención IRPF ───────────────────────────────────
+// Para locales de negocio en Canarias: la renta bruta pactada (base
+// imponible) lleva IGIC repercutido al inquilino (se suma) y retención de
+// IRPF que el inquilino ingresa directamente en Hacienda (se resta) — lo que
+// Jose recibe de verdad en el banco es la renta neta resultante.
+export const IGIC_LOCAL_PCT = 7
+export const IRPF_LOCAL_PCT = 19
+
+export interface DesgloseRentaLocal {
+  base: number
+  igic: number
+  irpf: number
+  neta: number
+}
+
+export function calcularRentaLocal(rentaBruta: number): DesgloseRentaLocal {
+  const igic = rentaBruta * (IGIC_LOCAL_PCT / 100)
+  const irpf = rentaBruta * (IRPF_LOCAL_PCT / 100)
+  return { base: rentaBruta, igic, irpf, neta: rentaBruta + igic - irpf }
+}
+
+// Inversa: reconstruye la base imponible a partir del importe neto ya
+// guardado en una transacción (lo que se registra en la app) — para el
+// Modelo 420, que necesita la base, no la neta.
+export function baseDesdeRentaNeta(rentaNeta: number): number {
+  return rentaNeta / (1 + IGIC_LOCAL_PCT / 100 - IRPF_LOCAL_PCT / 100)
+}
+
 export interface ResumenPropiedad {
   propiedad: Propiedad
   ingresosMes: number

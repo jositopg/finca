@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
-import { miParte } from '../types'
+import { baseDesdeRentaNeta, calcularRentaLocal, miParte } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -39,17 +39,28 @@ export function FiscalView() {
   const totalIngresos = filasRenta.reduce((s, f) => s + f.ingresos, 0)
   const totalGastos = filasRenta.reduce((s, f) => s + f.gastos, 0)
 
-  // ── Modelo 420 (IGIC trimestral): solo locales ────────────────────────────
+  // ── Modelo 420 (IGIC trimestral): solo locales, solo renta de alquiler ────
+  // El importe guardado en cada transacción es la renta NETA (lo que
+  // realmente entra en el banco, ver CobroRenta) — aquí se reconstruye la
+  // base imponible a partir de esa neta para poder declarar el trimestre.
   const locales = propiedades.filter((p) => p.tipo === 'local')
   const filasLocales = locales.map((p) => {
-    const total = txsAnio
+    const netaTotal = txsAnio
       .filter(
-        (t) => t.propiedadId === p.id && t.tipo === 'ingreso' && trimestreDe(t.fecha) === trimestre,
+        (t) =>
+          t.propiedadId === p.id &&
+          t.tipo === 'ingreso' &&
+          t.categoria === 'Alquiler mensual' &&
+          trimestreDe(t.fecha) === trimestre,
       )
       .reduce((s, t) => s + miParte(t.importe, p), 0)
-    return { propiedad: p, total }
+    const base = baseDesdeRentaNeta(netaTotal)
+    const { igic, irpf } = calcularRentaLocal(base)
+    return { propiedad: p, base, igic, irpf, neta: netaTotal }
   })
-  const totalLocalesTrimestre = filasLocales.reduce((s, f) => s + f.total, 0)
+  const totalBaseTrimestre = filasLocales.reduce((s, f) => s + f.base, 0)
+  const totalIgicTrimestre = filasLocales.reduce((s, f) => s + f.igic, 0)
+  const totalIrpfTrimestre = filasLocales.reduce((s, f) => s + f.irpf, 0)
 
   return (
     <div className="flex flex-col pb-24">
@@ -127,8 +138,8 @@ export function FiscalView() {
           Modelo 420 — IGIC trimestral (locales)
         </p>
         <p className="text-xs text-outline-variant mb-3">
-          Ingresos por alquiler de locales en el trimestre, ya a tu parte. La base imponible y la
-          cuota de IGIC (tipo aplicable, exenciones) hay que calcularlas aparte.
+          Base imponible, IGIC (7%) e IRPF (19%) de la renta de alquiler de locales del trimestre,
+          ya a tu parte — reconstruidos a partir de la renta neta registrada en cada cobro.
         </p>
 
         <div className="flex gap-2 mb-3">
@@ -151,25 +162,39 @@ export function FiscalView() {
           </p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasLocales.map(({ propiedad, total }) => (
-              <div key={propiedad.id} className="flex items-center justify-between p-4">
-                <span className="text-sm text-on-surface">{propiedad.nombre}</span>
-                <span className="text-sm font-medium tabular-nums text-on-surface">
-                  {fmt(total)} €
-                </span>
+            {filasLocales.map(({ propiedad, base, igic, irpf }) => (
+              <div key={propiedad.id} className="p-4">
+                <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-outline-variant">
+                    Base <span className="text-on-surface font-medium">{fmt(base)} €</span>
+                  </span>
+                  <span className="text-outline-variant/40">·</span>
+                  <span className="text-success">IGIC +{fmt(igic)} €</span>
+                  <span className="text-outline-variant/40">·</span>
+                  <span className="text-error">IRPF -{fmt(irpf)} €</span>
+                </div>
               </div>
             ))}
           </div>
         )}
 
         {locales.length > 0 && (
-          <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 mt-2">
-            <span className="text-xs text-outline-variant">
-              Total T{trimestre} {anio}
-            </span>
-            <span className="text-sm font-bold tabular-nums text-primary">
-              {fmt(totalLocalesTrimestre)} €
-            </span>
+          <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 mt-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-outline-variant">Base imponible T{trimestre} {anio}</span>
+              <span className="text-sm font-bold tabular-nums text-primary">
+                {fmt(totalBaseTrimestre)} €
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-outline-variant">IGIC repercutido</span>
+              <span className="tabular-nums text-success">+{fmt(totalIgicTrimestre)} €</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-outline-variant">IRPF retenido</span>
+              <span className="tabular-nums text-error">-{fmt(totalIrpfTrimestre)} €</span>
+            </div>
           </div>
         )}
       </div>
