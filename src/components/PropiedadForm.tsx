@@ -147,8 +147,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
     try {
       await onSave(propiedad)
     } catch (err) {
+      // addProp/updateProp ya muestran un toast — aquí solo evitamos que
+      // el botón se quede bloqueado si falla el guardado.
       console.error('Guardar propiedad error', err)
-      alert('No se pudo guardar la propiedad. Comprueba tu conexión e inténtalo de nuevo.')
     } finally {
       setSaving(false)
     }

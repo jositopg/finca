@@ -1,4 +1,4 @@
-import { FileText, Paperclip, Trash2 } from 'lucide-react'
+import { Copy, FileText, Paperclip, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { calcularReparto, type Propiedad, type Transaccion } from '../types'
@@ -8,6 +8,7 @@ interface Props {
   propiedad?: Propiedad
   propiedadNombre?: string
   onDelete?: (id: string) => void
+  onDuplicate?: (tx: Transaccion) => void
   onOpenFile?: (fileId: string) => void
 }
 
@@ -15,7 +16,14 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function TransactionItem({ tx, propiedad, propiedadNombre, onDelete, onOpenFile }: Props) {
+export function TransactionItem({
+  tx,
+  propiedad,
+  propiedadNombre,
+  onDelete,
+  onDuplicate,
+  onOpenFile,
+}: Props) {
   const isIngreso = tx.tipo === 'ingreso'
   const reparto =
     !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
@@ -86,6 +94,15 @@ export function TransactionItem({ tx, propiedad, propiedadNombre, onDelete, onOp
               })}{' '}
               €
             </span>
+            {onDuplicate && (
+              <button
+                onClick={() => onDuplicate(tx)}
+                title="Duplicar movimiento"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
+              >
+                <Copy size={13} />
+              </button>
+            )}
             {onDelete && (
               <button
                 onClick={() => onDelete(tx.id)}

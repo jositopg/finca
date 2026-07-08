@@ -16,7 +16,8 @@ interface Props {
   propiedades: Propiedad[]
   defaultPropiedadId?: string
   defaultTipo?: TransaccionTipo
-  onSave: (t: Transaccion) => void
+  initial?: Partial<Transaccion>
+  onSave: (t: Transaccion) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -28,21 +29,22 @@ export function TransactionForm({
   propiedades,
   defaultPropiedadId,
   defaultTipo = 'gasto',
+  initial,
   onSave,
   onCancel,
 }: Props) {
   const { ensurePropFolder, addTx } = useApp()
-  const [tipo, setTipo] = useState<TransaccionTipo>(defaultTipo)
+  const [tipo, setTipo] = useState<TransaccionTipo>(initial?.tipo ?? defaultTipo)
   const [propiedadId, setPropiedadId] = useState(
-    defaultPropiedadId ?? propiedades[0]?.id ?? '',
+    initial?.propiedadId ?? defaultPropiedadId ?? propiedades[0]?.id ?? '',
   )
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [importe, setImporte] = useState('')
+  const [importe, setImporte] = useState(initial?.importe != null ? initial.importe.toString() : '')
   const [categoria, setCategoria] = useState<string>(
-    defaultTipo === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0],
+    initial?.categoria ?? (defaultTipo === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0]),
   )
-  const [descripcion, setDescripcion] = useState('')
-  const [referencia, setReferencia] = useState('')
+  const [descripcion, setDescripcion] = useState(initial?.descripcion ?? '')
+  const [referencia, setReferencia] = useState(initial?.referencia ?? '')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
   const [savingOtro, setSavingOtro] = useState(false)
@@ -94,7 +96,9 @@ export function TransactionForm({
     if (!validate()) return
     setUploading(true)
     try {
-      onSave(await buildTx())
+      await onSave(await buildTx())
+    } catch (err) {
+      console.error('Guardar transacción error', err)
     } finally {
       setUploading(false)
     }

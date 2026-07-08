@@ -29,6 +29,7 @@ function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }
 export function TransaccionesView() {
   const { propiedades, transacciones, addTx, deleteTx } = useApp()
   const [showAdd, setShowAdd] = useState(false)
+  const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [filterTipo, setFilterTipo] = useState<TransaccionTipo | 'todos'>('todos')
   const [filterProp, setFilterProp] = useState<string>('todas')
@@ -206,6 +207,10 @@ export function TransaccionesView() {
                           propiedad={prop}
                           propiedadNombre={propiedades.length > 1 ? prop?.nombre : undefined}
                           onDelete={(id) => setConfirmId(id)}
+                          onDuplicate={(t) => {
+                            setDuplicateTx(t)
+                            setShowAdd(true)
+                          }}
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
@@ -220,11 +225,26 @@ export function TransaccionesView() {
         )}
       </div>
 
-      <BottomSheet open={showAdd} onClose={() => setShowAdd(false)} title="Nueva transacción">
+      <BottomSheet
+        open={showAdd}
+        onClose={() => {
+          setShowAdd(false)
+          setDuplicateTx(null)
+        }}
+        title={duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
+      >
         <TransactionForm
           propiedades={propiedades}
-          onSave={async (t) => { await addTx(t); setShowAdd(false) }}
-          onCancel={() => setShowAdd(false)}
+          initial={duplicateTx ?? undefined}
+          onSave={async (t) => {
+            await addTx(t)
+            setShowAdd(false)
+            setDuplicateTx(null)
+          }}
+          onCancel={() => {
+            setShowAdd(false)
+            setDuplicateTx(null)
+          }}
         />
       </BottomSheet>
 

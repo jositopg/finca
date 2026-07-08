@@ -200,6 +200,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const [showAddProp, setShowAddProp] = useState(false)
   const [editProp, setEditProp] = useState<Propiedad | null>(null)
   const [showAddTx, setShowAddTx] = useState(false)
+  const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
   const [showFiscal, setShowFiscal] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
@@ -460,6 +461,10 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                           tx={tx}
                           propiedad={propiedad}
                           onDelete={(id) => setConfirmDelete({ type: 'tx', id })}
+                          onDuplicate={(t) => {
+                            setDuplicateTx(t)
+                            setShowAddTx(true)
+                          }}
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
@@ -489,12 +494,27 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         )}
 
         {/* Bottom sheets */}
-        <BottomSheet open={showAddTx} onClose={() => setShowAddTx(false)} title="Nueva transacción">
+        <BottomSheet
+          open={showAddTx}
+          onClose={() => {
+            setShowAddTx(false)
+            setDuplicateTx(null)
+          }}
+          title={duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
+        >
           <TransactionForm
             propiedades={propiedades}
             defaultPropiedadId={propiedad.id}
-            onSave={async (t) => { await addTx(t); setShowAddTx(false) }}
-            onCancel={() => setShowAddTx(false)}
+            initial={duplicateTx ?? undefined}
+            onSave={async (t) => {
+              await addTx(t)
+              setShowAddTx(false)
+              setDuplicateTx(null)
+            }}
+            onCancel={() => {
+              setShowAddTx(false)
+              setDuplicateTx(null)
+            }}
           />
         </BottomSheet>
 

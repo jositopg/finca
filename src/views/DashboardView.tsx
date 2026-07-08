@@ -10,8 +10,10 @@ import {
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
+import { useToast } from '../context/ToastContext'
 import { exportarASheets } from '../api/setup'
 import { BottomSheet } from '../components/BottomSheet'
+import { EvolucionAnual } from '../components/EvolucionAnual'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
@@ -30,6 +32,7 @@ function fmt(n: number) {
 export function DashboardView({ onNavigate }: Props) {
   const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx, ensureDriveAccess } =
     useApp()
+  const { showToast } = useToast()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -80,6 +83,7 @@ export function DashboardView({ onNavigate }: Props) {
     a.download = `finca-backup-${format(now, 'yyyy-MM-dd')}.json`
     a.click()
     URL.revokeObjectURL(url)
+    showToast('Copia de seguridad descargada', 'success')
   }
 
   async function handleExportSheets() {
@@ -88,9 +92,10 @@ export function DashboardView({ onNavigate }: Props) {
       await ensureDriveAccess()
       const { url } = await exportarASheets(propiedades, transacciones)
       window.open(url, '_blank')
+      showToast('Exportado a Google Sheets', 'success')
     } catch (err) {
       console.error('Export to Sheets error', err)
-      alert('No se pudo exportar a Google Sheets. Inténtalo de nuevo.')
+      showToast('No se pudo exportar a Google Sheets. Inténtalo de nuevo.')
     } finally {
       setExporting(false)
     }
@@ -217,6 +222,11 @@ export function DashboardView({ onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      {/* Year over year trend */}
+      <div className="px-5 mb-5">
+        <EvolucionAnual propiedades={propiedades} transacciones={transacciones} />
+      </div>
 
       {/* Properties */}
       <div className="px-5">

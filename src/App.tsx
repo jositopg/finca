@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { AppProvider, useApp } from './context/AppContext'
+import { ToastProvider } from './context/ToastContext'
 import { LoginView } from './views/LoginView'
 import { DashboardView } from './views/DashboardView'
 import { PropiedadesView } from './views/PropiedadesView'
 import { TransaccionesView } from './views/TransaccionesView'
 import { FiscalView } from './views/FiscalView'
 import { Nav, type View } from './components/Nav'
-import { Building2 } from 'lucide-react'
+import { Building2, WifiOff } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 function Shell() {
-  const { authState, isLoadingData } = useApp()
+  const { authState, isLoadingData, usingCache, cacheDate } = useApp()
   const [view, setView] = useState<View>('dashboard')
   const [selectedPropId, setSelectedPropId] = useState<string | undefined>()
 
@@ -38,6 +41,13 @@ function Shell() {
 
   return (
     <>
+      {usingCache && (
+        <div className="bg-warning-container text-warning text-xs font-medium px-4 py-2 flex items-center gap-2 justify-center">
+          <WifiOff size={13} />
+          Sin conexión — datos de{' '}
+          {cacheDate ? format(parseISO(cacheDate), "d MMM 'a las' HH:mm", { locale: es }) : 'antes'}
+        </div>
+      )}
       {view === 'dashboard' && (
         <DashboardView
           onNavigate={(v, propId) => {
@@ -68,8 +78,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <Shell />
-    </AppProvider>
+    <ToastProvider>
+      <AppProvider>
+        <Shell />
+      </AppProvider>
+    </ToastProvider>
   )
 }

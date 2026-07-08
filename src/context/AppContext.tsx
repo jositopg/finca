@@ -31,11 +31,37 @@ import {
   updateTransaccion,
 } from '../api/db'
 import { getOrCreateFolder } from '../api/drive'
+import { useToast } from './ToastContext'
 import type { IngresoExterno, Propiedad, Transaccion } from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 
 const ROOT_FOLDER_NAME = 'Finca — Gestión de Propiedades'
+const CACHE_KEY = 'finca_cache_v1'
+
+interface Cache {
+  propiedades: Propiedad[]
+  transacciones: Transaccion[]
+  ingresosExternos: IngresoExterno[]
+  cachedAt: string
+}
+
+function saveCache(cache: Omit<Cache, 'cachedAt'>) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...cache, cachedAt: new Date().toISOString() }))
+  } catch {
+    // localStorage lleno o no disponible — no es crítico
+  }
+}
+
+function loadCache(): Cache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    return raw ? (JSON.parse(raw) as Cache) : null
+  } catch {
+    return null
+  }
+}
 
 interface AppContextValue {
   authState: AuthState
@@ -44,6 +70,8 @@ interface AppContextValue {
   transacciones: Transaccion[]
   ingresosExternos: IngresoExterno[]
   isLoadingData: boolean
+  usingCache: boolean
+  cacheDate: string | null
   login: () => void
   logout: () => void
   refreshData: () => Promise<void>
@@ -63,11 +91,14 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null)
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { showToast } = useToast()
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [propiedades, setPropiedades] = useState<Propiedad[]>([])
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   const [ingresosExternos, setIngresosExternos] = useState<IngresoExterno[]>([])
   const [isLoadingData, setIsLoadingData] = useState(false)
+  const [usingCache, setUsingCache] = useState(false)
+  const [cacheDate, setCacheDate] = useState<string | null>(null)
   const [driveReady, setDriveReady] = useState(false)
   const gisReady = useRef(false)
   const rootFolderId = useRef<string | null>(null)
@@ -99,7 +130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     checkGIS()
   }, [initGIS])
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setIsLoadingData(true)
     try {
       const [props, txs, ingresos] = await Promise.all([
@@ -110,12 +141,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPropiedades(props)
       setTransacciones(txs)
       setIngresosExternos(ingresos)
+      setUsingCache(false)
+      setCacheDate(null)
+      saveCache({ propiedades: props, transacciones: txs, ingresosExternos: ingresos })
     } catch (err) {
       console.error('Load data error', err)
+      const cached = loadCache()
+      if (cached) {
+        setPropiedades(cached.propiedades)
+        setTransacciones(cached.transacciones)
+        setIngresosExternos(cached.ingresosExternos)
+        setUsingCache(true)
+        setCacheDate(cached.cachedAt)
+        showToast('Sin conexión — mostrando los últimos datos guardados')
+      } else {
+        showToast('No se pudo conectar y no hay datos guardados en este dispositivo')
+      }
     } finally {
       setIsLoadingData(false)
     }
-  }
+  }, [showToast])
 
   useEffect(() => {
     let mounted = true
@@ -147,11 +192,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mounted = false
       unsubscribe()
     }
-  }, [])
+  }, [loadData])
 
   const refreshData = useCallback(async () => {
     await loadData()
-  }, [])
+  }, [loadData])
 
   // Re-fetch al volver a primer plano, para que los cambios hechos en otro
   // dispositivo (o pestaña) aparezcan sin refresco manual.
@@ -166,15 +211,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('focus', handleVisibility)
     }
-  }, [authState])
+  }, [authState, loadData])
 
   const login = useCallback(() => {
-    signInWithGoogleSupabase().catch((err) => console.error('Login error', err))
-  }, [])
+    signInWithGoogleSupabase().catch((err) => {
+      console.error('Login error', err)
+      showToast('No se pudo iniciar sesión. Inténtalo de nuevo.')
+    })
+  }, [showToast])
 
   const logout = useCallback(() => {
-    signOutSupabase().catch((err) => console.error('Logout error', err))
-  }, [])
+    signOutSupabase().catch((err) => {
+      console.error('Logout error', err)
+      showToast('No se pudo cerrar sesión.')
+    })
+  }, [showToast])
 
   // Pide el token de Drive/Sheets solo la primera vez que hace falta
   // (adjuntar un archivo o exportar a Sheets), no en el login.
@@ -192,69 +243,146 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  const addProp = useCallback(async (p: Propiedad) => {
-    await addPropiedad(p)
-    setPropiedades((prev) => [...prev, p])
-  }, [])
+  const addProp = useCallback(
+    async (p: Propiedad) => {
+      try {
+        await addPropiedad(p)
+        setPropiedades((prev) => [...prev, p])
+      } catch (err) {
+        showToast('No se pudo guardar la propiedad')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const updateProp = useCallback(async (p: Propiedad) => {
-    await updatePropiedad(p)
-    setPropiedades((prev) => prev.map((x) => (x.id === p.id ? p : x)))
-  }, [])
+  const updateProp = useCallback(
+    async (p: Propiedad) => {
+      try {
+        await updatePropiedad(p)
+        setPropiedades((prev) => prev.map((x) => (x.id === p.id ? p : x)))
+      } catch (err) {
+        showToast('No se pudieron guardar los cambios')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const deleteProp = useCallback(async (id: string) => {
-    await deletePropiedad(id)
-    setPropiedades((prev) => prev.filter((x) => x.id !== id))
-    setTransacciones((prev) => prev.filter((t) => t.propiedadId !== id))
-  }, [])
+  const deleteProp = useCallback(
+    async (id: string) => {
+      try {
+        await deletePropiedad(id)
+        setPropiedades((prev) => prev.filter((x) => x.id !== id))
+        setTransacciones((prev) => prev.filter((t) => t.propiedadId !== id))
+      } catch (err) {
+        showToast('No se pudo eliminar la propiedad')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const addTx = useCallback(async (t: Transaccion) => {
-    await addTransaccion(t)
-    setTransacciones((prev) => [t, ...prev])
-  }, [])
+  const addTx = useCallback(
+    async (t: Transaccion) => {
+      try {
+        await addTransaccion(t)
+        setTransacciones((prev) => [t, ...prev])
+      } catch (err) {
+        showToast('No se pudo guardar el movimiento')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const updateTx = useCallback(async (t: Transaccion) => {
-    await updateTransaccion(t)
-    setTransacciones((prev) => prev.map((x) => (x.id === t.id ? t : x)))
-  }, [])
+  const updateTx = useCallback(
+    async (t: Transaccion) => {
+      try {
+        await updateTransaccion(t)
+        setTransacciones((prev) => prev.map((x) => (x.id === t.id ? t : x)))
+      } catch (err) {
+        showToast('No se pudieron guardar los cambios')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const deleteTx = useCallback(async (id: string) => {
-    await deleteTransaccion(id)
-    setTransacciones((prev) => prev.filter((x) => x.id !== id))
-  }, [])
+  const deleteTx = useCallback(
+    async (id: string) => {
+      try {
+        await deleteTransaccion(id)
+        setTransacciones((prev) => prev.filter((x) => x.id !== id))
+      } catch (err) {
+        showToast('No se pudo eliminar el movimiento')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const addIngreso = useCallback(async (i: IngresoExterno) => {
-    await addIngresoExterno(i)
-    setIngresosExternos((prev) => [...prev, i])
-  }, [])
+  const addIngreso = useCallback(
+    async (i: IngresoExterno) => {
+      try {
+        await addIngresoExterno(i)
+        setIngresosExternos((prev) => [...prev, i])
+      } catch (err) {
+        showToast('No se pudo guardar el ingreso')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const updateIngreso = useCallback(async (i: IngresoExterno) => {
-    await updateIngresoExterno(i)
-    setIngresosExternos((prev) => prev.map((x) => (x.id === i.id ? i : x)))
-  }, [])
+  const updateIngreso = useCallback(
+    async (i: IngresoExterno) => {
+      try {
+        await updateIngresoExterno(i)
+        setIngresosExternos((prev) => prev.map((x) => (x.id === i.id ? i : x)))
+      } catch (err) {
+        showToast('No se pudieron guardar los cambios')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
-  const deleteIngreso = useCallback(async (id: string) => {
-    await deleteIngresoExterno(id)
-    setIngresosExternos((prev) => prev.filter((x) => x.id !== id))
-  }, [])
+  const deleteIngreso = useCallback(
+    async (id: string) => {
+      try {
+        await deleteIngresoExterno(id)
+        setIngresosExternos((prev) => prev.filter((x) => x.id !== id))
+      } catch (err) {
+        showToast('No se pudo eliminar el ingreso')
+        throw err
+      }
+    },
+    [showToast],
+  )
 
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
       const propiedad = propiedades.find((p) => p.id === propiedadId)
       if (propiedad?.folderId) return propiedad.folderId
 
-      await ensureDriveAccess()
-      if (!rootFolderId.current) {
-        const root = await getOrCreateFolder(ROOT_FOLDER_NAME)
-        rootFolderId.current = root.id
+      try {
+        await ensureDriveAccess()
+        if (!rootFolderId.current) {
+          const root = await getOrCreateFolder(ROOT_FOLDER_NAME)
+          rootFolderId.current = root.id
+        }
+        const folder = await getOrCreateFolder(nombre, rootFolderId.current)
+        const updated = { ...propiedad!, folderId: folder.id }
+        await updatePropiedad(updated)
+        setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
+        return folder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
       }
-      const folder = await getOrCreateFolder(nombre, rootFolderId.current)
-      const updated = { ...propiedad!, folderId: folder.id }
-      await updatePropiedad(updated)
-      setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
-      return folder.id
     },
-    [propiedades, ensureDriveAccess],
+    [propiedades, ensureDriveAccess, showToast],
   )
 
   return (
@@ -266,6 +394,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transacciones,
         ingresosExternos,
         isLoadingData,
+        usingCache,
+        cacheDate,
         login,
         logout,
         refreshData,
