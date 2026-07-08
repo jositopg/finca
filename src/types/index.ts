@@ -221,6 +221,116 @@ export const ESTADO_LABELS: Record<PropiedadEstado, string> = {
   vivienda_habitual: 'Vivienda habitual',
 }
 
+// ─── Estimador de la Renta: cuánto guardar de los alquileres ───────────────────
+// Aproximación, no un cálculo oficial: usa una reducción fija por vivienda
+// habitual del inquilino y un tipo estimado a partir de la retención media
+// de los otros ingresos de Jose, en vez de aplicar los tramos progresivos
+// reales del IRPF (que dependen de comunidad autónoma, mínimos personales,
+// etc. y no se pueden reproducir con garantías aquí).
+
+export interface IngresoExterno {
+  id: string
+  nombre: string
+  importeAnual: number
+  porcentajeRetencion: number // % de IRPF que ya te retienen en origen
+  creadoEn: string
+}
+
+// Categorías de ingreso que cuentan como rendimiento a efectos de IRPF —
+// una fianza no es un ingreso, es un depósito, así que se excluye.
+const CATEGORIAS_RENDIMIENTO: readonly string[] = [
+  'Alquiler mensual',
+  'Electricidad (repercutida)',
+  'Agua (repercutida)',
+  'Otros ingresos',
+]
+
+export interface EstimacionPropiedad {
+  propiedad: Propiedad
+  ingresos: number
+  gastos: number
+  rendimientoNeto: number
+  reducible: boolean
+  rendimientoComputable: number
+}
+
+export interface EstimacionRenta {
+  porPropiedad: EstimacionPropiedad[]
+  rendimientoInmobiliarioTotal: number
+  irpfYaRetenidoLocales: number
+  otrosIngresosTotal: number
+  tipoEstimadoPct: number
+  irpfEstimadoAlquileres: number
+  aGuardar: number
+}
+
+export function estimarAhorroRenta(
+  propiedades: Propiedad[],
+  transacciones: Transaccion[],
+  ingresosExternos: IngresoExterno[],
+  anio: string,
+  reduccionViviendaPct: number,
+): EstimacionRenta {
+  const txsAnio = transacciones.filter((t) => t.fecha.startsWith(anio))
+
+  const porPropiedad: EstimacionPropiedad[] = propiedades.map((p) => {
+    const txs = txsAnio.filter((t) => t.propiedadId === p.id)
+    const esLocal = p.tipo === 'local'
+
+    const ingresos = txs
+      .filter((t) => t.tipo === 'ingreso' && CATEGORIAS_RENDIMIENTO.includes(t.categoria))
+      .reduce((s, t) => {
+        const importe = miParte(t.importe, p)
+        // El importe de alquiler de un local es la renta neta ya cobrada —
+        // a efectos de IRPF cuenta la base imponible, no la neta.
+        return s + (esLocal && t.categoria === 'Alquiler mensual' ? baseDesdeRentaNeta(importe) : importe)
+      }, 0)
+
+    const gastos = txs
+      .filter((t) => t.tipo === 'gasto')
+      .reduce((s, t) => s + miParte(t.importe, p), 0)
+
+    const rendimientoNeto = ingresos - gastos
+    const reducible = p.tipo === 'piso' || p.tipo === 'casa'
+    const rendimientoComputable =
+      reducible && rendimientoNeto > 0
+        ? rendimientoNeto * (1 - reduccionViviendaPct / 100)
+        : rendimientoNeto
+
+    return { propiedad: p, ingresos, gastos, rendimientoNeto, reducible, rendimientoComputable }
+  })
+
+  const rendimientoInmobiliarioTotal = porPropiedad.reduce((s, f) => s + f.rendimientoComputable, 0)
+
+  const irpfYaRetenidoLocales = propiedades
+    .filter((p) => p.tipo === 'local')
+    .reduce((sTotal, p) => {
+      const netaTotal = txsAnio
+        .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
+        .reduce((s, t) => s + miParte(t.importe, p), 0)
+      return sTotal + calcularRentaLocal(baseDesdeRentaNeta(netaTotal)).irpf
+    }, 0)
+
+  const otrosIngresosTotal = ingresosExternos.reduce((s, i) => s + i.importeAnual, 0)
+  const tipoEstimadoPct =
+    otrosIngresosTotal > 0
+      ? ingresosExternos.reduce((s, i) => s + i.importeAnual * i.porcentajeRetencion, 0) / otrosIngresosTotal
+      : 0
+
+  const irpfEstimadoAlquileres = Math.max(0, rendimientoInmobiliarioTotal) * (tipoEstimadoPct / 100)
+  const aGuardar = Math.max(0, irpfEstimadoAlquileres - irpfYaRetenidoLocales)
+
+  return {
+    porPropiedad,
+    rendimientoInmobiliarioTotal,
+    irpfYaRetenidoLocales,
+    otrosIngresosTotal,
+    tipoEstimadoPct,
+    irpfEstimadoAlquileres,
+    aGuardar,
+  }
+}
+
 export const ESTADO_BADGE_VARIANT: Record<
   PropiedadEstado,
   'success' | 'warning' | 'error' | 'outline' | 'default'

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
+import { EstimadorRenta } from '../components/EstimadorRenta'
 import { baseDesdeRentaNeta, calcularRentaLocal, miParte } from '../types'
 
 function fmt(n: number) {
@@ -130,6 +131,11 @@ export function FiscalView() {
             </span>
           </div>
         )}
+      </div>
+
+      {/* Estimador: cuánto guardar de los alquileres */}
+      <div className="px-5 mb-7">
+        <EstimadorRenta propiedades={propiedades} transacciones={transacciones} anio={anio} />
       </div>
 
       {/* Modelo 420 */}

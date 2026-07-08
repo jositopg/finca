@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { ContratoHistorico, Propiedad, Reparto, Transaccion } from '../types'
+import type { ContratoHistorico, IngresoExterno, Propiedad, Reparto, Transaccion } from '../types'
 
 // ─── Row <-> tipo mapping ───────────────────────────────────────────────────
 
@@ -165,5 +165,62 @@ export async function updateTransaccion(transaccion: Transaccion): Promise<void>
 
 export async function deleteTransaccion(transaccionId: string): Promise<void> {
   const { error } = await supabase.from('transacciones').delete().eq('id', transaccionId)
+  if (error) throw error
+}
+
+// ─── Ingresos externos (para el estimador de la Renta) ────────────────────────
+
+interface IngresoExternoRow {
+  id: string
+  nombre: string
+  importe_anual: number | string
+  porcentaje_retencion: number | string
+  creado_en: string
+}
+
+function rowToIngresoExterno(row: IngresoExternoRow): IngresoExterno {
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    importeAnual: Number(row.importe_anual),
+    porcentajeRetencion: Number(row.porcentaje_retencion),
+    creadoEn: row.creado_en,
+  }
+}
+
+export async function getIngresosExternos(): Promise<IngresoExterno[]> {
+  const { data, error } = await supabase
+    .from('ingresos_externos')
+    .select('*')
+    .order('creado_en', { ascending: true })
+  if (error) throw error
+  return (data as IngresoExternoRow[]).map(rowToIngresoExterno)
+}
+
+export async function addIngresoExterno(ingreso: IngresoExterno): Promise<void> {
+  const { error } = await supabase.from('ingresos_externos').insert({
+    id: ingreso.id,
+    nombre: ingreso.nombre,
+    importe_anual: ingreso.importeAnual,
+    porcentaje_retencion: ingreso.porcentajeRetencion,
+    creado_en: ingreso.creadoEn,
+  })
+  if (error) throw error
+}
+
+export async function updateIngresoExterno(ingreso: IngresoExterno): Promise<void> {
+  const { error } = await supabase
+    .from('ingresos_externos')
+    .update({
+      nombre: ingreso.nombre,
+      importe_anual: ingreso.importeAnual,
+      porcentaje_retencion: ingreso.porcentajeRetencion,
+    })
+    .eq('id', ingreso.id)
+  if (error) throw error
+}
+
+export async function deleteIngresoExterno(id: string): Promise<void> {
+  const { error } = await supabase.from('ingresos_externos').delete().eq('id', id)
   if (error) throw error
 }

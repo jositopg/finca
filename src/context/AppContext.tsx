@@ -17,17 +17,21 @@ import {
   signOutSupabase,
 } from '../api/auth'
 import {
+  addIngresoExterno,
   addPropiedad,
   addTransaccion,
+  deleteIngresoExterno,
   deletePropiedad,
   deleteTransaccion,
+  getIngresosExternos,
   getPropiedades,
   getTransacciones,
+  updateIngresoExterno,
   updatePropiedad,
   updateTransaccion,
 } from '../api/db'
 import { getOrCreateFolder } from '../api/drive'
-import type { Propiedad, Transaccion } from '../types'
+import type { IngresoExterno, Propiedad, Transaccion } from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 
@@ -38,6 +42,7 @@ interface AppContextValue {
   driveReady: boolean
   propiedades: Propiedad[]
   transacciones: Transaccion[]
+  ingresosExternos: IngresoExterno[]
   isLoadingData: boolean
   login: () => void
   logout: () => void
@@ -48,6 +53,9 @@ interface AppContextValue {
   addTx: (t: Transaccion) => Promise<void>
   updateTx: (t: Transaccion) => Promise<void>
   deleteTx: (id: string) => Promise<void>
+  addIngreso: (i: IngresoExterno) => Promise<void>
+  updateIngreso: (i: IngresoExterno) => Promise<void>
+  deleteIngreso: (id: string) => Promise<void>
   ensureDriveAccess: () => Promise<void>
   ensurePropFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
@@ -58,6 +66,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [propiedades, setPropiedades] = useState<Propiedad[]>([])
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
+  const [ingresosExternos, setIngresosExternos] = useState<IngresoExterno[]>([])
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [driveReady, setDriveReady] = useState(false)
   const gisReady = useRef(false)
@@ -93,9 +102,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   async function loadData() {
     setIsLoadingData(true)
     try {
-      const [props, txs] = await Promise.all([getPropiedades(), getTransacciones()])
+      const [props, txs, ingresos] = await Promise.all([
+        getPropiedades(),
+        getTransacciones(),
+        getIngresosExternos(),
+      ])
       setPropiedades(props)
       setTransacciones(txs)
+      setIngresosExternos(ingresos)
     } catch (err) {
       console.error('Load data error', err)
     } finally {
@@ -125,6 +139,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAuthState('unauthenticated')
         setPropiedades([])
         setTransacciones([])
+        setIngresosExternos([])
       }
     })
 
@@ -208,6 +223,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTransacciones((prev) => prev.filter((x) => x.id !== id))
   }, [])
 
+  const addIngreso = useCallback(async (i: IngresoExterno) => {
+    await addIngresoExterno(i)
+    setIngresosExternos((prev) => [...prev, i])
+  }, [])
+
+  const updateIngreso = useCallback(async (i: IngresoExterno) => {
+    await updateIngresoExterno(i)
+    setIngresosExternos((prev) => prev.map((x) => (x.id === i.id ? i : x)))
+  }, [])
+
+  const deleteIngreso = useCallback(async (id: string) => {
+    await deleteIngresoExterno(id)
+    setIngresosExternos((prev) => prev.filter((x) => x.id !== id))
+  }, [])
+
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
       const propiedad = propiedades.find((p) => p.id === propiedadId)
@@ -234,6 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         driveReady,
         propiedades,
         transacciones,
+        ingresosExternos,
         isLoadingData,
         login,
         logout,
@@ -244,6 +275,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addTx,
         updateTx,
         deleteTx,
+        addIngreso,
+        updateIngreso,
+        deleteIngreso,
         ensureDriveAccess,
         ensurePropFolder,
       }}
