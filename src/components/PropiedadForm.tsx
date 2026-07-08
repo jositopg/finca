@@ -14,7 +14,7 @@ import { CONCEPTO_LABELS, ESTADO_LABELS, TIPO_LABELS } from '../types'
 
 interface Props {
   initial?: Partial<Propiedad>
-  onSave: (p: Propiedad) => void
+  onSave: (p: Propiedad) => void | Promise<void>
   onCancel: () => void
 }
 
@@ -117,7 +117,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
     return Object.keys(e).length === 0
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (saving) return
     if (!validate()) return
     setSaving(true)
@@ -144,7 +144,14 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       contratoArchivoNombre: initial?.contratoArchivoNombre,
     }
 
-    onSave(propiedad)
+    try {
+      await onSave(propiedad)
+    } catch (err) {
+      console.error('Guardar propiedad error', err)
+      alert('No se pudo guardar la propiedad. Comprueba tu conexión e inténtalo de nuevo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const esAlquiler = estado === 'alquilado'
