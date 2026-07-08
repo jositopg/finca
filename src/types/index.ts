@@ -26,6 +26,14 @@ export interface Propiedad {
   contratoArchivoNombre?: string
   reparto?: Reparto // quién paga agua/luz/basuras/IBI
   historialContratos?: ContratoHistorico[] // alquileres anteriores ya terminados
+  porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
+}
+
+// Aplica el % de propiedad de Jose a un importe — para propiedades a medias,
+// todos los resúmenes de la app muestran ya solo su parte.
+export function miParte(importe: number, propiedad: Pick<Propiedad, 'porcentajePropiedad'>): number {
+  const pct = propiedad.porcentajePropiedad ?? 100
+  return importe * (pct / 100)
 }
 
 // Snapshot de un alquiler ya terminado, guardado al pulsar "Terminar

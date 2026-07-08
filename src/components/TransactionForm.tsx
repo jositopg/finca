@@ -31,7 +31,7 @@ export function TransactionForm({
   onSave,
   onCancel,
 }: Props) {
-  const { ensurePropFolder } = useApp()
+  const { ensurePropFolder, addTx } = useApp()
   const [tipo, setTipo] = useState<TransaccionTipo>(defaultTipo)
   const [propiedadId, setPropiedadId] = useState(
     defaultPropiedadId ?? propiedades[0]?.id ?? '',
@@ -45,6 +45,8 @@ export function TransactionForm({
   const [referencia, setReferencia] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
+  const [savingOtro, setSavingOtro] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -65,34 +67,54 @@ export function TransactionForm({
     return Object.keys(e).length === 0
   }
 
+  async function buildTx(): Promise<Transaccion> {
+    let archivoIds: string[] = []
+    if (pendingFiles.length > 0) {
+      const propiedad = propiedades.find((p) => p.id === propiedadId)!
+      const folderId = await ensurePropFolder(propiedadId, propiedad.nombre)
+      const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
+      archivoIds = uploaded.map((f) => f.id)
+    }
+
+    return {
+      id: uuid(),
+      propiedadId,
+      fecha,
+      tipo,
+      importe: parseFloat(importe.replace(',', '.')),
+      categoria,
+      descripcion,
+      archivos: archivoIds,
+      creadoEn: new Date().toISOString(),
+      referencia: referencia.trim() || undefined,
+    }
+  }
+
   async function handleSubmit() {
     if (!validate()) return
     setUploading(true)
     try {
-      let archivoIds: string[] = []
-      if (pendingFiles.length > 0) {
-        const propiedad = propiedades.find((p) => p.id === propiedadId)!
-        const folderId = await ensurePropFolder(propiedadId, propiedad.nombre)
-        const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
-        archivoIds = uploaded.map((f) => f.id)
-      }
-
-      const tx: Transaccion = {
-        id: uuid(),
-        propiedadId,
-        fecha,
-        tipo,
-        importe: parseFloat(importe.replace(',', '.')),
-        categoria,
-        descripcion,
-        archivos: archivoIds,
-        creadoEn: new Date().toISOString(),
-        referencia: referencia.trim() || undefined,
-      }
-
-      onSave(tx)
+      onSave(await buildTx())
     } finally {
       setUploading(false)
+    }
+  }
+
+  // Guarda sin cerrar el formulario — mantiene propiedad/categoría/fecha
+  // puestas para poder meter varios movimientos seguidos rápido.
+  async function handleSubmitAndContinue() {
+    if (!validate()) return
+    setSavingOtro(true)
+    try {
+      await addTx(await buildTx())
+      setImporte('')
+      setDescripcion('')
+      setReferencia('')
+      setPendingFiles([])
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 1500)
+    } finally {
+      setSavingOtro(false)
     }
   }
 
@@ -248,11 +270,26 @@ export function TransactionForm({
         />
       </div>
 
+      {justSaved && (
+        <p className="text-xs text-success text-center">
+          Guardado — puedes seguir añadiendo movimientos
+        </p>
+      )}
+
+      <Button
+        variant="secondary"
+        fullWidth
+        onClick={handleSubmitAndContinue}
+        disabled={uploading || savingOtro}
+      >
+        {savingOtro ? 'Guardando...' : 'Guardar y añadir otro'}
+      </Button>
+
       <div className="flex gap-3 pt-2">
         <Button variant="secondary" fullWidth onClick={onCancel}>
           Cancelar
         </Button>
-        <Button fullWidth onClick={handleSubmit} disabled={uploading}>
+        <Button fullWidth onClick={handleSubmit} disabled={uploading || savingOtro}>
           {uploading ? 'Guardando...' : 'Guardar'}
         </Button>
       </div>

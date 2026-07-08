@@ -1,6 +1,6 @@
-import { Building2, LayoutDashboard, Receipt } from 'lucide-react'
+import { Building2, LayoutDashboard, Landmark, Receipt } from 'lucide-react'
 
-export type View = 'dashboard' | 'propiedades' | 'transacciones'
+export type View = 'dashboard' | 'propiedades' | 'transacciones' | 'fiscal'
 
 interface Props {
   current: View
@@ -11,6 +11,7 @@ const items: { id: View; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Inicio', Icon: LayoutDashboard },
   { id: 'propiedades', label: 'Propiedades', Icon: Building2 },
   { id: 'transacciones', label: 'Movimientos', Icon: Receipt },
+  { id: 'fiscal', label: 'Fiscal', Icon: Landmark },
 ]
 
 export function Nav({ current, onChange }: Props) {

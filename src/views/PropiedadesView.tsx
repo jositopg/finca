@@ -27,6 +27,7 @@ import {
   calcularReparto,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
+  miParte,
   TIPO_LABELS,
   type Propiedad,
   type Transaccion,
@@ -73,14 +74,18 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
   const [anio, setAnio] = useState(years[0])
 
   const txsAnio = txs.filter((t) => t.fecha.startsWith(anio))
-  const ingresos = txsAnio.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
-  const gastos = txsAnio.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+  const ingresos = txsAnio
+    .filter((t) => t.tipo === 'ingreso')
+    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+  const gastos = txsAnio
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
 
-  // Group gastos by category
+  // Group gastos by category (ya en tu parte)
   const porCategoria = txsAnio
     .filter((t) => t.tipo === 'gasto')
     .reduce<Record<string, number>>((acc, t) => {
-      acc[t.categoria] = (acc[t.categoria] ?? 0) + t.importe
+      acc[t.categoria] = (acc[t.categoria] ?? 0) + miParte(t.importe, propiedad)
       return acc
     }, {})
 
@@ -90,7 +95,7 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
     .filter((t) => t.tipo === 'gasto')
     .reduce((s, t) => {
       const r = calcularReparto(t.categoria, t.importe, propiedad.reparto)
-      return s + (r?.inquilino ?? 0)
+      return s + miParte(r?.inquilino ?? 0, propiedad)
     }, 0)
 
   return (
@@ -111,6 +116,12 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
           </button>
         ))}
       </div>
+
+      {propiedad.porcentajePropiedad != null && propiedad.porcentajePropiedad < 100 && (
+        <p className="text-xs text-outline-variant -mb-2">
+          Cifras ya calculadas a tu {propiedad.porcentajePropiedad}% de la propiedad
+        </p>
+      )}
 
       {/* Totals */}
       <div className="flex gap-3">
@@ -203,8 +214,12 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const txsFiltradas = filterMes ? txs.filter((t) => t.fecha.startsWith(filterMes)) : txs
 
-    const ingresos = txsFiltradas.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
-    const gastos = txsFiltradas.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+    const ingresos = txsFiltradas
+      .filter((t) => t.tipo === 'ingreso')
+      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    const gastos = txsFiltradas
+      .filter((t) => t.tipo === 'gasto')
+      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
 
     const meses = [...new Set(txs.map((t) => t.fecha.slice(0, 7)))].sort().reverse()
     const currentMonth = format(new Date(), 'yyyy-MM')
@@ -263,6 +278,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
             />
             <Badge label={TIPO_LABELS[propiedad.tipo]} />
+            {propiedad.porcentajePropiedad != null && propiedad.porcentajePropiedad < 100 && (
+              <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
+            )}
           </div>
         </div>
 
@@ -550,8 +568,12 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               const txsAnio = transacciones.filter(
                 (t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio),
               )
-              const ingresos = txsAnio.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
-              const gastos = txsAnio.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+              const ingresos = txsAnio
+                .filter((t) => t.tipo === 'ingreso')
+                .reduce((s, t) => s + miParte(t.importe, p), 0)
+              const gastos = txsAnio
+                .filter((t) => t.tipo === 'gasto')
+                .reduce((s, t) => s + miParte(t.importe, p), 0)
               const estadoContratoP = contratoEstado(p.contratoFin)
               const alertaContrato = estadoContratoP?.alerta ?? false
 
@@ -579,6 +601,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                         label={ESTADO_LABELS[p.estado]}
                         variant={ESTADO_BADGE_VARIANT[p.estado]}
                       />
+                      {p.porcentajePropiedad != null && p.porcentajePropiedad < 100 && (
+                        <span className="text-xs text-outline-variant">{p.porcentajePropiedad}% tuyo</span>
+                      )}
                       {alertaContrato && estadoContratoP && (
                         <span className="text-xs text-warning font-medium flex items-center gap-1 text-right">
                           <AlertTriangle size={11} className="flex-shrink-0" />

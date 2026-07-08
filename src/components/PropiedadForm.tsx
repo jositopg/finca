@@ -102,6 +102,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   )
   const [contratoInicio, setContratoInicio] = useState(initial?.contratoInicio ?? '')
   const [contratoFin, setContratoFin] = useState(initial?.contratoFin ?? '')
+  const [porcentajePropiedad, setPorcentajePropiedad] = useState(
+    initial?.porcentajePropiedad != null ? initial.porcentajePropiedad.toString() : '',
+  )
   const [notas, setNotas] = useState(initial?.notas ?? '')
   const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -131,6 +134,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
       contratoInicio: contratoInicio || undefined,
       contratoFin: contratoFin || undefined,
+      porcentajePropiedad: porcentajePropiedad
+        ? parseFloat(porcentajePropiedad.replace(',', '.'))
+        : undefined,
       notas: notas.trim() || undefined,
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
       historialContratos: initial?.historialContratos,
@@ -188,6 +194,15 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
           </Select>
         </div>
       </div>
+
+      <Input
+        label="% de la propiedad que es tuyo (opcional, 100% si no lo rellenas)"
+        type="text"
+        inputMode="decimal"
+        placeholder="100"
+        value={porcentajePropiedad}
+        onChange={(e) => setPorcentajePropiedad(e.target.value)}
+      />
 
       {/* Inquilino — solo si está alquilado */}
       {esAlquiler && (

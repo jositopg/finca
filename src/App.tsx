@@ -4,6 +4,7 @@ import { LoginView } from './views/LoginView'
 import { DashboardView } from './views/DashboardView'
 import { PropiedadesView } from './views/PropiedadesView'
 import { TransaccionesView } from './views/TransaccionesView'
+import { FiscalView } from './views/FiscalView'
 import { Nav, type View } from './components/Nav'
 import { Building2 } from 'lucide-react'
 
@@ -27,7 +28,7 @@ function Shell() {
     return <LoginView />
   }
 
-  if (isLoadingData && !['dashboard', 'propiedades', 'transacciones'].includes(view)) {
+  if (isLoadingData && !['dashboard', 'propiedades', 'transacciones', 'fiscal'].includes(view)) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm text-outline-variant">Cargando datos...</p>
@@ -52,6 +53,7 @@ function Shell() {
         />
       )}
       {view === 'transacciones' && <TransaccionesView />}
+      {view === 'fiscal' && <FiscalView />}
 
       <Nav
         current={view}
