@@ -27,6 +27,77 @@ export interface Propiedad {
   reparto?: Reparto // quién paga agua/luz/basuras/IBI
   historialContratos?: ContratoHistorico[] // alquileres anteriores ya terminados
   porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
+  gastosRecurrentes?: GastoRecurrente[] // gastos fijos que se repiten cada mes (comunidad, etc.)
+}
+
+// Gasto fijo mensual (comunidad, etc.) — el día 1 de cada mes, desde
+// creadoEn en adelante, se genera solo como transacción si aún no existe
+// una de esa categoría ese mes para la propiedad.
+export interface GastoRecurrente {
+  id: string
+  categoria: string
+  importe: number
+  descripcion?: string
+  creadoEn: string // YYYY-MM-DD — mes desde el que empieza a generarse
+}
+
+function mesesEntre(desdeYYYYMM: string, hastaYYYYMM: string): string[] {
+  const meses: string[] = []
+  let [y, m] = desdeYYYYMM.split('-').map(Number)
+  const [yHasta, mHasta] = hastaYYYYMM.split('-').map(Number)
+  while (y < yHasta || (y === yHasta && m <= mHasta)) {
+    meses.push(`${y}-${String(m).padStart(2, '0')}`)
+    m++
+    if (m > 12) {
+      m = 1
+      y++
+    }
+  }
+  return meses
+}
+
+// Calcula qué gastos recurrentes faltan por generar (desde el mes en que se
+// configuró cada uno hasta el mes actual) y que aún no existen como
+// transacción — para crearlos automáticamente sin que haya que darlos de
+// alta a mano cada mes.
+export function generarGastosPendientes(
+  propiedades: Propiedad[],
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): Transaccion[] {
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const nuevas: Transaccion[] = []
+
+  for (const p of propiedades) {
+    for (const g of p.gastosRecurrentes ?? []) {
+      const mesInicio = g.creadoEn.slice(0, 7)
+      if (mesInicio > mesActual) continue
+      for (const mes of mesesEntre(mesInicio, mesActual)) {
+        const yaExiste =
+          transacciones.some(
+            (t) => t.propiedadId === p.id && t.categoria === g.categoria && t.fecha.startsWith(mes),
+          ) ||
+          nuevas.some(
+            (t) => t.propiedadId === p.id && t.categoria === g.categoria && t.fecha.startsWith(mes),
+          )
+        if (!yaExiste) {
+          nuevas.push({
+            id: crypto.randomUUID(),
+            propiedadId: p.id,
+            fecha: `${mes}-01`,
+            tipo: 'gasto',
+            importe: g.importe,
+            categoria: g.categoria,
+            descripcion: g.descripcion || 'Gasto fijo mensual',
+            archivos: [],
+            creadoEn: new Date().toISOString(),
+          })
+        }
+      }
+    }
+  }
+
+  return nuevas
 }
 
 // Aplica el % de propiedad de Jose a un importe — para propiedades a medias,

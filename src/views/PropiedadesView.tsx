@@ -8,6 +8,7 @@ import {
   BarChart2,
   Trash2,
   User,
+  UserPlus,
 } from 'lucide-react'
 import { format, differenceInDays, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -224,6 +225,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const meses = [...new Set(txs.map((t) => t.fecha.slice(0, 7)))].sort().reverse()
     const currentMonth = format(new Date(), 'yyyy-MM')
+    const currentYearStr = format(new Date(), 'yyyy')
     if (!meses.includes(currentMonth)) meses.unshift(currentMonth)
 
     const grupos = groupByMonth(txsFiltradas)
@@ -339,6 +341,30 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </div>
           </div>
         )}
+
+        {/* Iniciar nuevo alquiler — propiedades vacías que ya tuvieron
+            inquilino este año */}
+        {propiedad.estado === 'vacio' &&
+          propiedad.historialContratos?.some((c) => c.fechaFin.startsWith(currentYearStr)) && (
+            <div className="px-5 mb-4">
+              <button
+                onClick={() =>
+                  setEditProp({
+                    ...propiedad,
+                    estado: 'alquilado',
+                    inquilinoNombre: undefined,
+                    alquilerMensual: undefined,
+                    contratoInicio: undefined,
+                    contratoFin: undefined,
+                  })
+                }
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary-container text-primary text-sm font-semibold hover:brightness-95 transition-all"
+              >
+                <UserPlus size={16} />
+                Iniciar nuevo alquiler
+              </button>
+            </div>
+          )}
 
         {/* Contrato de alquiler */}
         {propiedad.estado === 'alquilado' && (

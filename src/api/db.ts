@@ -1,5 +1,12 @@
 import { supabase } from './supabase'
-import type { ContratoHistorico, IngresoExterno, Propiedad, Reparto, Transaccion } from '../types'
+import type {
+  ContratoHistorico,
+  GastoRecurrente,
+  IngresoExterno,
+  Propiedad,
+  Reparto,
+  Transaccion,
+} from '../types'
 
 // ─── Row <-> tipo mapping ───────────────────────────────────────────────────
 
@@ -21,6 +28,7 @@ interface PropiedadRow {
   reparto: Reparto | null
   historial_contratos: ContratoHistorico[] | null
   porcentaje_propiedad: number | string | null
+  gastos_recurrentes: GastoRecurrente[] | null
 }
 
 interface TransaccionRow {
@@ -55,6 +63,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     reparto: row.reparto ?? undefined,
     historialContratos: row.historial_contratos ?? undefined,
     porcentajePropiedad: row.porcentaje_propiedad != null ? Number(row.porcentaje_propiedad) : undefined,
+    gastosRecurrentes: row.gastos_recurrentes ?? undefined,
   }
 }
 
@@ -77,6 +86,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     reparto: p.reparto ?? null,
     historial_contratos: p.historialContratos ?? null,
     porcentaje_propiedad: p.porcentajePropiedad ?? null,
+    gastos_recurrentes: p.gastosRecurrentes ?? null,
   }
 }
 

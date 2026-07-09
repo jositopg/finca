@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Button } from './Button'
 import { Input, Select, Textarea } from './Input'
 import type {
   ConceptoReparto,
+  GastoRecurrente,
   Propiedad,
   PropiedadEstado,
   PropiedadTipo,
@@ -10,7 +12,11 @@ import type {
   RepartoConcepto,
   SuministroModo,
 } from '../types'
-import { CONCEPTO_LABELS, ESTADO_LABELS, TIPO_LABELS } from '../types'
+import { CATEGORIAS_GASTO, CONCEPTO_LABELS, ESTADO_LABELS, TIPO_LABELS } from '../types'
+
+function fmt(n: number) {
+  return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 interface Props {
   initial?: Partial<Propiedad>
@@ -91,6 +97,124 @@ function RepartoRow({
   )
 }
 
+function uuidGasto() {
+  return crypto.randomUUID()
+}
+
+function GastosRecurrentesSection({
+  gastos,
+  onChange,
+}: {
+  gastos: GastoRecurrente[]
+  onChange: (g: GastoRecurrente[]) => void
+}) {
+  const [showAdd, setShowAdd] = useState(false)
+  const [categoria, setCategoria] = useState<string>(CATEGORIAS_GASTO[0])
+  const [importeStr, setImporteStr] = useState('')
+  const [descripcion, setDescripcion] = useState('')
+
+  function handleAdd() {
+    const importe = parseFloat(importeStr.replace(',', '.'))
+    if (!importe || importe <= 0) return
+    onChange([
+      ...gastos,
+      {
+        id: uuidGasto(),
+        categoria,
+        importe,
+        descripcion: descripcion.trim() || undefined,
+        creadoEn: new Date().toISOString().slice(0, 10),
+      },
+    ])
+    setImporteStr('')
+    setDescripcion('')
+    setShowAdd(false)
+  }
+
+  function handleRemove(id: string) {
+    onChange(gastos.filter((g) => g.id !== id))
+  }
+
+  return (
+    <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
+      <div className="-mb-1 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+            Gastos fijos mensuales
+          </p>
+          <p className="text-xs text-outline-variant mt-0.5">
+            Se generan solos el día 1 de cada mes (comunidad, etc.), sin darlos de alta a mano
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAdd((v) => !v)}
+          className="flex items-center gap-1 text-xs text-primary font-medium flex-shrink-0"
+        >
+          <Plus size={14} />
+          Añadir
+        </button>
+      </div>
+
+      {gastos.map((g) => (
+        <div
+          key={g.id}
+          className="flex items-center justify-between bg-surface-lowest rounded-lg px-3 py-2.5"
+        >
+          <div className="min-w-0">
+            <p className="text-sm text-on-surface truncate">{g.categoria}</p>
+            <p className="text-xs text-outline-variant">
+              {fmt(g.importe)} €/mes{g.descripcion ? ` · ${g.descripcion}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleRemove(g.id)}
+            className="text-outline-variant hover:text-error flex-shrink-0"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+
+      {showAdd && (
+        <div className="flex flex-col gap-3">
+          <Select label="Categoría" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+            {CATEGORIAS_GASTO.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                label="Importe mensual (€)"
+                type="text"
+                inputMode="decimal"
+                placeholder="50"
+                value={importeStr}
+                onChange={(e) => setImporteStr(e.target.value)}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Descripción (opcional)"
+                placeholder="Comunidad"
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+              />
+            </div>
+          </div>
+          <Button type="button" fullWidth onClick={handleAdd}>
+            Añadir gasto fijo
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [direccion, setDireccion] = useState(initial?.direccion ?? '')
@@ -107,6 +231,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   )
   const [notas, setNotas] = useState(initial?.notas ?? '')
   const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
+  const [gastosRecurrentes, setGastosRecurrentes] = useState<GastoRecurrente[]>(
+    initial?.gastosRecurrentes ?? [],
+  )
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -139,6 +266,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         : undefined,
       notas: notas.trim() || undefined,
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
+      gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
       historialContratos: initial?.historialContratos,
       contratoArchivoId: initial?.contratoArchivoId,
       contratoArchivoNombre: initial?.contratoArchivoNombre,
@@ -293,6 +421,8 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
           />
         </div>
       )}
+
+      <GastosRecurrentesSection gastos={gastosRecurrentes} onChange={setGastosRecurrentes} />
 
       <Textarea
         label="Notas (opcional)"

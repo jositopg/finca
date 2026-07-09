@@ -32,7 +32,7 @@ import {
 } from '../api/db'
 import { getOrCreateFolder } from '../api/drive'
 import { useToast } from './ToastContext'
-import type { IngresoExterno, Propiedad, Transaccion } from '../types'
+import { generarGastosPendientes, type IngresoExterno, type Propiedad, type Transaccion } from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 
@@ -138,12 +138,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         getTransacciones(),
         getIngresosExternos(),
       ])
+
+      let txsFinal = txs
+      try {
+        const pendientes = generarGastosPendientes(props, txs)
+        if (pendientes.length > 0) {
+          await Promise.all(pendientes.map((t) => addTransaccion(t)))
+          txsFinal = [...txs, ...pendientes]
+          showToast(
+            pendientes.length === 1
+              ? 'Se ha añadido 1 gasto fijo automáticamente'
+              : `Se han añadido ${pendientes.length} gastos fijos automáticamente`,
+            'success',
+          )
+        }
+      } catch (genErr) {
+        console.error('Generar gastos recurrentes error', genErr)
+      }
+
       setPropiedades(props)
-      setTransacciones(txs)
+      setTransacciones(txsFinal)
       setIngresosExternos(ingresos)
       setUsingCache(false)
       setCacheDate(null)
-      saveCache({ propiedades: props, transacciones: txs, ingresosExternos: ingresos })
+      saveCache({ propiedades: props, transacciones: txsFinal, ingresosExternos: ingresos })
     } catch (err) {
       console.error('Load data error', err)
       const cached = loadCache()
