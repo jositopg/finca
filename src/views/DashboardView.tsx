@@ -18,7 +18,14 @@ import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
-import { ESTADO_BADGE_VARIANT, ESTADO_LABELS, miParte, TIPO_LABELS, type Propiedad } from '../types'
+import {
+  esDeJose,
+  ESTADO_BADGE_VARIANT,
+  ESTADO_LABELS,
+  miParte,
+  TIPO_LABELS,
+  type Propiedad,
+} from '../types'
 import type { View } from '../components/Nav'
 
 interface Props {
@@ -41,27 +48,30 @@ export function DashboardView({ onNavigate }: Props) {
   const currentMonth = format(now, 'yyyy-MM')
   const currentYear = format(now, 'yyyy')
 
-  const propiedadPorId = new Map(propiedades.map((p) => [p.id, p]))
-  function miImporte(t: { propiedadId: string; importe: number }): number {
+  // Totales personales: solo propiedades que son de Jose, no las que
+  // gestiona por cuenta de otros.
+  const propiedadesJose = propiedades.filter(esDeJose)
+  const propiedadPorId = new Map(propiedadesJose.map((p) => [p.id, p]))
+  function miImporte(t: { propiedadId: string; importe: number }): number | null {
     const p = propiedadPorId.get(t.propiedadId)
-    return p ? miParte(t.importe, p) : t.importe
+    return p ? miParte(t.importe, p) : null
   }
 
   const ingresosMes = transacciones
     .filter((t) => t.tipo === 'ingreso' && t.fecha.startsWith(currentMonth))
-    .reduce((s, t) => s + miImporte(t), 0)
+    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
 
   const gastosMes = transacciones
     .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentMonth))
-    .reduce((s, t) => s + miImporte(t), 0)
+    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
 
   const ingresosAnio = transacciones
     .filter((t) => t.tipo === 'ingreso' && t.fecha.startsWith(currentYear))
-    .reduce((s, t) => s + miImporte(t), 0)
+    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
 
   const gastosAnio = transacciones
     .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentYear))
-    .reduce((s, t) => s + miImporte(t), 0)
+    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
 
   // Quick stats
   const alquiladas = propiedades.filter((p) => p.estado === 'alquilado').length
@@ -225,7 +235,7 @@ export function DashboardView({ onNavigate }: Props) {
 
       {/* Year over year trend */}
       <div className="px-5 mb-5">
-        <EvolucionAnual propiedades={propiedades} transacciones={transacciones} />
+        <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
       </div>
 
       {/* Properties */}
@@ -343,8 +353,13 @@ function PropiedadCard({
             label={ESTADO_LABELS[propiedad.estado]}
             variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
           />
-          {propiedad.porcentajePropiedad != null && propiedad.porcentajePropiedad < 100 && (
-            <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
+          {propiedad.propietarioNombre ? (
+            <Badge label={`De ${propiedad.propietarioNombre}`} variant="warning" />
+          ) : (
+            propiedad.porcentajePropiedad != null &&
+            propiedad.porcentajePropiedad < 100 && (
+              <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
+            )
           )}
         </div>
       </div>

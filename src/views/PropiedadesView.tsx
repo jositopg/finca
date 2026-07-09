@@ -301,8 +301,13 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
             />
             <Badge label={TIPO_LABELS[propiedad.tipo]} />
-            {propiedad.porcentajePropiedad != null && propiedad.porcentajePropiedad < 100 && (
-              <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
+            {propiedad.propietarioNombre ? (
+              <Badge label={`De ${propiedad.propietarioNombre}`} variant="warning" />
+            ) : (
+              propiedad.porcentajePropiedad != null &&
+              propiedad.porcentajePropiedad < 100 && (
+                <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
+              )
             )}
           </div>
         </div>
@@ -712,8 +717,13 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                         label={ESTADO_LABELS[p.estado]}
                         variant={ESTADO_BADGE_VARIANT[p.estado]}
                       />
-                      {p.porcentajePropiedad != null && p.porcentajePropiedad < 100 && (
-                        <span className="text-xs text-outline-variant">{p.porcentajePropiedad}% tuyo</span>
+                      {p.propietarioNombre ? (
+                        <span className="text-xs text-warning font-medium">De {p.propietarioNombre}</span>
+                      ) : (
+                        p.porcentajePropiedad != null &&
+                        p.porcentajePropiedad < 100 && (
+                          <span className="text-xs text-outline-variant">{p.porcentajePropiedad}% tuyo</span>
+                        )
                       )}
                       {alertaContrato && estadoContratoP && (
                         <span className="text-xs text-warning font-medium flex items-center gap-1 text-right">

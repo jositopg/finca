@@ -36,6 +36,7 @@ interface PropiedadRow {
   municipio: string | null
   valor_referencia: number | string | null
   valor_mercado: number | string | null
+  propietario_nombre: string | null
 }
 
 interface TransaccionRow {
@@ -78,6 +79,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     municipio: row.municipio ?? undefined,
     valorReferencia: row.valor_referencia != null ? Number(row.valor_referencia) : undefined,
     valorMercado: row.valor_mercado != null ? Number(row.valor_mercado) : undefined,
+    propietarioNombre: row.propietario_nombre ?? undefined,
   }
 }
 
@@ -108,6 +110,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     municipio: p.municipio ?? null,
     valor_referencia: p.valorReferencia ?? null,
     valor_mercado: p.valorMercado ?? null,
+    propietario_nombre: p.propietarioNombre ?? null,
   }
 }
 

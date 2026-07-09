@@ -35,6 +35,13 @@ export interface Propiedad {
   municipio?: string
   valorReferencia?: number // valor de referencia del Catastro (uso fiscal)
   valorMercado?: number // estimación de valor de mercado, para calcular rentabilidad
+  propietarioNombre?: string // si Jose solo la gestiona pero es de otra persona (p.ej. "Martín")
+}
+
+// Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
+// gestiona por cuenta de otros de sus totales y cálculos fiscales personales.
+export function esDeJose(propiedad: Pick<Propiedad, 'propietarioNombre'>): boolean {
+  return !propiedad.propietarioNombre
 }
 
 export interface Rentabilidad {

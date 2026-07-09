@@ -226,6 +226,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [valorMercado, setValorMercado] = useState(
     initial?.valorMercado != null ? initial.valorMercado.toString() : '',
   )
+  const [propietarioNombre, setPropietarioNombre] = useState(initial?.propietarioNombre ?? '')
   const [tipo, setTipo] = useState<PropiedadTipo>(initial?.tipo ?? 'piso')
   const [estado, setEstado] = useState<PropiedadEstado>(initial?.estado ?? 'alquilado')
   const [inquilinoNombre, setInquilinoNombre] = useState(initial?.inquilinoNombre ?? '')
@@ -268,6 +269,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       referenciaCatastral: referenciaCatastral.trim() || undefined,
       valorReferencia: valorReferencia ? parseFloat(valorReferencia.replace(',', '.')) : undefined,
       valorMercado: valorMercado ? parseFloat(valorMercado.replace(',', '.')) : undefined,
+      propietarioNombre: propietarioNombre.trim() || undefined,
       tipo,
       estado,
       folderId: initial?.folderId ?? '',
@@ -326,6 +328,19 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         value={municipio}
         onChange={(e) => setMunicipio(e.target.value)}
       />
+
+      <Input
+        label="Propietario (opcional, déjalo vacío si es tuya)"
+        placeholder="Martín"
+        value={propietarioNombre}
+        onChange={(e) => setPropietarioNombre(e.target.value)}
+      />
+      {propietarioNombre.trim() && (
+        <p className="text-xs text-outline-variant -mt-3">
+          Gestionas esta propiedad para {propietarioNombre.trim()} — no contará en tu Dashboard ni
+          en tu Renta, pero puedes seguir llevando sus ingresos y gastos aquí
+        </p>
+      )}
 
       <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
         <div className="-mb-1">
