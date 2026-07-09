@@ -223,16 +223,53 @@ export const ESTADO_LABELS: Record<PropiedadEstado, string> = {
 
 // ─── Estimador de la Renta: cuánto guardar de los alquileres ───────────────────
 // Aproximación, no un cálculo oficial: usa una reducción fija por vivienda
-// habitual del inquilino y un tipo estimado a partir de la retención media
-// de los otros ingresos de Jose, en vez de aplicar los tramos progresivos
-// reales del IRPF (que dependen de comunidad autónoma, mínimos personales,
-// etc. y no se pueden reproducir con garantías aquí).
+// habitual del inquilino y aplica los tramos progresivos del IRPF sobre la
+// suma de todos los ingresos (rendimiento inmobiliario + otros ingresos).
+// Los tramos son una escala combinada aproximada (estatal + autonómica
+// genérica) — pueden no coincidir exactamente con los de tu comunidad
+// autónoma o el año fiscal en curso.
+
+export interface TramoIRPF {
+  hasta: number // límite superior del tramo — Infinity en el último
+  tipo: number // % marginal aplicable a la parte de base dentro de este tramo
+}
+
+export const TRAMOS_IRPF_APROX: TramoIRPF[] = [
+  { hasta: 12450, tipo: 19 },
+  { hasta: 20200, tipo: 24 },
+  { hasta: 35200, tipo: 30 },
+  { hasta: 60000, tipo: 37 },
+  { hasta: 300000, tipo: 45 },
+  { hasta: Infinity, tipo: 47 },
+]
+
+// Cuota íntegra progresiva: cada tramo de la base tributa a su propio tipo,
+// no toda la base al tipo del tramo más alto.
+export function cuotaIRPF(baseImponible: number, tramos: TramoIRPF[] = TRAMOS_IRPF_APROX): number {
+  let cuota = 0
+  let limiteAnterior = 0
+  for (const tramo of tramos) {
+    if (baseImponible <= limiteAnterior) break
+    const baseTramo = Math.min(baseImponible, tramo.hasta) - limiteAnterior
+    cuota += baseTramo * (tramo.tipo / 100)
+    limiteAnterior = tramo.hasta
+  }
+  return cuota
+}
+
+// Tipo marginal (el tramo más alto que se alcanza) para una base dada.
+export function tipoMarginalIRPF(baseImponible: number, tramos: TramoIRPF[] = TRAMOS_IRPF_APROX): number {
+  for (const tramo of tramos) {
+    if (baseImponible <= tramo.hasta) return tramo.tipo
+  }
+  return tramos[tramos.length - 1]?.tipo ?? 0
+}
 
 export interface IngresoExterno {
   id: string
   nombre: string
   importeAnual: number
-  porcentajeRetencion: number // % de IRPF que ya te retienen en origen
+  porcentajeRetencion: number // % de IRPF que ya te retienen en origen (informativo)
   creadoEn: string
 }
 
@@ -259,7 +296,10 @@ export interface EstimacionRenta {
   rendimientoInmobiliarioTotal: number
   irpfYaRetenidoLocales: number
   otrosIngresosTotal: number
-  tipoEstimadoPct: number
+  baseImponibleTotal: number
+  cuotaSoloOtrosIngresos: number
+  cuotaConAlquileres: number
+  tipoMarginalPct: number
   irpfEstimadoAlquileres: number
   aGuardar: number
 }
@@ -312,12 +352,18 @@ export function estimarAhorroRenta(
     }, 0)
 
   const otrosIngresosTotal = ingresosExternos.reduce((s, i) => s + i.importeAnual, 0)
-  const tipoEstimadoPct =
-    otrosIngresosTotal > 0
-      ? ingresosExternos.reduce((s, i) => s + i.importeAnual * i.porcentajeRetencion, 0) / otrosIngresosTotal
-      : 0
 
-  const irpfEstimadoAlquileres = Math.max(0, rendimientoInmobiliarioTotal) * (tipoEstimadoPct / 100)
+  // El alquiler se suma "encima" de los demás ingresos: la base general es
+  // progresiva y única, así que el impuesto que genera el alquiler es la
+  // diferencia entre la cuota con todo sumado y la cuota que ya generarían
+  // solo los otros ingresos por su cuenta.
+  const rendimientoPositivo = Math.max(0, rendimientoInmobiliarioTotal)
+  const baseImponibleTotal = otrosIngresosTotal + rendimientoPositivo
+  const cuotaSoloOtrosIngresos = cuotaIRPF(otrosIngresosTotal)
+  const cuotaConAlquileres = cuotaIRPF(baseImponibleTotal)
+  const tipoMarginalPct = tipoMarginalIRPF(baseImponibleTotal)
+
+  const irpfEstimadoAlquileres = Math.max(0, cuotaConAlquileres - cuotaSoloOtrosIngresos)
   const aGuardar = Math.max(0, irpfEstimadoAlquileres - irpfYaRetenidoLocales)
 
   return {
@@ -325,7 +371,10 @@ export function estimarAhorroRenta(
     rendimientoInmobiliarioTotal,
     irpfYaRetenidoLocales,
     otrosIngresosTotal,
-    tipoEstimadoPct,
+    baseImponibleTotal,
+    cuotaSoloOtrosIngresos,
+    cuotaConAlquileres,
+    tipoMarginalPct,
     irpfEstimadoAlquileres,
     aGuardar,
   }

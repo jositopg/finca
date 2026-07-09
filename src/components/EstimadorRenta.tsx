@@ -60,8 +60,9 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
         </p>
         <p className="text-xs text-outline-variant">
           Aproximación de lo que te puede salir a pagar en la Renta {anio} por tus alquileres, para
-          que lo tengas reservado — no sustituye el cálculo real de tu gestoría (los tramos de IRPF
-          reales dependen de tu situación completa).
+          que lo tengas reservado. Aplica los tramos progresivos del IRPF (escala combinada
+          aproximada, puede no coincidir exactamente con tu comunidad autónoma) sobre la suma de
+          todos tus ingresos — no sustituye el cálculo real de tu gestoría.
         </p>
       </div>
 
@@ -82,8 +83,8 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
 
         {ingresosExternos.length === 0 && !showAdd && (
           <p className="text-xs text-outline-variant">
-            Añade tu nómina u otros ingresos y el % de IRPF que ya te retienen, para estimar mejor
-            el tipo que se aplicará a tus alquileres.
+            Añade tu nómina u otros ingresos — se suman a lo que rinden los alquileres para calcular
+            en qué tramo de IRPF cae cada euro adicional.
           </p>
         )}
 
@@ -128,7 +129,7 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
               </div>
               <div className="flex-1">
                 <Input
-                  label="% IRPF ya retenido"
+                  label="% IRPF ya retenido (informativo)"
                   type="text"
                   inputMode="decimal"
                   placeholder="15"
@@ -162,11 +163,27 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
           </span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">Tipo estimado (retención media de tus otros ingresos)</span>
-          <span className="tabular-nums text-on-surface">{estimacion.tipoEstimadoPct.toFixed(1)}%</span>
+          <span className="text-outline-variant">Otros ingresos</span>
+          <span className="tabular-nums text-on-surface">{fmt(estimacion.otrosIngresosTotal)} €</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">IRPF estimado sobre los alquileres</span>
+          <span className="text-outline-variant">Base imponible total (suma de todo)</span>
+          <span className="tabular-nums text-on-surface">{fmt(estimacion.baseImponibleTotal)} €</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-outline-variant">Tramo marginal alcanzado</span>
+          <span className="tabular-nums text-on-surface">{estimacion.tipoMarginalPct}%</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-outline-variant">Cuota solo con tus otros ingresos</span>
+          <span className="tabular-nums text-on-surface">{fmt(estimacion.cuotaSoloOtrosIngresos)} €</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-outline-variant">Cuota sumando los alquileres</span>
+          <span className="tabular-nums text-on-surface">{fmt(estimacion.cuotaConAlquileres)} €</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-outline-variant">IRPF que generan los alquileres</span>
           <span className="tabular-nums text-on-surface">{fmt(estimacion.irpfEstimadoAlquileres)} €</span>
         </div>
         <div className="flex items-center justify-between text-xs">
