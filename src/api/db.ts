@@ -19,6 +19,9 @@ interface PropiedadRow {
   folder_id: string
   creado_en: string
   inquilino_nombre: string | null
+  inquilino_email: string | null
+  inquilino_telefono: string | null
+  inquilino_dni: string | null
   alquiler_mensual: number | string | null
   contrato_inicio: string | null
   contrato_fin: string | null
@@ -29,6 +32,10 @@ interface PropiedadRow {
   historial_contratos: ContratoHistorico[] | null
   porcentaje_propiedad: number | string | null
   gastos_recurrentes: GastoRecurrente[] | null
+  referencia_catastral: string | null
+  municipio: string | null
+  valor_referencia: number | string | null
+  valor_mercado: number | string | null
 }
 
 interface TransaccionRow {
@@ -54,6 +61,9 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     folderId: row.folder_id,
     creadoEn: row.creado_en,
     inquilinoNombre: row.inquilino_nombre ?? undefined,
+    inquilinoEmail: row.inquilino_email ?? undefined,
+    inquilinoTelefono: row.inquilino_telefono ?? undefined,
+    inquilinoDni: row.inquilino_dni ?? undefined,
     alquilerMensual: row.alquiler_mensual != null ? Number(row.alquiler_mensual) : undefined,
     contratoInicio: row.contrato_inicio ?? undefined,
     contratoFin: row.contrato_fin ?? undefined,
@@ -64,6 +74,10 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     historialContratos: row.historial_contratos ?? undefined,
     porcentajePropiedad: row.porcentaje_propiedad != null ? Number(row.porcentaje_propiedad) : undefined,
     gastosRecurrentes: row.gastos_recurrentes ?? undefined,
+    referenciaCatastral: row.referencia_catastral ?? undefined,
+    municipio: row.municipio ?? undefined,
+    valorReferencia: row.valor_referencia != null ? Number(row.valor_referencia) : undefined,
+    valorMercado: row.valor_mercado != null ? Number(row.valor_mercado) : undefined,
   }
 }
 
@@ -77,6 +91,9 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     folder_id: p.folderId,
     creado_en: p.creadoEn,
     inquilino_nombre: p.inquilinoNombre ?? null,
+    inquilino_email: p.inquilinoEmail ?? null,
+    inquilino_telefono: p.inquilinoTelefono ?? null,
+    inquilino_dni: p.inquilinoDni ?? null,
     alquiler_mensual: p.alquilerMensual ?? null,
     contrato_inicio: p.contratoInicio ?? null,
     contrato_fin: p.contratoFin ?? null,
@@ -87,6 +104,10 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     historial_contratos: p.historialContratos ?? null,
     porcentaje_propiedad: p.porcentajePropiedad ?? null,
     gastos_recurrentes: p.gastosRecurrentes ?? null,
+    referencia_catastral: p.referenciaCatastral ?? null,
+    municipio: p.municipio ?? null,
+    valor_referencia: p.valorReferencia ?? null,
+    valor_mercado: p.valorMercado ?? null,
   }
 }
 

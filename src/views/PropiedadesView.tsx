@@ -25,6 +25,7 @@ import { TransactionItem } from '../components/TransactionItem'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
+  calcularRentabilidad,
   calcularReparto,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
@@ -230,6 +231,25 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const grupos = groupByMonth(txsFiltradas)
 
+    // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
+    const txsAnioActual = txs.filter((t) => t.fecha.startsWith(currentYearStr))
+    const ingresosAnioActual = txsAnioActual
+      .filter((t) => t.tipo === 'ingreso')
+      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    const gastosAnioActual = txsAnioActual
+      .filter((t) => t.tipo === 'gasto')
+      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    const rentabilidadMercado = calcularRentabilidad(
+      ingresosAnioActual,
+      gastosAnioActual,
+      propiedad.valorMercado,
+    )
+    const rentabilidadReferencia = calcularRentabilidad(
+      ingresosAnioActual,
+      gastosAnioActual,
+      propiedad.valorReferencia,
+    )
+
     // Contract expiry warning (tácita reconducción si ya venció)
     const estadoContrato = contratoEstado(propiedad.contratoFin)
     const contratoAlerta = estadoContrato?.alerta ?? false
@@ -324,6 +344,13 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                   </span>
                 </div>
               )}
+              {(propiedad.inquilinoDni || propiedad.inquilinoTelefono || propiedad.inquilinoEmail) && (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-outline-variant">
+                  {propiedad.inquilinoDni && <span>{propiedad.inquilinoDni}</span>}
+                  {propiedad.inquilinoTelefono && <span>{propiedad.inquilinoTelefono}</span>}
+                  {propiedad.inquilinoEmail && <span>{propiedad.inquilinoEmail}</span>}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -353,6 +380,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                     ...propiedad,
                     estado: 'alquilado',
                     inquilinoNombre: undefined,
+                    inquilinoEmail: undefined,
+                    inquilinoTelefono: undefined,
+                    inquilinoDni: undefined,
                     alquilerMensual: undefined,
                     contratoInicio: undefined,
                     contratoFin: undefined,
@@ -437,6 +467,41 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </div>
           </div>
         </div>
+
+        {/* Rentabilidad */}
+        {(rentabilidadMercado || rentabilidadReferencia) && (
+          <div className="px-5 mb-5">
+            <div className="bg-surface-lowest rounded-2xl shadow-soft p-4">
+              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
+                Rentabilidad {currentYearStr}
+              </p>
+              <div className="flex flex-col gap-2">
+                {rentabilidadMercado && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-outline-variant">Sobre valor de mercado</span>
+                    <span className="tabular-nums text-on-surface">
+                      {rentabilidadMercado.bruta.toFixed(2)}% bruta ·{' '}
+                      <span className={rentabilidadMercado.neta >= 0 ? 'text-success' : 'text-error'}>
+                        {rentabilidadMercado.neta.toFixed(2)}% neta
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {rentabilidadReferencia && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-outline-variant">Sobre valor de referencia</span>
+                    <span className="tabular-nums text-on-surface">
+                      {rentabilidadReferencia.bruta.toFixed(2)}% bruta ·{' '}
+                      <span className={rentabilidadReferencia.neta >= 0 ? 'text-success' : 'text-error'}>
+                        {rentabilidadReferencia.neta.toFixed(2)}% neta
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Transactions grouped by month */}
         <div className="px-5">

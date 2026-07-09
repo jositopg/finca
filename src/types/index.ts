@@ -18,6 +18,9 @@ export interface Propiedad {
   creadoEn: string
   // Optional extended fields (added in v2 schema)
   inquilinoNombre?: string
+  inquilinoEmail?: string
+  inquilinoTelefono?: string
+  inquilinoDni?: string
   alquilerMensual?: number
   contratoInicio?: string // YYYY-MM-DD
   contratoFin?: string // YYYY-MM-DD
@@ -28,6 +31,29 @@ export interface Propiedad {
   historialContratos?: ContratoHistorico[] // alquileres anteriores ya terminados
   porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
   gastosRecurrentes?: GastoRecurrente[] // gastos fijos que se repiten cada mes (comunidad, etc.)
+  referenciaCatastral?: string
+  municipio?: string
+  valorReferencia?: number // valor de referencia del Catastro (uso fiscal)
+  valorMercado?: number // estimación de valor de mercado, para calcular rentabilidad
+}
+
+export interface Rentabilidad {
+  bruta: number // % anual sobre el valor, solo ingresos
+  neta: number // % anual sobre el valor, ingresos - gastos
+}
+
+// Rentabilidad anual (%) de una propiedad sobre un valor de referencia
+// (mercado o catastral) — null si no hay valor con el que calcularla.
+export function calcularRentabilidad(
+  ingresosAnuales: number,
+  gastosAnuales: number,
+  valor: number | undefined,
+): Rentabilidad | null {
+  if (!valor || valor <= 0) return null
+  return {
+    bruta: (ingresosAnuales / valor) * 100,
+    neta: ((ingresosAnuales - gastosAnuales) / valor) * 100,
+  }
 }
 
 // Gasto fijo mensual (comunidad, etc.) — el día 1 de cada mes, desde
@@ -113,6 +139,9 @@ export function miParte(importe: number, propiedad: Pick<Propiedad, 'porcentajeP
 export interface ContratoHistorico {
   id: string
   inquilinoNombre?: string
+  inquilinoEmail?: string
+  inquilinoTelefono?: string
+  inquilinoDni?: string
   alquilerMensual?: number
   fechaInicio?: string // YYYY-MM-DD
   fechaFin: string // YYYY-MM-DD — fecha real en que terminó

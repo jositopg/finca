@@ -21,7 +21,7 @@ interface Props {
 
 export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
   const { ingresosExternos, addIngreso, deleteIngreso } = useApp()
-  const [reduccionStr, setReduccionStr] = useState('60')
+  const [reduccionStr, setReduccionStr] = useState('50')
   const [showAdd, setShowAdd] = useState(false)
   const [nombre, setNombre] = useState('')
   const [importeStr, setImporteStr] = useState('')
@@ -147,7 +147,7 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
 
       {/* Reducción vivienda habitual */}
       <Input
-        label="% reducción por vivienda habitual del inquilino (60% es lo habitual)"
+        label="% reducción por vivienda habitual del inquilino (50% es lo habitual)"
         type="text"
         inputMode="decimal"
         value={reduccionStr}

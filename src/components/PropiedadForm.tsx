@@ -218,9 +218,20 @@ function GastosRecurrentesSection({
 export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [direccion, setDireccion] = useState(initial?.direccion ?? '')
+  const [municipio, setMunicipio] = useState(initial?.municipio ?? '')
+  const [referenciaCatastral, setReferenciaCatastral] = useState(initial?.referenciaCatastral ?? '')
+  const [valorReferencia, setValorReferencia] = useState(
+    initial?.valorReferencia != null ? initial.valorReferencia.toString() : '',
+  )
+  const [valorMercado, setValorMercado] = useState(
+    initial?.valorMercado != null ? initial.valorMercado.toString() : '',
+  )
   const [tipo, setTipo] = useState<PropiedadTipo>(initial?.tipo ?? 'piso')
   const [estado, setEstado] = useState<PropiedadEstado>(initial?.estado ?? 'alquilado')
   const [inquilinoNombre, setInquilinoNombre] = useState(initial?.inquilinoNombre ?? '')
+  const [inquilinoEmail, setInquilinoEmail] = useState(initial?.inquilinoEmail ?? '')
+  const [inquilinoTelefono, setInquilinoTelefono] = useState(initial?.inquilinoTelefono ?? '')
+  const [inquilinoDni, setInquilinoDni] = useState(initial?.inquilinoDni ?? '')
   const [alquilerMensual, setAlquilerMensual] = useState(
     initial?.alquilerMensual ? initial.alquilerMensual.toString() : '',
   )
@@ -253,11 +264,18 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       id: initial?.id ?? uuid(),
       nombre: nombre.trim(),
       direccion: direccion.trim(),
+      municipio: municipio.trim() || undefined,
+      referenciaCatastral: referenciaCatastral.trim() || undefined,
+      valorReferencia: valorReferencia ? parseFloat(valorReferencia.replace(',', '.')) : undefined,
+      valorMercado: valorMercado ? parseFloat(valorMercado.replace(',', '.')) : undefined,
       tipo,
       estado,
       folderId: initial?.folderId ?? '',
       creadoEn: initial?.creadoEn ?? new Date().toISOString(),
       inquilinoNombre: inquilinoNombre.trim() || undefined,
+      inquilinoEmail: inquilinoEmail.trim() || undefined,
+      inquilinoTelefono: inquilinoTelefono.trim() || undefined,
+      inquilinoDni: inquilinoDni.trim() || undefined,
       alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
       contratoInicio: contratoInicio || undefined,
       contratoFin: contratoFin || undefined,
@@ -301,6 +319,52 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         value={direccion}
         onChange={(e) => setDireccion(e.target.value)}
       />
+
+      <Input
+        label="Municipio (opcional)"
+        placeholder="Las Palmas de Gran Canaria"
+        value={municipio}
+        onChange={(e) => setMunicipio(e.target.value)}
+      />
+
+      <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
+        <div className="-mb-1">
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+            Catastro y valor
+          </p>
+          <p className="text-xs text-outline-variant mt-0.5">
+            Opcional — para calcular la rentabilidad de la propiedad
+          </p>
+        </div>
+        <Input
+          label="Referencia catastral (opcional)"
+          placeholder="1234567AB1234C0001DE"
+          value={referenciaCatastral}
+          onChange={(e) => setReferenciaCatastral(e.target.value)}
+        />
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Input
+              label="Valor de referencia (€, opcional)"
+              type="text"
+              inputMode="decimal"
+              placeholder="120000"
+              value={valorReferencia}
+              onChange={(e) => setValorReferencia(e.target.value)}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              label="Valor de mercado estimado (€, opcional)"
+              type="text"
+              inputMode="decimal"
+              placeholder="160000"
+              value={valorMercado}
+              onChange={(e) => setValorMercado(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
 
       <div className="flex gap-3">
         <div className="flex-1">
@@ -356,6 +420,32 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             placeholder="Juan García López"
             value={inquilinoNombre}
             onChange={(e) => setInquilinoNombre(e.target.value)}
+          />
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                label="DNI/NIE (opcional)"
+                placeholder="12345678A"
+                value={inquilinoDni}
+                onChange={(e) => setInquilinoDni(e.target.value)}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Teléfono (opcional)"
+                type="tel"
+                placeholder="600 000 000"
+                value={inquilinoTelefono}
+                onChange={(e) => setInquilinoTelefono(e.target.value)}
+              />
+            </div>
+          </div>
+          <Input
+            label="Correo electrónico (opcional)"
+            type="email"
+            placeholder="inquilino@email.com"
+            value={inquilinoEmail}
+            onChange={(e) => setInquilinoEmail(e.target.value)}
           />
           <Input
             label="Alquiler mensual € (opcional)"
