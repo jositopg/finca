@@ -63,6 +63,107 @@ export function calcularRentabilidad(
   }
 }
 
+// ─── Valoración: ¿es suficiente la rentabilidad? ───────────────────────────────
+// Heurística orientativa, no asesoramiento financiero: compara la
+// rentabilidad neta (anualizada sobre los últimos 12 meses) contra un
+// umbral que el usuario define, y avisa si los gastos pesan demasiado sobre
+// los ingresos. Si la propiedad tiene menos de 12 meses de datos, extrapola
+// la media mensual observada a un año completo — y lo marca como estimación.
+
+function ultimosNMeses(hoy: Date, n: number): string[] {
+  const meses: string[] = []
+  let y = hoy.getFullYear()
+  let m = hoy.getMonth() + 1
+  for (let i = 0; i < n; i++) {
+    meses.unshift(`${y}-${String(m).padStart(2, '0')}`)
+    m--
+    if (m < 1) {
+      m = 12
+      y--
+    }
+  }
+  return meses
+}
+
+export interface ValoracionPropiedad {
+  veredicto: 'sin_datos' | 'buena' | 'insuficiente' | 'gastos_altos'
+  mensaje: string
+  ingresosAnualizados: number
+  gastosAnualizados: number
+  rentabilidadNeta: number
+  ratioGastosPct: number
+  esEstimacion: boolean // true si se anualizó con menos de 12 meses de datos reales
+  mesesConDatos: number
+}
+
+export function valorarPropiedad(
+  propiedad: Pick<Propiedad, 'id' | 'porcentajePropiedad' | 'valorMercado' | 'valorReferencia'>,
+  transacciones: Transaccion[],
+  umbralNetaPct: number,
+  hoy: Date = new Date(),
+): ValoracionPropiedad | null {
+  const valor = propiedad.valorMercado ?? propiedad.valorReferencia
+  if (!valor || valor <= 0) return null
+
+  const ventana = ultimosNMeses(hoy, 12)
+  const txsVentana = transacciones.filter(
+    (t) => t.propiedadId === propiedad.id && ventana.includes(t.fecha.slice(0, 7)),
+  )
+  const mesesConDatos = new Set(txsVentana.map((t) => t.fecha.slice(0, 7))).size
+
+  if (mesesConDatos === 0) {
+    return {
+      veredicto: 'sin_datos',
+      mensaje: 'Aún no hay movimientos en el último año para valorar esta propiedad.',
+      ingresosAnualizados: 0,
+      gastosAnualizados: 0,
+      rentabilidadNeta: 0,
+      ratioGastosPct: 0,
+      esEstimacion: false,
+      mesesConDatos: 0,
+    }
+  }
+
+  const ingresos = txsVentana
+    .filter((t) => t.tipo === 'ingreso')
+    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+  const gastos = txsVentana
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+
+  const esEstimacion = mesesConDatos < 12
+  const factor = esEstimacion ? 12 / mesesConDatos : 1
+  const ingresosAnualizados = ingresos * factor
+  const gastosAnualizados = gastos * factor
+
+  const rentabilidadNeta = ((ingresosAnualizados - gastosAnualizados) / valor) * 100
+  const ratioGastosPct = ingresosAnualizados > 0 ? (gastosAnualizados / ingresosAnualizados) * 100 : 0
+
+  let veredicto: ValoracionPropiedad['veredicto']
+  let mensaje: string
+  if (ratioGastosPct > 40) {
+    veredicto = 'gastos_altos'
+    mensaje = `Los gastos son el ${ratioGastosPct.toFixed(0)}% de los ingresos — valora si conviene invertir en la vivienda (para reducirlos o poder subir el alquiler) antes de decidir sobre venderla.`
+  } else if (rentabilidadNeta < umbralNetaPct) {
+    veredicto = 'insuficiente'
+    mensaje = `Rentabilidad neta ${rentabilidadNeta.toFixed(2)}%, por debajo de tu umbral (${umbralNetaPct}%) — revisa gastos, el alquiler pactado, o valora vender.`
+  } else {
+    veredicto = 'buena'
+    mensaje = `Rentabilidad neta ${rentabilidadNeta.toFixed(2)}%, por encima de tu umbral (${umbralNetaPct}%).`
+  }
+
+  return {
+    veredicto,
+    mensaje,
+    ingresosAnualizados,
+    gastosAnualizados,
+    rentabilidadNeta,
+    ratioGastosPct,
+    esEstimacion,
+    mesesConDatos,
+  }
+}
+
 // Gasto fijo mensual (comunidad, etc.) — el día 1 de cada mes, desde
 // creadoEn en adelante, se genera solo como transacción si aún no existe
 // una de esa categoría ese mes para la propiedad.

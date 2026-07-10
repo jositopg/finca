@@ -33,6 +33,7 @@ import {
   miParte,
   rentaPendiente,
   TIPO_LABELS,
+  valorarPropiedad,
   type Propiedad,
   type Transaccion,
 } from '../types'
@@ -208,6 +209,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const [showFiscal, setShowFiscal] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
+  const [umbralNetaStr, setUmbralNetaStr] = useState(
+    () => localStorage.getItem('finca_umbral_rentabilidad') ?? '4',
+  )
+
+  function handleUmbralChange(v: string) {
+    setUmbralNetaStr(v)
+    localStorage.setItem('finca_umbral_rentabilidad', v)
+  }
 
   const propiedad = propiedades.find((p) => p.id === selectedId)
 
@@ -252,6 +261,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
       gastosAnioActual,
       propiedad.valorReferencia,
     )
+    const umbralNeta = parseFloat(umbralNetaStr.replace(',', '.')) || 0
+    const valoracion = valorarPropiedad(propiedad, transacciones, umbralNeta)
 
     // Contract expiry warning (tácita reconducción si ya venció)
     const estadoContrato = contratoEstado(propiedad.contratoFin)
@@ -515,6 +526,51 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Valoración: ¿es suficiente la rentabilidad? */}
+        {valoracion && valoracion.veredicto !== 'sin_datos' && (
+          <div className="px-5 mb-5">
+            <div
+              className={`rounded-2xl shadow-soft p-4 ${
+                valoracion.veredicto === 'buena' ? 'bg-success-container/40' : 'bg-warning-container/50'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+                  Valoración
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-outline-variant">Umbral neta</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={umbralNetaStr}
+                    onChange={(e) => handleUmbralChange(e.target.value)}
+                    className="w-10 bg-surface-lowest border-0 rounded-md px-1 py-0.5 text-xs text-on-surface text-center focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <span className="text-xs text-outline-variant">%</span>
+                </div>
+              </div>
+              <p
+                className={`text-sm font-medium ${
+                  valoracion.veredicto === 'buena' ? 'text-success' : 'text-warning'
+                }`}
+              >
+                {valoracion.mensaje}
+              </p>
+              {valoracion.esEstimacion && (
+                <p className="text-xs text-outline-variant mt-2">
+                  Estimación: solo tienes {valoracion.mesesConDatos}{' '}
+                  {valoracion.mesesConDatos === 1 ? 'mes' : 'meses'} de datos, así que se ha
+                  extrapolado la media mensual a un año completo — no es un dato real todavía.
+                </p>
+              )}
+              <p className="text-xs text-outline-variant mt-2">
+                Orientativo, no es asesoramiento financiero.
+              </p>
             </div>
           </div>
         )}
