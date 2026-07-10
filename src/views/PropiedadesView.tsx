@@ -17,6 +17,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
+import { GastoSuministro } from '../components/GastoSuministro'
 import { HistorialAlquileres } from '../components/HistorialAlquileres'
 import { TerminarContrato } from '../components/TerminarContrato'
 import { PropiedadForm } from '../components/PropiedadForm'
@@ -405,6 +406,11 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               </button>
             </div>
           )}
+
+        {/* Gastos de suministros — acceso rápido, para cualquier propiedad */}
+        <div className="px-5 mb-4">
+          <GastoSuministro propiedad={propiedad} />
+        </div>
 
         {/* Contrato de alquiler */}
         {propiedad.estado === 'alquilado' && (
