@@ -169,6 +169,28 @@ export interface Transaccion {
   referencia?: string // nº factura / referencia
 }
 
+// A partir del día 5 del mes, si una propiedad alquilada (con alquiler
+// mensual pactado) no tiene registrado el ingreso de "Alquiler mensual" de
+// ese mes, se considera renta pendiente de cobro.
+export function rentaPendiente(
+  propiedad: Pick<Propiedad, 'estado' | 'alquilerMensual' | 'id'>,
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): boolean {
+  if (propiedad.estado !== 'alquilado') return false
+  if (!propiedad.alquilerMensual) return false
+  if (hoy.getDate() < 5) return false
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const pagado = transacciones.some(
+    (t) =>
+      t.propiedadId === propiedad.id &&
+      t.tipo === 'ingreso' &&
+      t.categoria === 'Alquiler mensual' &&
+      t.fecha.startsWith(mesActual),
+  )
+  return !pagado
+}
+
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────
 // Para propiedades en alquiler: quién corre con el gasto de agua, luz,
 // basuras e IBI — íntegro en el precio del alquiler, a cargo del inquilino,

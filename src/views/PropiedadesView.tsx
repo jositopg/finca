@@ -30,6 +30,7 @@ import {
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   miParte,
+  rentaPendiente,
   TIPO_LABELS,
   type Propiedad,
   type Transaccion,
@@ -230,6 +231,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     if (!meses.includes(currentMonth)) meses.unshift(currentMonth)
 
     const grupos = groupByMonth(txsFiltradas)
+    const rentaSinCobrarDetalle = rentaPendiente(propiedad, transacciones)
 
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
     const txsAnioActual = txs.filter((t) => t.fecha.startsWith(currentYearStr))
@@ -308,6 +310,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               propiedad.porcentajePropiedad < 100 && (
                 <Badge label={`${propiedad.porcentajePropiedad}% tuyo`} />
               )
+            )}
+            {rentaSinCobrarDetalle && (
+              <Badge label="Renta sin cobrar este mes" variant="warning" />
             )}
           </div>
         </div>
@@ -692,6 +697,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                 .reduce((s, t) => s + miParte(t.importe, p), 0)
               const estadoContratoP = contratoEstado(p.contratoFin)
               const alertaContrato = estadoContratoP?.alerta ?? false
+              const rentaSinCobrar = rentaPendiente(p, transacciones)
 
               return (
                 <button
@@ -742,6 +748,12 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                       {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
                     </span>
                   </div>
+                  {rentaSinCobrar && (
+                    <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+                      <AlertTriangle size={11} />
+                      Renta sin cobrar este mes
+                    </div>
+                  )}
                 </button>
               )
             })}

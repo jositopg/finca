@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  AlertTriangle,
   Download,
   FileSpreadsheet,
   Plus,
@@ -23,6 +24,7 @@ import {
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   miParte,
+  rentaPendiente,
   TIPO_LABELS,
   type Propiedad,
 } from '../types'
@@ -287,6 +289,7 @@ export function DashboardView({ onNavigate }: Props) {
                       t.fecha.startsWith(currentMonth),
                   )
                   .reduce((s, t) => s + miParte(t.importe, p), 0)}
+                rentaPendiente={rentaPendiente(p, transacciones)}
                 onClick={() => onNavigate('propiedades', p.id)}
               />
             ))}
@@ -326,11 +329,13 @@ function PropiedadCard({
   propiedad,
   ingresosMes,
   gastosMes,
+  rentaPendiente,
   onClick,
 }: {
   propiedad: Propiedad
   ingresosMes: number
   gastosMes: number
+  rentaPendiente: boolean
   onClick: () => void
 }) {
   const balance = ingresosMes - gastosMes
@@ -373,6 +378,12 @@ function PropiedadCard({
           {balance >= 0 ? '+' : ''}{fmt(balance)} €
         </span>
       </div>
+      {rentaPendiente && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+          <AlertTriangle size={12} />
+          Renta sin cobrar este mes
+        </div>
+      )}
     </button>
   )
 }
