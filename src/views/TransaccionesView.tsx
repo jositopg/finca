@@ -86,7 +86,7 @@ export function TransaccionesView() {
             placeholder="Buscar categoría, descripción, referencia..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-surface-low rounded-xl pl-9 pr-4 py-2.5 text-sm text-on-surface placeholder:text-outline-variant focus:outline-none focus:ring-2 focus:ring-primary/40"
+            className="w-full bg-surface-low rounded-xl pl-9 pr-4 py-2.5 text-base text-on-surface placeholder:text-outline-variant focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
         </div>
 
@@ -118,7 +118,7 @@ export function TransaccionesView() {
           <select
             value={filterTipo}
             onChange={(e) => setFilterTipo(e.target.value as TransaccionTipo | 'todos')}
-            className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none"
+            className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
           >
             <option value="todos">Todos</option>
             <option value="ingreso">Solo ingresos</option>
@@ -129,7 +129,7 @@ export function TransaccionesView() {
             <select
               value={filterProp}
               onChange={(e) => setFilterProp(e.target.value)}
-              className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-xs text-on-surface focus:outline-none"
+              className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
             >
               <option value="todas">Todas</option>
               {propiedades.map((p) => (

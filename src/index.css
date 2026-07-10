@@ -15,6 +15,10 @@
     font-family: 'Inter', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Evita el rebote de scroll fuera del contenido y el flash azul al
+       tocar botones/enlaces — sensación más nativa en móvil. */
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   #root {
@@ -38,5 +42,12 @@
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  /* pb-safe: respeta el área segura inferior (el gesto de inicio en
+     iPhones con notch) — sin esto la barra de navegación queda pegada al
+     borde de verdad y puede solaparse con el gesto del sistema. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

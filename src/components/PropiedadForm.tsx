@@ -88,7 +88,7 @@ function RepartoRow({
             placeholder="30"
             value={importeStr}
             onChange={(e) => handleImporteChange(e.target.value)}
-            className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-xs text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+            className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-base text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
           <span className="text-xs text-outline-variant">€/factura incluidos en la renta</span>
         </div>

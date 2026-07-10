@@ -16,8 +16,11 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   error?: string
 }
 
+// text-base (16px) evita que iOS Safari haga zoom automático al enfocar un
+// campo — con menos de 16px, el navegador amplía la página y luego no
+// siempre vuelve a encuadrar bien los elementos fijos (la barra inferior).
 const base =
-  'w-full bg-surface-low border-0 rounded-xl px-4 py-3 text-sm text-on-surface placeholder:text-outline-variant focus:outline-none focus:ring-2 focus:ring-primary/40 transition-shadow'
+  'w-full bg-surface-low border-0 rounded-xl px-4 py-3 text-base text-on-surface placeholder:text-outline-variant focus:outline-none focus:ring-2 focus:ring-primary/40 transition-shadow'
 
 export function Input({ label, error, className = '', ...props }: InputProps) {
   return (
