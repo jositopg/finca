@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { Button } from './Button'
 import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
-import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO } from '../types'
+import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO, parseImporte } from '../types'
 import { useApp } from '../context/AppContext'
 import { uploadFile } from '../api/drive'
 
@@ -60,15 +60,16 @@ export function TransactionForm({
   const categorias = tipo === 'ingreso' ? CATEGORIAS_INGRESO : CATEGORIAS_GASTO
 
   const propiedadSeleccionada = propiedades.find((p) => p.id === propiedadId)
+  const importeParseado = parseImporte(importe)
   const reparto =
     tipo === 'gasto' && propiedadSeleccionada
-      ? calcularReparto(categoria, parseFloat(importe.replace(',', '.')) || 0, propiedadSeleccionada.reparto)
+      ? calcularReparto(categoria, Number.isNaN(importeParseado) ? 0 : importeParseado, propiedadSeleccionada.reparto)
       : null
 
   function validate(): boolean {
     const e: Record<string, string> = {}
     if (!propiedadId) e.propiedad = 'Selecciona una propiedad'
-    if (!importe || parseFloat(importe.replace(',', '.')) <= 0) e.importe = 'Importe inválido'
+    if (!importe || Number.isNaN(importeParseado) || importeParseado <= 0) e.importe = 'Importe inválido'
     if (!categoria) e.categoria = 'Selecciona una categoría'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -81,6 +82,11 @@ export function TransactionForm({
       const folderId = await ensurePropFolder(propiedadId, propiedad.nombre)
       const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
       archivoIds = uploaded.map((f) => f.id)
+      // Si el guardado de la transacción falla justo después (red, RLS,
+      // etc.), un reintento no debe volver a subir estos archivos — en
+      // cuanto Drive confirma la subida, pasan a "ya subidos".
+      setExistingArchivos((prev) => [...prev, ...archivoIds])
+      setPendingFiles([])
     }
 
     return {
@@ -88,7 +94,7 @@ export function TransactionForm({
       propiedadId,
       fecha,
       tipo,
-      importe: parseFloat(importe.replace(',', '.')),
+      importe: importeParseado,
       categoria,
       descripcion,
       archivos: [...existingArchivos, ...archivoIds],

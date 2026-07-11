@@ -1,3 +1,27 @@
+// Parsea un importe tecleado en formato español: admite "1.200,50" (miles +
+// decimal), "1200,50", "1200.50" y "1200". Sin coma, un único punto seguido
+// de exactamente 3 dígitos se interpreta como separador de miles ("1.200" ->
+// 1200), no como decimal — es como se teclea normalmente en España sin
+// decimales. Devuelve NaN si el texto no es un número válido (usar
+// Number.isNaN en el llamante), en vez de deducir un 0 en silencio.
+export function parseImporte(raw: string): number {
+  const s = raw.trim()
+  if (!s) return NaN
+  if (s.includes(',')) {
+    return Number(s.replace(/\./g, '').replace(',', '.'))
+  }
+  const puntos = s.split('.').length - 1
+  if (puntos === 1) {
+    const dec = s.split('.')[1]
+    if (dec.length === 3) return Number(s.replace('.', ''))
+    return Number(s)
+  }
+  if (puntos > 1) {
+    return Number(s.replace(/\./g, ''))
+  }
+  return Number(s)
+}
+
 export type PropiedadTipo = 'piso' | 'casa' | 'local' | 'garaje' | 'otro'
 export type PropiedadEstado =
   | 'alquilado'

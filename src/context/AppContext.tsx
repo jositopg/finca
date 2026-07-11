@@ -105,6 +105,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const gisReady = useRef(false)
   const rootFolderId = useRef<string | null>(null)
   const driveWaiters = useRef<{ resolve: () => void; reject: (e: unknown) => void }[]>([])
+  // Evita que dos loadData() corran en paralelo (p.ej. 'visibilitychange' y
+  // 'focus' disparándose casi a la vez al volver a la app) — si ambos
+  // recalculan generarGastosPendientes contra las mismas transacciones ya
+  // cargadas antes de que la primera inserción termine, se duplica el gasto
+  // fijo del mes. Si llega una petición mientras hay una en curso, se
+  // encola una única recarga más al terminar, en vez de perderla o
+  // solaparla.
+  const loadingRef = useRef(false)
+  const reloadQueuedRef = useRef(false)
 
   const initGIS = useCallback(() => {
     initTokenClient(
@@ -133,6 +142,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [initGIS])
 
   const loadData = useCallback(async () => {
+    if (loadingRef.current) {
+      reloadQueuedRef.current = true
+      return
+    }
+    loadingRef.current = true
     setIsLoadingData(true)
     try {
       const [props, txs, ingresos] = await Promise.all([
@@ -179,6 +193,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       setIsLoadingData(false)
+      loadingRef.current = false
+      if (reloadQueuedRef.current) {
+        reloadQueuedRef.current = false
+        loadData()
+      }
     }
   }, [showToast])
 
@@ -398,7 +417,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
       const propiedad = propiedades.find((p) => p.id === propiedadId)
-      if (propiedad?.folderId) return propiedad.folderId
+
+      // Aunque la carpeta ya exista, el llamante (adjuntar un archivo) va a
+      // necesitar un token de Drive válido justo después — pedirlo aquí
+      // también en este camino evita un fallo críptico "Sin token de
+      // acceso" si el token caducó desde la última vez que se usó Drive.
+      if (propiedad?.folderId) {
+        try {
+          await ensureDriveAccess()
+        } catch (err) {
+          showToast('No se pudo acceder a Google Drive')
+          throw err
+        }
+        return propiedad.folderId
+      }
 
       try {
         await ensureDriveAccess()

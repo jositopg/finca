@@ -22,6 +22,7 @@ export function TerminarContrato({ propiedad }: Props) {
   const [saving, setSaving] = useState(false)
 
   async function handleConfirm() {
+    if (saving) return
     setSaving(true)
     try {
       const historico: ContratoHistorico = {

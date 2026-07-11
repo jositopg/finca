@@ -31,6 +31,7 @@ import {
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   miParte,
+  parseImporte,
   rentaPendiente,
   TIPO_LABELS,
   valorarPropiedad,
@@ -261,7 +262,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
       gastosAnioActual,
       propiedad.valorReferencia,
     )
-    const umbralNeta = parseFloat(umbralNetaStr.replace(',', '.')) || 0
+    const umbralNetaParseado = parseImporte(umbralNetaStr)
+    const umbralNeta = Number.isNaN(umbralNetaParseado) ? 4 : umbralNetaParseado
     const valoracion = valorarPropiedad(propiedad, transacciones, umbralNeta)
 
     // Contract expiry warning (tácita reconducción si ya venció)

@@ -3,7 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Button } from './Button'
 import { Input } from './Input'
-import { estimarAhorroRenta, type IngresoExterno, type Propiedad, type Transaccion } from '../types'
+import { estimarAhorroRenta, parseImporte, type IngresoExterno, type Propiedad, type Transaccion } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -28,18 +28,22 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
   const [retencionStr, setRetencionStr] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const reduccionPct = parseFloat(reduccionStr.replace(',', '.')) || 0
+  const reduccionPctParseado = parseImporte(reduccionStr)
+  const reduccionPct = Number.isNaN(reduccionPctParseado) ? 0 : reduccionPctParseado
   const estimacion = estimarAhorroRenta(propiedades, transacciones, ingresosExternos, anio, reduccionPct)
 
   async function handleAddIngreso() {
-    if (!nombre.trim() || !importeStr) return
+    if (saving) return
+    const importeAnual = parseImporte(importeStr)
+    if (!nombre.trim() || !importeStr || Number.isNaN(importeAnual)) return
+    const retencionParseada = parseImporte(retencionStr)
     setSaving(true)
     try {
       const i: IngresoExterno = {
         id: uuid(),
         nombre: nombre.trim(),
-        importeAnual: parseFloat(importeStr.replace(',', '.')) || 0,
-        porcentajeRetencion: parseFloat(retencionStr.replace(',', '.')) || 0,
+        importeAnual,
+        porcentajeRetencion: Number.isNaN(retencionParseada) ? 0 : retencionParseada,
         creadoEn: new Date().toISOString(),
       }
       await addIngreso(i)

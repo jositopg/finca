@@ -7,6 +7,7 @@ import { PropiedadesView } from './views/PropiedadesView'
 import { TransaccionesView } from './views/TransaccionesView'
 import { FiscalView } from './views/FiscalView'
 import { Nav, type View } from './components/Nav'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Building2, WifiOff } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -48,22 +49,24 @@ function Shell() {
           {cacheDate ? format(parseISO(cacheDate), "d MMM 'a las' HH:mm", { locale: es }) : 'antes'}
         </div>
       )}
-      {view === 'dashboard' && (
-        <DashboardView
-          onNavigate={(v, propId) => {
-            setView(v)
-            if (propId) setSelectedPropId(propId)
-          }}
-        />
-      )}
-      {view === 'propiedades' && (
-        <PropiedadesView
-          selectedId={selectedPropId}
-          onSelectId={(id) => setSelectedPropId(id)}
-        />
-      )}
-      {view === 'transacciones' && <TransaccionesView />}
-      {view === 'fiscal' && <FiscalView />}
+      <ErrorBoundary key={view}>
+        {view === 'dashboard' && (
+          <DashboardView
+            onNavigate={(v, propId) => {
+              setView(v)
+              if (propId) setSelectedPropId(propId)
+            }}
+          />
+        )}
+        {view === 'propiedades' && (
+          <PropiedadesView
+            selectedId={selectedPropId}
+            onSelectId={(id) => setSelectedPropId(id)}
+          />
+        )}
+        {view === 'transacciones' && <TransaccionesView />}
+        {view === 'fiscal' && <FiscalView />}
+      </ErrorBoundary>
 
       <Nav
         current={view}

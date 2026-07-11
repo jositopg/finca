@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularRentaLocal, type Propiedad, type Transaccion } from '../types'
+import { calcularRentaLocal, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -31,13 +31,17 @@ export function CobroRenta({ propiedad }: Props) {
 
   if (!propiedad.alquilerMensual) return null
 
+  const rentaBrutaParseada = parseImporte(rentaBrutaStr)
   const rentaBruta = esLocal
-    ? parseFloat(rentaBrutaStr.replace(',', '.')) || 0
+    ? Number.isNaN(rentaBrutaParseada)
+      ? 0
+      : rentaBrutaParseada
     : propiedad.alquilerMensual
   const desglose = esLocal ? calcularRentaLocal(rentaBruta) : null
   const importe = desglose ? desglose.neta : propiedad.alquilerMensual
 
   async function handleConfirm() {
+    if (saving) return
     setSaving(true)
     try {
       const descripcion = desglose

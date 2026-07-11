@@ -13,6 +13,14 @@ export interface DriveFile {
   createdTime?: string
 }
 
+// Los nombres de propiedad/archivo van directos a una query de Drive
+// (name='...'); un apóstrofo sin escapar (habitual en nombres de calle,
+// "O'Donnell") rompe la sintaxis de la query y la API responde 400 — hay
+// que escapar backslash y comilla simple tal como pide la Drive API.
+function escapeDriveQueryValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+}
+
 // When duplicates exist (e.g. created by different devices before this
 // file was found), always resolve to the same one — the oldest — so every
 // device converges on a single canonical file instead of picking whichever
@@ -39,9 +47,10 @@ export async function findFolder(
   name: string,
   parentId?: string,
 ): Promise<DriveFile | null> {
+  const escapedName = escapeDriveQueryValue(name)
   const q = parentId
-    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
-    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
+    ? `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    : `name='${escapedName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`
 
   const res = await apiGet<{ files: DriveFile[] }>(
     `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)`,
@@ -63,7 +72,7 @@ export async function findFileInFolder(
   folderId: string,
   name: string,
 ): Promise<DriveFile | null> {
-  const q = `name='${name}' and '${folderId}' in parents and trashed=false`
+  const q = `name='${escapeDriveQueryValue(name)}' and '${folderId}' in parents and trashed=false`
   const res = await apiGet<{ files: DriveFile[] }>(
     `${BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,createdTime)`,
   )

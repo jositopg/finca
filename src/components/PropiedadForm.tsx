@@ -12,7 +12,7 @@ import type {
   RepartoConcepto,
   SuministroModo,
 } from '../types'
-import { CATEGORIAS_GASTO, CONCEPTO_LABELS, ESTADO_LABELS, TIPO_LABELS } from '../types'
+import { CATEGORIAS_GASTO, CONCEPTO_LABELS, ESTADO_LABELS, parseImporte, TIPO_LABELS } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -60,7 +60,8 @@ function RepartoRow({
 
   function handleImporteChange(raw: string) {
     setImporteStr(raw)
-    onChange({ modo: 'parcial', importeIncluido: parseFloat(raw.replace(',', '.')) || 0 })
+    const n = parseImporte(raw)
+    onChange({ modo: 'parcial', importeIncluido: Number.isNaN(n) ? 0 : n })
   }
 
   return (
@@ -114,8 +115,8 @@ function GastosRecurrentesSection({
   const [descripcion, setDescripcion] = useState('')
 
   function handleAdd() {
-    const importe = parseFloat(importeStr.replace(',', '.'))
-    if (!importe || importe <= 0) return
+    const importe = parseImporte(importeStr)
+    if (Number.isNaN(importe) || importe <= 0) return
     onChange([
       ...gastos,
       {
@@ -252,6 +253,26 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   function validate(): boolean {
     const e: Record<string, string> = {}
     if (!nombre.trim()) e.nombre = 'El nombre es obligatorio'
+
+    const valorReferenciaNum = valorReferencia ? parseImporte(valorReferencia) : undefined
+    if (valorReferencia && Number.isNaN(valorReferenciaNum)) e.valorReferencia = 'Valor inválido'
+
+    const valorMercadoNum = valorMercado ? parseImporte(valorMercado) : undefined
+    if (valorMercado && Number.isNaN(valorMercadoNum)) e.valorMercado = 'Valor inválido'
+
+    const alquilerMensualNum = alquilerMensual ? parseImporte(alquilerMensual) : undefined
+    if (alquilerMensual && Number.isNaN(alquilerMensualNum)) e.alquilerMensual = 'Importe inválido'
+
+    const porcentajePropiedadNum = porcentajePropiedad ? parseImporte(porcentajePropiedad) : undefined
+    if (porcentajePropiedad && Number.isNaN(porcentajePropiedadNum)) {
+      e.porcentajePropiedad = 'Porcentaje inválido'
+    } else if (
+      porcentajePropiedadNum != null &&
+      (porcentajePropiedadNum <= 0 || porcentajePropiedadNum > 100)
+    ) {
+      e.porcentajePropiedad = 'Debe estar entre 0 y 100'
+    }
+
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -267,8 +288,8 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       direccion: direccion.trim(),
       municipio: municipio.trim() || undefined,
       referenciaCatastral: referenciaCatastral.trim() || undefined,
-      valorReferencia: valorReferencia ? parseFloat(valorReferencia.replace(',', '.')) : undefined,
-      valorMercado: valorMercado ? parseFloat(valorMercado.replace(',', '.')) : undefined,
+      valorReferencia: valorReferencia ? parseImporte(valorReferencia) : undefined,
+      valorMercado: valorMercado ? parseImporte(valorMercado) : undefined,
       propietarioNombre: propietarioNombre.trim() || undefined,
       tipo,
       estado,
@@ -278,12 +299,10 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       inquilinoEmail: inquilinoEmail.trim() || undefined,
       inquilinoTelefono: inquilinoTelefono.trim() || undefined,
       inquilinoDni: inquilinoDni.trim() || undefined,
-      alquilerMensual: alquilerMensual ? parseFloat(alquilerMensual.replace(',', '.')) : undefined,
+      alquilerMensual: alquilerMensual ? parseImporte(alquilerMensual) : undefined,
       contratoInicio: contratoInicio || undefined,
       contratoFin: contratoFin || undefined,
-      porcentajePropiedad: porcentajePropiedad
-        ? parseFloat(porcentajePropiedad.replace(',', '.'))
-        : undefined,
+      porcentajePropiedad: porcentajePropiedad ? parseImporte(porcentajePropiedad) : undefined,
       notas: notas.trim() || undefined,
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
       gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
@@ -366,6 +385,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
               placeholder="120000"
               value={valorReferencia}
               onChange={(e) => setValorReferencia(e.target.value)}
+              error={errors.valorReferencia}
             />
           </div>
           <div className="flex-1">
@@ -376,6 +396,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
               placeholder="160000"
               value={valorMercado}
               onChange={(e) => setValorMercado(e.target.value)}
+              error={errors.valorMercado}
             />
           </div>
         </div>
@@ -417,6 +438,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         placeholder="100"
         value={porcentajePropiedad}
         onChange={(e) => setPorcentajePropiedad(e.target.value)}
+        error={errors.porcentajePropiedad}
       />
 
       {/* Inquilino — solo si está alquilado */}
@@ -469,6 +491,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             placeholder="800 o 800,50"
             value={alquilerMensual}
             onChange={(e) => setAlquilerMensual(e.target.value)}
+            error={errors.alquilerMensual}
           />
           <div className="flex gap-3">
             <div className="flex-1">

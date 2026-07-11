@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularReparto, type Propiedad, type Transaccion } from '../types'
+import { calcularReparto, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedades: Propiedad[]
@@ -25,8 +25,9 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function parseImporte(s: string): number {
-  return parseFloat(s.replace(',', '.')) || 0
+function importeOCero(s: string): number {
+  const n = parseImporte(s)
+  return Number.isNaN(n) ? 0 : n
 }
 
 export function FacturasSuministros({ propiedades, trigger }: Props) {
@@ -51,22 +52,23 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
 
   const filas = propiedades.map((p) => {
     const v = importes[p.id] ?? { agua: '', luz: '' }
-    const aguaImporte = parseImporte(v.agua)
-    const luzImporte = parseImporte(v.luz)
+    const aguaImporte = importeOCero(v.agua)
+    const luzImporte = importeOCero(v.luz)
     const repartoAgua = aguaImporte > 0 ? calcularReparto('Agua', aguaImporte, p.reparto) : null
     const repartoLuz = luzImporte > 0 ? calcularReparto('Electricidad', luzImporte, p.reparto) : null
     return { propiedad: p, agua: v.agua, luz: v.luz, repartoAgua, repartoLuz }
   })
 
-  const totalFacturas = filas.filter((f) => parseImporte(f.agua) > 0).length + filas.filter((f) => parseImporte(f.luz) > 0).length
+  const totalFacturas = filas.filter((f) => importeOCero(f.agua) > 0).length + filas.filter((f) => importeOCero(f.luz) > 0).length
 
   async function handleGuardar() {
+    if (saving) return
     const nuevas: Transaccion[] = []
     for (const p of propiedades) {
       const v = importes[p.id]
       if (!v) continue
-      const agua = parseImporte(v.agua)
-      const luz = parseImporte(v.luz)
+      const agua = importeOCero(v.agua)
+      const luz = importeOCero(v.luz)
       if (agua > 0) {
         nuevas.push({
           id: uuid(),

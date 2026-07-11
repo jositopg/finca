@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularReparto, type Propiedad, type Transaccion } from '../types'
+import { calcularReparto, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -28,7 +28,8 @@ export function GastoSuministro({ propiedad }: Props) {
   const [importeStr, setImporteStr] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const importe = parseFloat(importeStr.replace(',', '.')) || 0
+  const importeParseado = parseImporte(importeStr)
+  const importe = Number.isNaN(importeParseado) ? 0 : importeParseado
   const reparto = categoria ? calcularReparto(categoria, importe, propiedad.reparto) : null
 
   function abrir(cat: CategoriaSuministro) {
@@ -38,7 +39,7 @@ export function GastoSuministro({ propiedad }: Props) {
   }
 
   async function handleConfirm() {
-    if (!categoria || importe <= 0) return
+    if (saving || !categoria || importe <= 0) return
     setSaving(true)
     try {
       const tx: Transaccion = {
