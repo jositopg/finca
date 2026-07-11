@@ -41,8 +41,16 @@ function fmt(n: number) {
 }
 
 export function DashboardView({ onNavigate }: Props) {
-  const { propiedades, transacciones, isLoadingData, refreshData, addProp, addTx, ensureDriveAccess } =
-    useApp()
+  const {
+    propiedades,
+    transacciones,
+    ingresosExternos,
+    isLoadingData,
+    refreshData,
+    addProp,
+    addTx,
+    ensureDriveAccess,
+  } = useApp()
   const { showToast } = useToast()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
@@ -104,7 +112,7 @@ export function DashboardView({ onNavigate }: Props) {
     setExporting(true)
     try {
       await ensureDriveAccess()
-      const { url } = await exportarASheets(propiedades, transacciones)
+      const { url } = await exportarASheets(propiedades, transacciones, ingresosExternos)
       window.open(url, '_blank')
       showToast('Exportado a Google Sheets', 'success')
     } catch (err) {
