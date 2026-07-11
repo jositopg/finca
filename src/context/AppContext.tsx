@@ -20,6 +20,7 @@ import {
   addIngresoExterno,
   addPropiedad,
   addTransaccion,
+  addTransacciones,
   deleteIngresoExterno,
   deletePropiedad,
   deleteTransaccion,
@@ -79,6 +80,7 @@ interface AppContextValue {
   updateProp: (p: Propiedad) => Promise<void>
   deleteProp: (id: string) => Promise<void>
   addTx: (t: Transaccion) => Promise<void>
+  addTxs: (ts: Transaccion[]) => Promise<void>
   updateTx: (t: Transaccion) => Promise<void>
   deleteTx: (id: string) => Promise<void>
   addIngreso: (i: IngresoExterno) => Promise<void>
@@ -314,6 +316,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast],
   )
 
+  const addTxs = useCallback(
+    async (ts: Transaccion[]) => {
+      if (ts.length === 0) return
+      try {
+        await addTransacciones(ts)
+        setTransacciones((prev) => [...ts, ...prev])
+      } catch (err) {
+        showToast('No se pudieron guardar los movimientos')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
   const updateTx = useCallback(
     async (t: Transaccion) => {
       try {
@@ -421,6 +437,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateProp,
         deleteProp,
         addTx,
+        addTxs,
         updateTx,
         deleteTx,
         addIngreso,

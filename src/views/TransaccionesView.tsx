@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext'
 import { TransactionItem } from '../components/TransactionItem'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { FacturasSuministros } from '../components/FacturasSuministros'
 import { TransactionForm } from '../components/TransactionForm'
 import { Button } from '../components/Button'
 import type { Transaccion, TransaccionTipo } from '../types'
@@ -27,9 +28,10 @@ function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }
 }
 
 export function TransaccionesView() {
-  const { propiedades, transacciones, addTx, deleteTx } = useApp()
+  const { propiedades, transacciones, addTx, updateTx, deleteTx } = useApp()
   const [showAdd, setShowAdd] = useState(false)
   const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
+  const [editTx, setEditTx] = useState<Transaccion | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [filterTipo, setFilterTipo] = useState<TransaccionTipo | 'todos'>('todos')
   const [filterProp, setFilterProp] = useState<string>('todas')
@@ -72,10 +74,13 @@ export function TransaccionesView() {
       <div className="px-5 pt-12 pb-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-display text-2xl font-bold text-on-surface">Movimientos</h1>
-          <Button onClick={() => setShowAdd(true)} size="sm" disabled={propiedades.length === 0}>
-            <Plus size={14} />
-            Nuevo
-          </Button>
+          <div className="flex gap-2">
+            {propiedades.length > 0 && <FacturasSuministros propiedades={propiedades} />}
+            <Button onClick={() => setShowAdd(true)} size="sm" disabled={propiedades.length === 0}>
+              <Plus size={14} />
+              Nuevo
+            </Button>
+          </div>
         </div>
 
         {/* Search */}
@@ -211,6 +216,7 @@ export function TransaccionesView() {
                             setDuplicateTx(t)
                             setShowAdd(true)
                           }}
+                          onEdit={(t) => setEditTx(t)}
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
@@ -226,24 +232,33 @@ export function TransaccionesView() {
       </div>
 
       <BottomSheet
-        open={showAdd}
+        open={showAdd || !!duplicateTx || !!editTx}
         onClose={() => {
           setShowAdd(false)
           setDuplicateTx(null)
+          setEditTx(null)
         }}
-        title={duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
+        title={editTx ? 'Editar movimiento' : duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
       >
         <TransactionForm
+          key={editTx?.id ?? duplicateTx?.id ?? 'new'}
           propiedades={propiedades}
-          initial={duplicateTx ?? undefined}
+          initial={editTx ?? duplicateTx ?? undefined}
+          isEditing={!!editTx}
           onSave={async (t) => {
-            await addTx(t)
+            if (editTx) {
+              await updateTx(t)
+            } else {
+              await addTx(t)
+            }
             setShowAdd(false)
             setDuplicateTx(null)
+            setEditTx(null)
           }}
           onCancel={() => {
             setShowAdd(false)
             setDuplicateTx(null)
+            setEditTx(null)
           }}
         />
       </BottomSheet>

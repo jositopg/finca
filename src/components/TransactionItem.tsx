@@ -1,4 +1,4 @@
-import { Copy, FileText, Paperclip, Trash2 } from 'lucide-react'
+import { Copy, FileText, Paperclip, Pencil, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { calcularReparto, type Propiedad, type Transaccion } from '../types'
@@ -9,6 +9,7 @@ interface Props {
   propiedadNombre?: string
   onDelete?: (id: string) => void
   onDuplicate?: (tx: Transaccion) => void
+  onEdit?: (tx: Transaccion) => void
   onOpenFile?: (fileId: string) => void
 }
 
@@ -22,6 +23,7 @@ export function TransactionItem({
   propiedadNombre,
   onDelete,
   onDuplicate,
+  onEdit,
   onOpenFile,
 }: Props) {
   const isIngreso = tx.tipo === 'ingreso'
@@ -29,7 +31,12 @@ export function TransactionItem({
     !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
 
   return (
-    <div className="flex items-start gap-3 py-3.5 border-b border-surface-high last:border-0">
+    <div
+      className={`flex items-start gap-3 py-3.5 border-b border-surface-high last:border-0 ${
+        onEdit ? 'cursor-pointer' : ''
+      }`}
+      onClick={() => onEdit?.(tx)}
+    >
       <div
         className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
           isIngreso ? 'bg-success-container' : 'bg-surface-low'
@@ -64,7 +71,10 @@ export function TransactionItem({
               )}
               {tx.archivos.length > 0 && (
                 <button
-                  onClick={() => onOpenFile?.(tx.archivos[0])}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onOpenFile?.(tx.archivos[0])
+                  }}
                   className="flex items-center gap-0.5 text-xs text-primary ml-auto"
                 >
                   <Paperclip size={11} />
@@ -94,9 +104,24 @@ export function TransactionItem({
               })}{' '}
               €
             </span>
+            {onEdit && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onEdit(tx)
+                }}
+                title="Editar movimiento"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
+              >
+                <Pencil size={13} />
+              </button>
+            )}
             {onDuplicate && (
               <button
-                onClick={() => onDuplicate(tx)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDuplicate(tx)
+                }}
                 title="Duplicar movimiento"
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
               >
@@ -105,7 +130,10 @@ export function TransactionItem({
             )}
             {onDelete && (
               <button
-                onClick={() => onDelete(tx.id)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onDelete(tx.id)
+                }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-error hover:bg-error-container transition-colors"
               >
                 <Trash2 size={13} />

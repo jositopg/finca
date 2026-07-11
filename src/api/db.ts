@@ -189,6 +189,12 @@ export async function addTransaccion(transaccion: Transaccion): Promise<void> {
   if (error) throw error
 }
 
+export async function addTransacciones(transacciones: Transaccion[]): Promise<void> {
+  if (transacciones.length === 0) return
+  const { error } = await supabase.from('transacciones').insert(transacciones.map(transaccionToRow))
+  if (error) throw error
+}
+
 export async function updateTransaccion(transaccion: Transaccion): Promise<void> {
   const { error } = await supabase
     .from('transacciones')

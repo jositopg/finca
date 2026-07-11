@@ -17,6 +17,7 @@ interface Props {
   defaultPropiedadId?: string
   defaultTipo?: TransaccionTipo
   initial?: Partial<Transaccion>
+  isEditing?: boolean
   onSave: (t: Transaccion) => void | Promise<void>
   onCancel: () => void
 }
@@ -30,6 +31,7 @@ export function TransactionForm({
   defaultPropiedadId,
   defaultTipo = 'gasto',
   initial,
+  isEditing = false,
   onSave,
   onCancel,
 }: Props) {
@@ -38,7 +40,7 @@ export function TransactionForm({
   const [propiedadId, setPropiedadId] = useState(
     initial?.propiedadId ?? defaultPropiedadId ?? propiedades[0]?.id ?? '',
   )
-  const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [fecha, setFecha] = useState(initial?.fecha ?? format(new Date(), 'yyyy-MM-dd'))
   const [importe, setImporte] = useState(initial?.importe != null ? initial.importe.toString() : '')
   const [categoria, setCategoria] = useState<string>(
     initial?.categoria ?? (defaultTipo === 'ingreso' ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0]),
@@ -46,6 +48,9 @@ export function TransactionForm({
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? '')
   const [referencia, setReferencia] = useState(initial?.referencia ?? '')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [existingArchivos, setExistingArchivos] = useState<string[]>(
+    isEditing ? (initial?.archivos ?? []) : [],
+  )
   const [uploading, setUploading] = useState(false)
   const [savingOtro, setSavingOtro] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
@@ -79,15 +84,15 @@ export function TransactionForm({
     }
 
     return {
-      id: uuid(),
+      id: isEditing && initial?.id ? initial.id : uuid(),
       propiedadId,
       fecha,
       tipo,
       importe: parseFloat(importe.replace(',', '.')),
       categoria,
       descripcion,
-      archivos: archivoIds,
-      creadoEn: new Date().toISOString(),
+      archivos: [...existingArchivos, ...archivoIds],
+      creadoEn: isEditing && initial?.creadoEn ? initial.creadoEn : new Date().toISOString(),
       referencia: referencia.trim() || undefined,
     }
   }
@@ -130,6 +135,10 @@ export function TransactionForm({
 
   function removeFile(idx: number) {
     setPendingFiles((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function removeExistingArchivo(idx: number) {
+    setExistingArchivos((prev) => prev.filter((_, i) => i !== idx))
   }
 
   return (
@@ -241,6 +250,28 @@ export function TransactionForm({
         <span className="text-xs font-medium text-outline-variant uppercase tracking-wide">
           Adjuntar archivos
         </span>
+        {existingArchivos.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {existingArchivos.map((id, i) => (
+              <div
+                key={id}
+                className="flex items-center gap-2 bg-surface-low rounded-lg px-3 py-2"
+              >
+                <Paperclip size={14} className="text-outline-variant flex-shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')}
+                  className="text-xs text-primary truncate flex-1 text-left"
+                >
+                  Archivo adjunto {i + 1}
+                </button>
+                <button onClick={() => removeExistingArchivo(i)} className="text-outline-variant hover:text-error">
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {pendingFiles.length > 0 && (
           <div className="flex flex-col gap-1">
             {pendingFiles.map((f, i) => (
@@ -280,21 +311,23 @@ export function TransactionForm({
         </p>
       )}
 
-      <Button
-        variant="secondary"
-        fullWidth
-        onClick={handleSubmitAndContinue}
-        disabled={uploading || savingOtro}
-      >
-        {savingOtro ? 'Guardando...' : 'Guardar y añadir otro'}
-      </Button>
+      {!isEditing && (
+        <Button
+          variant="secondary"
+          fullWidth
+          onClick={handleSubmitAndContinue}
+          disabled={uploading || savingOtro}
+        >
+          {savingOtro ? 'Guardando...' : 'Guardar y añadir otro'}
+        </Button>
+      )}
 
       <div className="flex gap-3 pt-2">
         <Button variant="secondary" fullWidth onClick={onCancel}>
           Cancelar
         </Button>
         <Button fullWidth onClick={handleSubmit} disabled={uploading || savingOtro}>
-          {uploading ? 'Guardando...' : 'Guardar'}
+          {uploading ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Guardar'}
         </Button>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   AlertTriangle,
   Download,
+  Droplet,
   FileSpreadsheet,
   Plus,
   RefreshCw,
@@ -15,6 +16,7 @@ import { useToast } from '../context/ToastContext'
 import { exportarASheets } from '../api/setup'
 import { BottomSheet } from '../components/BottomSheet'
 import { EvolucionAnual } from '../components/EvolucionAnual'
+import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
@@ -210,6 +212,24 @@ export function DashboardView({ onNavigate }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Facturas de agua y luz — carga rápida para todas las propiedades */}
+      {propiedades.length > 0 && (
+        <div className="px-5 mb-5">
+          <FacturasSuministros
+            propiedades={propiedades}
+            trigger={(open) => (
+              <button
+                onClick={open}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary-container text-primary text-sm font-semibold hover:brightness-95 transition-all"
+              >
+                <Droplet size={16} />
+                Registrar facturas de agua y luz
+              </button>
+            )}
+          />
+        </div>
+      )}
 
       {/* Year summary */}
       {(ingresosAnio > 0 || gastosAnio > 0) && (
