@@ -18,6 +18,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { EvolucionAnual } from '../components/EvolucionAnual'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
+import { TareasDashboard } from '../components/TareasDashboard'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
@@ -45,6 +46,7 @@ export function DashboardView({ onNavigate }: Props) {
     propiedades,
     transacciones,
     ingresosExternos,
+    tareas,
     isLoadingData,
     refreshData,
     addProp,
@@ -219,6 +221,15 @@ export function DashboardView({ onNavigate }: Props) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Tareas pendientes de todas las propiedades */}
+      <div className="px-5 mb-5">
+        <TareasDashboard
+          propiedades={propiedades}
+          tareas={tareas}
+          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
+        />
       </div>
 
       {/* Facturas de agua y luz — carga rápida para todas las propiedades */}
