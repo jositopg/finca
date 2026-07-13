@@ -60,13 +60,15 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
     <div className="flex flex-col gap-4">
       <div>
         <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-1">
-          Cuánto guardar de los alquileres
+          Cuánto deberías tener guardado
         </p>
         <p className="text-xs text-outline-variant">
-          Aproximación de lo que te puede salir a pagar en la Renta {anio} por tus alquileres, para
-          que lo tengas reservado. Aplica los tramos progresivos del IRPF (escala combinada
-          aproximada, puede no coincidir exactamente con tu comunidad autónoma) sobre la suma de
-          todos tus ingresos — no sustituye el cálculo real de tu gestoría.
+          Aproximación de la cuota total de IRPF {anio} (nómina/otros ingresos + alquileres, todo
+          junto) menos todo lo que ya te han retenido — incluida la retención de tu nómina, no solo
+          la de los alquileres. Se calcula con los movimientos y datos que hay en la app en este
+          momento, así que se va afinando según registras más — no proyecta el resto del año.
+          Aplica los tramos progresivos del IRPF (escala combinada aproximada, puede no coincidir
+          exactamente con tu comunidad autónoma) — no sustituye el cálculo real de tu gestoría.
         </p>
       </div>
 
@@ -133,10 +135,10 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
               </div>
               <div className="flex-1">
                 <Input
-                  label="% IRPF ya retenido (informativo)"
+                  label="% IRPF que te retienen"
                   type="text"
                   inputMode="decimal"
-                  placeholder="15"
+                  placeholder="22"
                   value={retencionStr}
                   onChange={(e) => setRetencionStr(e.target.value)}
                 />
@@ -179,20 +181,24 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
           <span className="tabular-nums text-on-surface">{estimacion.tipoMarginalPct}%</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">Cuota solo con tus otros ingresos</span>
-          <span className="tabular-nums text-on-surface">{fmt(estimacion.cuotaSoloOtrosIngresos)} €</span>
+          <span className="text-outline-variant">Cuota total estimada</span>
+          <span className="tabular-nums text-on-surface">{fmt(estimacion.cuotaTotal)} €</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">Cuota sumando los alquileres</span>
-          <span className="tabular-nums text-on-surface">{fmt(estimacion.cuotaConAlquileres)} €</span>
+          <span className="text-outline-variant">— de la cual, generan los alquileres</span>
+          <span className="tabular-nums text-outline-variant">{fmt(estimacion.irpfEstimadoAlquileres)} €</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">IRPF que generan los alquileres</span>
-          <span className="tabular-nums text-on-surface">{fmt(estimacion.irpfEstimadoAlquileres)} €</span>
+          <span className="text-outline-variant">Retenido en tu nómina / otros ingresos</span>
+          <span className="tabular-nums text-success">-{fmt(estimacion.retencionOtrosIngresos)} €</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-outline-variant">Ya retenido en origen (locales)</span>
-          <span className="tabular-nums text-success">-{fmt(estimacion.irpfYaRetenidoLocales)} €</span>
+          <span className="text-outline-variant">Retenido en origen (locales)</span>
+          <span className="tabular-nums text-success">-{fmt(estimacion.retencionLocales)} €</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-outline-variant font-medium">Total ya retenido</span>
+          <span className="tabular-nums text-success font-medium">-{fmt(estimacion.totalRetenido)} €</span>
         </div>
         <div className="flex items-center justify-between border-t border-surface-high pt-2 mt-1">
           <span className="text-sm font-medium text-on-surface">Deberías tener guardado</span>

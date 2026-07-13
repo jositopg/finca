@@ -532,7 +532,7 @@ export interface IngresoExterno {
   id: string
   nombre: string
   importeAnual: number
-  porcentajeRetencion: number // % de IRPF que ya te retienen en origen (informativo)
+  porcentajeRetencion: number // % de IRPF que ya te retienen en origen (nómina, etc.) — se usa en estimarAhorroRenta() para saber cuánto de la cuota total ya está cubierto
   creadoEn: string
 }
 
@@ -557,16 +557,25 @@ export interface EstimacionPropiedad {
 export interface EstimacionRenta {
   porPropiedad: EstimacionPropiedad[]
   rendimientoInmobiliarioTotal: number
-  irpfYaRetenidoLocales: number
   otrosIngresosTotal: number
   baseImponibleTotal: number
-  cuotaSoloOtrosIngresos: number
-  cuotaConAlquileres: number
   tipoMarginalPct: number
-  irpfEstimadoAlquileres: number
+  cuotaTotal: number
+  irpfEstimadoAlquileres: number // informativo: cuánto de la cuota total generan solo los alquileres
+  retencionOtrosIngresos: number
+  retencionLocales: number
+  totalRetenido: number
   aGuardar: number
 }
 
+// Estima el IRPF de TODA la declaración (nómina/otros ingresos + alquileres
+// juntos), no solo la parte que generan los alquileres — porque una
+// retención de nómina insuficiente para tu tramo real también hace falta
+// cubrirla, y antes esta función la ignoraba por completo. "A guardar" es
+// la cuota total sobre todos los ingresos menos TODO lo que ya te han
+// retenido (nómina/otros ingresos + locales), con los datos que haya en la
+// app en el momento de calcularlo — no proyecta ni extrapola el resto del
+// año, así que se va afinando según se registran más movimientos.
 export function estimarAhorroRenta(
   propiedades: Propiedad[],
   transacciones: Transaccion[],
@@ -605,7 +614,7 @@ export function estimarAhorroRenta(
 
   const rendimientoInmobiliarioTotal = porPropiedad.reduce((s, f) => s + f.rendimientoComputable, 0)
 
-  const irpfYaRetenidoLocales = propiedades
+  const retencionLocales = propiedades
     .filter((p) => p.tipo === 'local')
     .reduce((sTotal, p) => {
       const netaTotal = txsAnio
@@ -615,30 +624,36 @@ export function estimarAhorroRenta(
     }, 0)
 
   const otrosIngresosTotal = ingresosExternos.reduce((s, i) => s + i.importeAnual, 0)
+  const retencionOtrosIngresos = ingresosExternos.reduce(
+    (s, i) => s + i.importeAnual * (i.porcentajeRetencion / 100),
+    0,
+  )
 
   // El alquiler se suma "encima" de los demás ingresos: la base general es
-  // progresiva y única, así que el impuesto que genera el alquiler es la
-  // diferencia entre la cuota con todo sumado y la cuota que ya generarían
-  // solo los otros ingresos por su cuenta.
+  // progresiva y única. "irpfEstimadoAlquileres" es solo informativo (qué
+  // parte de la cuota total generan los alquileres); "A guardar" ya no se
+  // calcula a partir de esa parte marginal, sino de la cuota total.
   const rendimientoPositivo = Math.max(0, rendimientoInmobiliarioTotal)
   const baseImponibleTotal = otrosIngresosTotal + rendimientoPositivo
   const cuotaSoloOtrosIngresos = cuotaIRPF(otrosIngresosTotal)
-  const cuotaConAlquileres = cuotaIRPF(baseImponibleTotal)
+  const cuotaTotal = cuotaIRPF(baseImponibleTotal)
   const tipoMarginalPct = tipoMarginalIRPF(baseImponibleTotal)
 
-  const irpfEstimadoAlquileres = Math.max(0, cuotaConAlquileres - cuotaSoloOtrosIngresos)
-  const aGuardar = Math.max(0, irpfEstimadoAlquileres - irpfYaRetenidoLocales)
+  const irpfEstimadoAlquileres = Math.max(0, cuotaTotal - cuotaSoloOtrosIngresos)
+  const totalRetenido = retencionOtrosIngresos + retencionLocales
+  const aGuardar = Math.max(0, cuotaTotal - totalRetenido)
 
   return {
     porPropiedad,
     rendimientoInmobiliarioTotal,
-    irpfYaRetenidoLocales,
     otrosIngresosTotal,
     baseImponibleTotal,
-    cuotaSoloOtrosIngresos,
-    cuotaConAlquileres,
     tipoMarginalPct,
+    cuotaTotal,
     irpfEstimadoAlquileres,
+    retencionOtrosIngresos,
+    retencionLocales,
+    totalRetenido,
     aGuardar,
   }
 }

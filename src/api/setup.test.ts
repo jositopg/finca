@@ -217,20 +217,52 @@ describe('exportarASheets', () => {
     expect(fila[5]).toBe('=D2*0,19')
   })
 
-  it('Estimador Renta (resumen): cuota progresiva vía SUMPRODUCT contra Tramos IRPF', async () => {
+  it('Estimador Renta (resumen): cuota total (no solo la marginal de alquileres) y toda la retención', async () => {
     const byTitle = await exportar([propiedad({ id: 'p1', nombre: 'X', tipo: 'piso' })], [], [])
     const resumen = byTitle.get('Estimador Renta (resumen)')!
+    expect(resumen.headers).toEqual([
+      'Año',
+      'Rendimiento inmobiliario (reducido)',
+      'Otros ingresos',
+      'Base imponible total',
+      'Tramo marginal %',
+      'Cuota total estimada',
+      'IRPF que generan los alquileres (informativo)',
+      'Retenido en nómina/otros ingresos',
+      'Retenido en origen (locales)',
+      'Total ya retenido',
+      'A guardar',
+    ])
     expect(resumen.rows.length).toBeGreaterThan(0)
     const [fila] = resumen.rows
     expect(fila[4]).toBe(
       '=IF(D2=0;19;SUMPRODUCT((D2>\'Tramos IRPF\'!$A$2:$A$7)*(D2<=\'Tramos IRPF\'!$B$2:$B$7)*\'Tramos IRPF\'!$C$2:$C$7))',
     )
+    // Cuota total: sobre la base imponible completa (D), no solo sobre lo
+    // que generan los alquileres — esto es lo que cambió a petición de Jose.
     expect(fila[5]).toBe(
-      '=SUMPRODUCT(IF(C2<=\'Tramos IRPF\'!$A$2:$A$7;0;IF(C2>=\'Tramos IRPF\'!$B$2:$B$7;\'Tramos IRPF\'!$B$2:$B$7-\'Tramos IRPF\'!$A$2:$A$7;C2-\'Tramos IRPF\'!$A$2:$A$7))*\'Tramos IRPF\'!$C$2:$C$7/100)',
+      '=SUMPRODUCT(IF(D2<=\'Tramos IRPF\'!$A$2:$A$7;0;IF(D2>=\'Tramos IRPF\'!$B$2:$B$7;\'Tramos IRPF\'!$B$2:$B$7-\'Tramos IRPF\'!$A$2:$A$7;D2-\'Tramos IRPF\'!$A$2:$A$7))*\'Tramos IRPF\'!$C$2:$C$7/100)',
     )
+    expect(fila[6]).toBe(
+      '=MAX(0;F2-SUMPRODUCT(IF(C2<=\'Tramos IRPF\'!$A$2:$A$7;0;IF(C2>=\'Tramos IRPF\'!$B$2:$B$7;\'Tramos IRPF\'!$B$2:$B$7-\'Tramos IRPF\'!$A$2:$A$7;C2-\'Tramos IRPF\'!$A$2:$A$7))*\'Tramos IRPF\'!$C$2:$C$7/100))',
+    )
+    expect(fila[7]).toBe("=SUM('Ingresos externos'!$D$2:$D$1000)")
     expect(fila[8]).toBe(
       "=SUMIF('Estimador Renta (por propiedad)'!$A:$A;$A2;'Estimador Renta (por propiedad)'!$H:$H)",
     )
+    expect(fila[9]).toBe('=H2+I2')
+    expect(fila[10]).toBe('=MAX(0;F2-J2)')
+  })
+
+  it('Ingresos externos: la retención estimada es una fórmula, no un valor fijo', async () => {
+    const p1 = propiedad({ id: 'p1', nombre: 'X', tipo: 'piso' })
+    const ingresosExternos: IngresoExterno[] = [
+      { id: 'i1', nombre: 'Nómina', importeAnual: 24000, porcentajeRetencion: 22, creadoEn: '2025-01-01' },
+    ]
+    const byTitle = await exportar([p1], [], ingresosExternos)
+    const hoja = byTitle.get('Ingresos externos')!
+    expect(hoja.headers).toEqual(['Nombre', 'Importe anual', '% Retención', 'Retención estimada'])
+    expect(hoja.rows).toEqual([['Nómina', 24000, 22, '=B2*C2/100']])
   })
 
   it('Evolución anual: matriz año × propiedad, excluye las gestionadas para otros', async () => {

@@ -250,9 +250,12 @@ function buildHistorial(propiedades: Propiedad[]) {
 
 // ─── Ingresos externos configurados (datos crudos) ─────────────────────────
 function buildIngresosExternos(ingresosExternos: IngresoExterno[]) {
-  const headers = ['Nombre', 'Importe anual', '% Retención (informativo)']
-  const rows = ingresosExternos.map((i) => [i.nombre, round2(i.importeAnual), i.porcentajeRetencion])
-  return { headers, rows, moneyCols: [1] }
+  const headers = ['Nombre', 'Importe anual', '% Retención', 'Retención estimada']
+  const rows = ingresosExternos.map((i, idx) => {
+    const r = idx + 2
+    return [i.nombre, round2(i.importeAnual), i.porcentajeRetencion, `=B${r}*C${r}/100`]
+  })
+  return { headers, rows, moneyCols: [1, 3] }
 }
 
 // ─── Tramos IRPF: tabla de referencia editable para las fórmulas ───────────
@@ -429,6 +432,10 @@ function cuotaIrpfFormula(baseCell: string): string {
   return `SUMPRODUCT(IF(${baseCell}<='Tramos IRPF'!$A$2:$A$7;0;IF(${baseCell}>='Tramos IRPF'!$B$2:$B$7;'Tramos IRPF'!$B$2:$B$7-'Tramos IRPF'!$A$2:$A$7;${baseCell}-'Tramos IRPF'!$A$2:$A$7))*'Tramos IRPF'!$C$2:$C$7/100)`
 }
 
+// "A guardar" es la cuota total (nómina/otros ingresos + alquileres, todo
+// junto) menos TODA la retención ya practicada (nómina/otros ingresos +
+// locales) — no solo la parte marginal que generan los alquileres, para
+// detectar también si la retención de la nómina se queda corta.
 function buildEstimadorRentaResumen(anios: string[]) {
   const headers = [
     'Año',
@@ -436,10 +443,11 @@ function buildEstimadorRentaResumen(anios: string[]) {
     'Otros ingresos',
     'Base imponible total',
     'Tramo marginal %',
-    'Cuota solo otros ingresos',
-    'Cuota con alquileres',
-    'IRPF estimado alquileres',
-    'Ya retenido en origen (locales)',
+    'Cuota total estimada',
+    'IRPF que generan los alquileres (informativo)',
+    'Retenido en nómina/otros ingresos',
+    'Retenido en origen (locales)',
+    'Total ya retenido',
     'A guardar',
   ]
   const rows = anios.map((anio, i) => {
@@ -450,14 +458,15 @@ function buildEstimadorRentaResumen(anios: string[]) {
       `=SUM('Ingresos externos'!$B:$B)`,
       `=C${r}+MAX(0;B${r})`,
       `=IF(D${r}=0;19;SUMPRODUCT((D${r}>'Tramos IRPF'!$A$2:$A$7)*(D${r}<='Tramos IRPF'!$B$2:$B$7)*'Tramos IRPF'!$C$2:$C$7))`,
-      `=${cuotaIrpfFormula(`C${r}`)}`,
       `=${cuotaIrpfFormula(`D${r}`)}`,
-      `=MAX(0;G${r}-F${r})`,
+      `=MAX(0;F${r}-${cuotaIrpfFormula(`C${r}`)})`,
+      `=SUM('Ingresos externos'!$D$2:$D$1000)`,
       `=SUMIF('Estimador Renta (por propiedad)'!$A:$A;$A${r};'Estimador Renta (por propiedad)'!$H:$H)`,
-      `=MAX(0;H${r}-I${r})`,
+      `=H${r}+I${r}`,
+      `=MAX(0;F${r}-J${r})`,
     ]
   })
-  return { headers, rows, moneyCols: [1, 2, 3, 5, 6, 7, 8, 9] }
+  return { headers, rows, moneyCols: [1, 2, 3, 5, 6, 7, 8, 9, 10] }
 }
 
 // Crea (sustituyendo cualquier exportación anterior) un informe completo con

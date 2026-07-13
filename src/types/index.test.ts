@@ -5,6 +5,7 @@ import {
   calcularRentaLocal,
   cuotaIRPF,
   esDeAlquiler,
+  estimarAhorroRenta,
   generarGastosPendientes,
   miParte,
   ordenarTareas,
@@ -12,6 +13,7 @@ import {
   rentaPendiente,
   tareaVencida,
   tipoMarginalIRPF,
+  type IngresoExterno,
   type Propiedad,
   type Tarea,
   type Transaccion,
@@ -153,6 +155,70 @@ describe('cuotaIRPF / tipoMarginalIRPF', () => {
   it('tipoMarginalIRPF devuelve el tramo alcanzado, no un promedio', () => {
     expect(tipoMarginalIRPF(5000)).toBe(19)
     expect(tipoMarginalIRPF(14450)).toBe(24)
+  })
+})
+
+describe('estimarAhorroRenta', () => {
+  function ingresoExterno(overrides: Partial<IngresoExterno> = {}): IngresoExterno {
+    return {
+      id: 'i1',
+      nombre: 'Nómina',
+      importeAnual: 40000,
+      porcentajeRetencion: 22,
+      creadoEn: '2026-01-01',
+      ...overrides,
+    }
+  }
+
+  it('"a guardar" es la cuota TOTAL menos TODA la retención, no solo la parte de los alquileres', () => {
+    const p = propiedad({
+      id: 'p1',
+      tipo: 'piso',
+      porcentajePropiedad: 100,
+      gastosRecurrentes: undefined,
+    })
+    // 10.000€ de rendimiento inmobiliario computable (sin reducción, para
+    // simplificar el ejemplo): un ingreso de "Otros ingresos" en enero.
+    const txs: Transaccion[] = [
+      {
+        id: 't1',
+        propiedadId: 'p1',
+        fecha: '2026-01-15',
+        tipo: 'ingreso',
+        importe: 10000,
+        categoria: 'Otros ingresos',
+        descripcion: '',
+        archivos: [],
+        creadoEn: '2026-01-15T00:00:00.000Z',
+      },
+    ]
+    // Nómina de 40.000€/año con un 22% de retención — pero su tipo real
+    // (tramos progresivos) es más alto, así que esa retención se queda
+    // corta incluso sin contar los alquileres.
+    const ingresosExternos = [ingresoExterno({ importeAnual: 40000, porcentajeRetencion: 22 })]
+
+    const e = estimarAhorroRenta([p], txs, ingresosExternos, '2026', 0)
+
+    const cuotaTotalEsperada = cuotaIRPF(50000) // 40.000 nómina + 10.000 alquiler
+    const cuotaSoloNominaEsperada = cuotaIRPF(40000)
+    const retencionNominaEsperada = 40000 * 0.22 // 8.800€
+
+    expect(e.rendimientoInmobiliarioTotal).toBe(10000)
+    expect(e.cuotaTotal).toBeCloseTo(cuotaTotalEsperada, 6)
+    expect(e.retencionOtrosIngresos).toBeCloseTo(retencionNominaEsperada, 6)
+    expect(e.retencionLocales).toBe(0)
+    expect(e.totalRetenido).toBeCloseTo(retencionNominaEsperada, 6)
+    // El shortfall de la nómina (su cuota real supera a la retención del
+    // 22%) tiene que reflejarse en "a guardar", no solo lo que generan los
+    // alquileres por su cuenta.
+    expect(e.aGuardar).toBeCloseTo(cuotaTotalEsperada - retencionNominaEsperada, 6)
+    expect(e.aGuardar).toBeGreaterThan(cuotaTotalEsperada - cuotaSoloNominaEsperada)
+  })
+
+  it('con retención suficiente en todos los ingresos, "a guardar" es 0', () => {
+    const ingresosExternos = [ingresoExterno({ importeAnual: 10000, porcentajeRetencion: 99 })]
+    const e = estimarAhorroRenta([], [], ingresosExternos, '2026', 0)
+    expect(e.aGuardar).toBe(0)
   })
 })
 
