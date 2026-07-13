@@ -19,21 +19,31 @@ import {
 import {
   addIngresoExterno,
   addPropiedad,
+  addTarea,
   addTransaccion,
   addTransacciones,
   deleteIngresoExterno,
   deletePropiedad,
+  deleteTarea,
   deleteTransaccion,
   getIngresosExternos,
   getPropiedades,
+  getTareas,
   getTransacciones,
   updateIngresoExterno,
   updatePropiedad,
+  updateTarea,
   updateTransaccion,
 } from '../api/db'
 import { getOrCreateFolder } from '../api/drive'
 import { useToast } from './ToastContext'
-import { generarGastosPendientes, type IngresoExterno, type Propiedad, type Transaccion } from '../types'
+import {
+  generarGastosPendientes,
+  type IngresoExterno,
+  type Propiedad,
+  type Tarea,
+  type Transaccion,
+} from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 
@@ -44,6 +54,7 @@ interface Cache {
   propiedades: Propiedad[]
   transacciones: Transaccion[]
   ingresosExternos: IngresoExterno[]
+  tareas: Tarea[]
   cachedAt: string
 }
 
@@ -70,6 +81,7 @@ interface AppContextValue {
   propiedades: Propiedad[]
   transacciones: Transaccion[]
   ingresosExternos: IngresoExterno[]
+  tareas: Tarea[]
   isLoadingData: boolean
   usingCache: boolean
   cacheDate: string | null
@@ -86,6 +98,9 @@ interface AppContextValue {
   addIngreso: (i: IngresoExterno) => Promise<void>
   updateIngreso: (i: IngresoExterno) => Promise<void>
   deleteIngreso: (id: string) => Promise<void>
+  addTareaProp: (t: Tarea) => Promise<void>
+  updateTareaProp: (t: Tarea) => Promise<void>
+  deleteTareaProp: (id: string) => Promise<void>
   ensureDriveAccess: () => Promise<void>
   ensurePropFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
@@ -98,6 +113,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [propiedades, setPropiedades] = useState<Propiedad[]>([])
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   const [ingresosExternos, setIngresosExternos] = useState<IngresoExterno[]>([])
+  const [tareas, setTareas] = useState<Tarea[]>([])
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [usingCache, setUsingCache] = useState(false)
   const [cacheDate, setCacheDate] = useState<string | null>(null)
@@ -149,10 +165,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadingRef.current = true
     setIsLoadingData(true)
     try {
-      const [props, txs, ingresos] = await Promise.all([
+      const [props, txs, ingresos, tareasData] = await Promise.all([
         getPropiedades(),
         getTransacciones(),
         getIngresosExternos(),
+        getTareas(),
       ])
 
       let txsFinal = txs
@@ -175,9 +192,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setPropiedades(props)
       setTransacciones(txsFinal)
       setIngresosExternos(ingresos)
+      setTareas(tareasData)
       setUsingCache(false)
       setCacheDate(null)
-      saveCache({ propiedades: props, transacciones: txsFinal, ingresosExternos: ingresos })
+      saveCache({ propiedades: props, transacciones: txsFinal, ingresosExternos: ingresos, tareas: tareasData })
     } catch (err) {
       console.error('Load data error', err)
       const cached = loadCache()
@@ -185,6 +203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPropiedades(cached.propiedades)
         setTransacciones(cached.transacciones)
         setIngresosExternos(cached.ingresosExternos)
+        setTareas(cached.tareas ?? [])
         setUsingCache(true)
         setCacheDate(cached.cachedAt)
         showToast('Sin conexión — mostrando los últimos datos guardados')
@@ -224,6 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPropiedades([])
         setTransacciones([])
         setIngresosExternos([])
+        setTareas([])
       }
     })
 
@@ -414,6 +434,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast],
   )
 
+  const addTareaProp = useCallback(
+    async (t: Tarea) => {
+      try {
+        await addTarea(t)
+        setTareas((prev) => [...prev, t])
+      } catch (err) {
+        showToast('No se pudo guardar la tarea')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
+  const updateTareaProp = useCallback(
+    async (t: Tarea) => {
+      try {
+        await updateTarea(t)
+        setTareas((prev) => prev.map((x) => (x.id === t.id ? t : x)))
+      } catch (err) {
+        showToast('No se pudieron guardar los cambios')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
+  const deleteTareaProp = useCallback(
+    async (id: string) => {
+      try {
+        await deleteTarea(id)
+        setTareas((prev) => prev.filter((x) => x.id !== id))
+      } catch (err) {
+        showToast('No se pudo eliminar la tarea')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
       const propiedad = propiedades.find((p) => p.id === propiedadId)
@@ -459,6 +518,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         propiedades,
         transacciones,
         ingresosExternos,
+        tareas,
         isLoadingData,
         usingCache,
         cacheDate,
@@ -475,6 +535,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addIngreso,
         updateIngreso,
         deleteIngreso,
+        addTareaProp,
+        updateTareaProp,
+        deleteTareaProp,
         ensureDriveAccess,
         ensurePropFolder,
       }}

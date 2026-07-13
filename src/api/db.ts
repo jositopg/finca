@@ -5,6 +5,9 @@ import type {
   IngresoExterno,
   Propiedad,
   Reparto,
+  Tarea,
+  TareaEstado,
+  TareaPrioridad,
   Transaccion,
 } from '../types'
 
@@ -262,5 +265,70 @@ export async function updateIngresoExterno(ingreso: IngresoExterno): Promise<voi
 
 export async function deleteIngresoExterno(id: string): Promise<void> {
   const { error } = await supabase.from('ingresos_externos').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Tareas por propiedad ────────────────────────────────────────────────────
+
+interface TareaRow {
+  id: string
+  propiedad_id: string
+  titulo: string
+  descripcion: string | null
+  prioridad: string
+  fecha_limite: string | null
+  estado: string
+  creado_en: string
+}
+
+function rowToTarea(row: TareaRow): Tarea {
+  return {
+    id: row.id,
+    propiedadId: row.propiedad_id,
+    titulo: row.titulo,
+    descripcion: row.descripcion ?? undefined,
+    prioridad: row.prioridad as TareaPrioridad,
+    fechaLimite: row.fecha_limite ?? undefined,
+    estado: row.estado as TareaEstado,
+    creadoEn: row.creado_en,
+  }
+}
+
+export async function getTareas(): Promise<Tarea[]> {
+  const { data, error } = await supabase.from('tareas').select('*').order('creado_en', { ascending: true })
+  if (error) throw error
+  return (data as TareaRow[]).map(rowToTarea)
+}
+
+export async function addTarea(tarea: Tarea): Promise<void> {
+  const { error } = await supabase.from('tareas').insert({
+    id: tarea.id,
+    propiedad_id: tarea.propiedadId,
+    titulo: tarea.titulo,
+    descripcion: tarea.descripcion ?? null,
+    prioridad: tarea.prioridad,
+    fecha_limite: tarea.fechaLimite ?? null,
+    estado: tarea.estado,
+    creado_en: tarea.creadoEn,
+  })
+  if (error) throw error
+}
+
+export async function updateTarea(tarea: Tarea): Promise<void> {
+  const { error } = await supabase
+    .from('tareas')
+    .update({
+      titulo: tarea.titulo,
+      descripcion: tarea.descripcion ?? null,
+      prioridad: tarea.prioridad,
+      fecha_limite: tarea.fechaLimite ?? null,
+      estado: tarea.estado,
+    })
+    .eq('id', tarea.id)
+  if (error) throw error
+}
+
+export async function deleteTarea(id: string): Promise<void> {
+  const { error } = await supabase.from('tareas').delete().eq('id', id)
   if (error) throw error
 }

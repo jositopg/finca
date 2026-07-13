@@ -645,3 +645,53 @@ export const ESTADO_BADGE_VARIANT: Record<
   uso_propio: 'default',
   vivienda_habitual: 'default',
 }
+
+// ─── Tareas por propiedad ───────────────────────────────────────────────────
+export type TareaPrioridad = 'baja' | 'media' | 'alta'
+export type TareaEstado = 'pendiente' | 'hecha'
+
+export interface Tarea {
+  id: string
+  propiedadId: string
+  titulo: string
+  descripcion?: string
+  prioridad: TareaPrioridad
+  fechaLimite?: string // YYYY-MM-DD
+  estado: TareaEstado
+  creadoEn: string
+}
+
+export const PRIORIDAD_LABELS: Record<TareaPrioridad, string> = {
+  baja: 'Baja',
+  media: 'Media',
+  alta: 'Alta',
+}
+
+export const PRIORIDAD_BADGE_VARIANT: Record<TareaPrioridad, 'default' | 'warning' | 'error'> = {
+  baja: 'default',
+  media: 'warning',
+  alta: 'error',
+}
+
+const PRIORIDAD_ORDEN: Record<TareaPrioridad, number> = { alta: 0, media: 1, baja: 2 }
+
+// Una tarea está vencida si sigue pendiente, tiene fecha límite, y esa
+// fecha ya pasó.
+export function tareaVencida(tarea: Pick<Tarea, 'fechaLimite' | 'estado'>, hoy: Date = new Date()): boolean {
+  if (tarea.estado === 'hecha' || !tarea.fechaLimite) return false
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+  return tarea.fechaLimite < hoyStr
+}
+
+// Pendientes primero (por prioridad y luego por la fecha límite más
+// próxima; sin fecha va al final de su prioridad), hechas al final.
+export function ordenarTareas(tareas: Tarea[]): Tarea[] {
+  return [...tareas].sort((a, b) => {
+    if (a.estado !== b.estado) return a.estado === 'pendiente' ? -1 : 1
+    if (a.prioridad !== b.prioridad) return PRIORIDAD_ORDEN[a.prioridad] - PRIORIDAD_ORDEN[b.prioridad]
+    if (a.fechaLimite && b.fechaLimite) return a.fechaLimite.localeCompare(b.fechaLimite)
+    if (a.fechaLimite) return -1
+    if (b.fechaLimite) return 1
+    return a.creadoEn.localeCompare(b.creadoEn)
+  })
+}

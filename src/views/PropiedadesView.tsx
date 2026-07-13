@@ -19,6 +19,7 @@ import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { GastoSuministro } from '../components/GastoSuministro'
 import { HistorialAlquileres } from '../components/HistorialAlquileres'
+import { TareasPropiedad } from '../components/TareasPropiedad'
 import { TerminarContrato } from '../components/TerminarContrato'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
@@ -33,6 +34,7 @@ import {
   miParte,
   parseImporte,
   rentaPendiente,
+  tareaVencida,
   TIPO_LABELS,
   valorarPropiedad,
   type Propiedad,
@@ -201,7 +203,7 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 export function PropiedadesView({ selectedId, onSelectId }: Props) {
-  const { propiedades, transacciones, addProp, updateProp, deleteProp, addTx, deleteTx } =
+  const { propiedades, transacciones, tareas, addProp, updateProp, deleteProp, addTx, deleteTx } =
     useApp()
   const [showAddProp, setShowAddProp] = useState(false)
   const [editProp, setEditProp] = useState<Propiedad | null>(null)
@@ -243,6 +245,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const grupos = groupByMonth(txsFiltradas)
     const rentaSinCobrarDetalle = rentaPendiente(propiedad, transacciones)
+    const tareasVencidas = tareas.filter((t) => t.propiedadId === propiedad.id && tareaVencida(t)).length
 
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
     const txsAnioActual = txs.filter((t) => t.fecha.startsWith(currentYearStr))
@@ -327,6 +330,12 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             )}
             {rentaSinCobrarDetalle && (
               <Badge label="Renta sin cobrar este mes" variant="warning" />
+            )}
+            {tareasVencidas > 0 && (
+              <Badge
+                label={`${tareasVencidas} tarea${tareasVencidas === 1 ? '' : 's'} vencida${tareasVencidas === 1 ? '' : 's'}`}
+                variant="error"
+              />
             )}
           </div>
         </div>
@@ -447,6 +456,11 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </p>
           </div>
         )}
+
+        {/* Tareas */}
+        <div className="px-5 mb-5">
+          <TareasPropiedad propiedad={propiedad} />
+        </div>
 
         {/* Month selector */}
         <div className="px-5 overflow-x-auto scrollbar-none mb-4">
@@ -762,6 +776,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               const estadoContratoP = contratoEstado(p.contratoFin)
               const alertaContrato = estadoContratoP?.alerta ?? false
               const rentaSinCobrar = rentaPendiente(p, transacciones)
+              const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
 
               return (
                 <button
@@ -816,6 +831,12 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                     <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
                       <AlertTriangle size={11} />
                       Renta sin cobrar este mes
+                    </div>
+                  )}
+                  {tareasVencidasP > 0 && (
+                    <div className="flex items-center gap-1 mt-2 text-xs text-error font-medium">
+                      <AlertTriangle size={11} />
+                      {tareasVencidasP} tarea{tareasVencidasP === 1 ? '' : 's'} vencida{tareasVencidasP === 1 ? '' : 's'}
                     </div>
                   )}
                 </button>

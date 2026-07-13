@@ -6,10 +6,13 @@ import {
   cuotaIRPF,
   generarGastosPendientes,
   miParte,
+  ordenarTareas,
   parseImporte,
   rentaPendiente,
+  tareaVencida,
   tipoMarginalIRPF,
   type Propiedad,
+  type Tarea,
   type Transaccion,
 } from './index'
 
@@ -197,5 +200,62 @@ describe('rentaPendiente', () => {
       false,
     )
     expect(rentaPendiente(propiedad({ alquilerMensual: undefined }), [], new Date('2026-01-10'))).toBe(false)
+  })
+})
+
+function tarea(overrides: Partial<Tarea> = {}): Tarea {
+  return {
+    id: crypto.randomUUID(),
+    propiedadId: 'p1',
+    titulo: 'Tarea test',
+    prioridad: 'media',
+    estado: 'pendiente',
+    creadoEn: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+describe('tareaVencida', () => {
+  it('no está vencida si no tiene fecha límite', () => {
+    expect(tareaVencida(tarea(), new Date('2026-06-01'))).toBe(false)
+  })
+
+  it('está vencida si la fecha límite ya pasó y sigue pendiente', () => {
+    expect(tareaVencida(tarea({ fechaLimite: '2026-01-01' }), new Date('2026-06-01'))).toBe(true)
+  })
+
+  it('no está vencida si aún no ha llegado la fecha límite', () => {
+    expect(tareaVencida(tarea({ fechaLimite: '2026-12-31' }), new Date('2026-06-01'))).toBe(false)
+  })
+
+  it('una tarea ya hecha nunca está vencida', () => {
+    expect(tareaVencida(tarea({ fechaLimite: '2026-01-01', estado: 'hecha' }), new Date('2026-06-01'))).toBe(false)
+  })
+})
+
+describe('ordenarTareas', () => {
+  it('las pendientes van antes que las hechas', () => {
+    const hecha = tarea({ id: 'a', estado: 'hecha', prioridad: 'alta' })
+    const pendiente = tarea({ id: 'b', estado: 'pendiente', prioridad: 'baja' })
+    expect(ordenarTareas([hecha, pendiente]).map((t) => t.id)).toEqual(['b', 'a'])
+  })
+
+  it('entre pendientes, ordena por prioridad (alta > media > baja)', () => {
+    const baja = tarea({ id: 'baja', prioridad: 'baja' })
+    const alta = tarea({ id: 'alta', prioridad: 'alta' })
+    const media = tarea({ id: 'media', prioridad: 'media' })
+    expect(ordenarTareas([baja, alta, media]).map((t) => t.id)).toEqual(['alta', 'media', 'baja'])
+  })
+
+  it('dentro de la misma prioridad, ordena por la fecha límite más próxima primero', () => {
+    const lejos = tarea({ id: 'lejos', fechaLimite: '2026-12-01' })
+    const cerca = tarea({ id: 'cerca', fechaLimite: '2026-06-01' })
+    expect(ordenarTareas([lejos, cerca]).map((t) => t.id)).toEqual(['cerca', 'lejos'])
+  })
+
+  it('sin fecha límite va después de las que sí tienen, dentro de la misma prioridad', () => {
+    const conFecha = tarea({ id: 'con-fecha', fechaLimite: '2026-06-01' })
+    const sinFecha = tarea({ id: 'sin-fecha' })
+    expect(ordenarTareas([sinFecha, conFecha]).map((t) => t.id)).toEqual(['con-fecha', 'sin-fecha'])
   })
 })
