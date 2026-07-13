@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { EstimadorRenta } from '../components/EstimadorRenta'
-import { baseDesdeRentaNeta, calcularRentaLocal, esDeJose, miParte } from '../types'
+import { baseDesdeRentaNeta, calcularRentaLocal, esDeAlquiler, esDeJose, miParte } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -15,8 +15,9 @@ function trimestreDe(fecha: string): number {
 export function FiscalView() {
   const { propiedades: todasLasPropiedades, transacciones } = useApp()
   // La Renta, el estimador y el Modelo 420 son fiscalmente de Jose — se
-  // excluyen las propiedades que solo gestiona por cuenta de otros.
-  const propiedades = todasLasPropiedades.filter(esDeJose)
+  // excluyen las propiedades que solo gestiona por cuenta de otros, y las
+  // de uso propio/vivienda habitual (no generan rendimiento de alquiler).
+  const propiedades = todasLasPropiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
 
   const years = useMemo(() => {
     const set = new Set(transacciones.map((t) => t.fecha.slice(0, 4)))

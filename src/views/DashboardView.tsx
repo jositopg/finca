@@ -23,6 +23,7 @@ import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
+  esDeAlquiler,
   esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
@@ -62,9 +63,10 @@ export function DashboardView({ onNavigate }: Props) {
   const currentMonth = format(now, 'yyyy-MM')
   const currentYear = format(now, 'yyyy')
 
-  // Totales personales: solo propiedades que son de Jose, no las que
-  // gestiona por cuenta de otros.
-  const propiedadesJose = propiedades.filter(esDeJose)
+  // Totales personales de rendimiento de alquiler: solo propiedades que son
+  // de Jose (no las que gestiona por cuenta de otros) y que no sean de uso
+  // propio/vivienda habitual (esas se llevan aparte, no son alquiler).
+  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
   const propiedadPorId = new Map(propiedadesJose.map((p) => [p.id, p]))
   function miImporte(t: { propiedadId: string; importe: number }): number | null {
     const p = propiedadPorId.get(t.propiedadId)

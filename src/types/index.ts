@@ -68,6 +68,15 @@ export function esDeJose(propiedad: Pick<Propiedad, 'propietarioNombre'>): boole
   return !propiedad.propietarioNombre
 }
 
+// Propiedades en uso propio o como vivienda habitual: no generan
+// rendimiento de alquiler, así que se llevan en un apartado aparte (ver
+// PropiedadesView) y se excluyen de los totales de rendimiento de alquiler
+// del Dashboard y de la pestaña Fiscal (Renta, Modelo 420, estimador) — solo
+// son gasto personal, no actividad económica de alquiler.
+export function esDeAlquiler(propiedad: Pick<Propiedad, 'estado'>): boolean {
+  return propiedad.estado !== 'uso_propio' && propiedad.estado !== 'vivienda_habitual'
+}
+
 export interface Rentabilidad {
   bruta: number // % anual sobre el valor, solo ingresos
   neta: number // % anual sobre el valor, ingresos - gastos

@@ -29,6 +29,8 @@ import { Button } from '../components/Button'
 import {
   calcularRentabilidad,
   calcularReparto,
+  esDeAlquiler,
+  esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   miParte,
@@ -38,6 +40,7 @@ import {
   TIPO_LABELS,
   valorarPropiedad,
   type Propiedad,
+  type Tarea,
   type Transaccion,
 } from '../types'
 
@@ -68,6 +71,96 @@ function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }
   return [...map.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
     .map(([mes, items]) => ({ mes, items }))
+}
+
+// ── Property card (lista) ──────────────────────────────────────────────────────
+function PropiedadCard({
+  propiedad: p,
+  transacciones,
+  tareas,
+  currentAnio,
+  onSelect,
+}: {
+  propiedad: Propiedad
+  transacciones: Transaccion[]
+  tareas: Tarea[]
+  currentAnio: string
+  onSelect: () => void
+}) {
+  const txsAnio = transacciones.filter((t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio))
+  const ingresos = txsAnio
+    .filter((t) => t.tipo === 'ingreso')
+    .reduce((s, t) => s + miParte(t.importe, p), 0)
+  const gastos = txsAnio
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => s + miParte(t.importe, p), 0)
+  const estadoContratoP = contratoEstado(p.contratoFin)
+  const alertaContrato = estadoContratoP?.alerta ?? false
+  const rentaSinCobrar = rentaPendiente(p, transacciones)
+  const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
+
+  return (
+    <button
+      onClick={onSelect}
+      className="w-full text-left bg-surface-lowest rounded-2xl shadow-soft p-4 hover:shadow-card transition-shadow"
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <p className="font-medium text-on-surface text-sm truncate">{p.nombre}</p>
+          {p.direccion && (
+            <p className="text-xs text-outline-variant truncate mt-0.5">{p.direccion}</p>
+          )}
+          {p.inquilinoNombre && (
+            <p className="text-xs text-outline-variant/70 truncate mt-0.5">
+              {p.inquilinoNombre}
+              {p.alquilerMensual ? ` · ${fmt(p.alquilerMensual)} €/mes` : ''}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <Badge
+            label={ESTADO_LABELS[p.estado]}
+            variant={ESTADO_BADGE_VARIANT[p.estado]}
+          />
+          {p.propietarioNombre ? (
+            <span className="text-xs text-warning font-medium">De {p.propietarioNombre}</span>
+          ) : (
+            p.porcentajePropiedad != null &&
+            p.porcentajePropiedad < 100 && (
+              <span className="text-xs text-outline-variant">{p.porcentajePropiedad}% tuyo</span>
+            )
+          )}
+          {alertaContrato && estadoContratoP && (
+            <span className="text-xs text-warning font-medium flex items-center gap-1 text-right">
+              <AlertTriangle size={11} className="flex-shrink-0" />
+              {estadoContratoP.vencido ? 'Tácita reconducción' : `${estadoContratoP.dias}d`}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-3 text-xs">
+        <span className="text-outline-variant">{currentAnio}</span>
+        <span className="text-success tabular-nums">+{fmt(ingresos)} €</span>
+        <span className="text-outline-variant/40">·</span>
+        <span className="text-on-surface tabular-nums">-{fmt(gastos)} €</span>
+        <span className={`ml-auto font-medium tabular-nums ${ingresos - gastos >= 0 ? 'text-success' : 'text-error'}`}>
+          {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
+        </span>
+      </div>
+      {rentaSinCobrar && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+          <AlertTriangle size={11} />
+          Renta sin cobrar este mes
+        </div>
+      )}
+      {tareasVencidasP > 0 && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-error font-medium">
+          <AlertTriangle size={11} />
+          {tareasVencidasP} tarea{tareasVencidasP === 1 ? '' : 's'} vencida{tareasVencidasP === 1 ? '' : 's'}
+        </div>
+      )}
+    </button>
+  )
 }
 
 // ── Fiscal summary component ───────────────────────────────────────────────────
@@ -740,6 +833,15 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   // ── Properties list ────────────────────────────────────────────────────────
   const currentAnio = new Date().getFullYear().toString()
 
+  const propiedadesAlquiler = propiedades.filter(esDeAlquiler)
+  const propiedadesPropias = propiedades.filter((p) => !esDeAlquiler(p))
+  const gastosAnioPropias = propiedadesPropias.filter(esDeJose).reduce((total, p) => {
+    const gastos = transacciones
+      .filter((t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio) && t.tipo === 'gasto')
+      .reduce((s, t) => s + miParte(t.importe, p), 0)
+    return total + gastos
+  }, 0)
+
   return (
     <div className="flex flex-col pb-24">
       <div className="px-5 pt-12 pb-6">
@@ -762,86 +864,62 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {propiedades.map((p) => {
-              const txsAnio = transacciones.filter(
-                (t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio),
-              )
-              const ingresos = txsAnio
-                .filter((t) => t.tipo === 'ingreso')
-                .reduce((s, t) => s + miParte(t.importe, p), 0)
-              const gastos = txsAnio
-                .filter((t) => t.tipo === 'gasto')
-                .reduce((s, t) => s + miParte(t.importe, p), 0)
-              const estadoContratoP = contratoEstado(p.contratoFin)
-              const alertaContrato = estadoContratoP?.alerta ?? false
-              const rentaSinCobrar = rentaPendiente(p, transacciones)
-              const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
+          <div className="flex flex-col gap-8">
+            <div>
+              {propiedadesPropias.length > 0 && (
+                <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
+                  En alquiler / gestión
+                </p>
+              )}
+              {propiedadesAlquiler.length === 0 ? (
+                <p className="text-sm text-outline-variant py-2">Ninguna todavía.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {propiedadesAlquiler.map((p) => (
+                    <PropiedadCard
+                      key={p.id}
+                      propiedad={p}
+                      transacciones={transacciones}
+                      tareas={tareas}
+                      currentAnio={currentAnio}
+                      onSelect={() => onSelectId(p.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
 
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => onSelectId(p.id)}
-                  className="w-full text-left bg-surface-lowest rounded-2xl shadow-soft p-4 hover:shadow-card transition-shadow"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0">
-                      <p className="font-medium text-on-surface text-sm truncate">{p.nombre}</p>
-                      {p.direccion && (
-                        <p className="text-xs text-outline-variant truncate mt-0.5">{p.direccion}</p>
-                      )}
-                      {p.inquilinoNombre && (
-                        <p className="text-xs text-outline-variant/70 truncate mt-0.5">
-                          {p.inquilinoNombre}
-                          {p.alquilerMensual ? ` · ${fmt(p.alquilerMensual)} €/mes` : ''}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <Badge
-                        label={ESTADO_LABELS[p.estado]}
-                        variant={ESTADO_BADGE_VARIANT[p.estado]}
-                      />
-                      {p.propietarioNombre ? (
-                        <span className="text-xs text-warning font-medium">De {p.propietarioNombre}</span>
-                      ) : (
-                        p.porcentajePropiedad != null &&
-                        p.porcentajePropiedad < 100 && (
-                          <span className="text-xs text-outline-variant">{p.porcentajePropiedad}% tuyo</span>
-                        )
-                      )}
-                      {alertaContrato && estadoContratoP && (
-                        <span className="text-xs text-warning font-medium flex items-center gap-1 text-right">
-                          <AlertTriangle size={11} className="flex-shrink-0" />
-                          {estadoContratoP.vencido ? 'Tácita reconducción' : `${estadoContratoP.dias}d`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className="text-outline-variant">{currentAnio}</span>
-                    <span className="text-success tabular-nums">+{fmt(ingresos)} €</span>
-                    <span className="text-outline-variant/40">·</span>
-                    <span className="text-on-surface tabular-nums">-{fmt(gastos)} €</span>
-                    <span className={`ml-auto font-medium tabular-nums ${ingresos - gastos >= 0 ? 'text-success' : 'text-error'}`}>
-                      {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
+            {propiedadesPropias.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+                    A tu disposición / vivienda habitual
+                  </p>
+                  {gastosAnioPropias > 0 && (
+                    <span className="text-xs text-outline-variant">
+                      Gastos {currentAnio}:{' '}
+                      <span className="font-medium text-on-surface">{fmt(gastosAnioPropias)} €</span>
                     </span>
-                  </div>
-                  {rentaSinCobrar && (
-                    <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
-                      <AlertTriangle size={11} />
-                      Renta sin cobrar este mes
-                    </div>
                   )}
-                  {tareasVencidasP > 0 && (
-                    <div className="flex items-center gap-1 mt-2 text-xs text-error font-medium">
-                      <AlertTriangle size={11} />
-                      {tareasVencidasP} tarea{tareasVencidasP === 1 ? '' : 's'} vencida{tareasVencidasP === 1 ? '' : 's'}
-                    </div>
-                  )}
-                </button>
-              )
-            })}
+                </div>
+                <p className="text-xs text-outline-variant mb-3">
+                  No cuentan en tus totales de rendimiento de alquiler (Dashboard/Fiscal) — es tu contabilidad
+                  aparte, solo de gasto.
+                </p>
+                <div className="flex flex-col gap-3">
+                  {propiedadesPropias.map((p) => (
+                    <PropiedadCard
+                      key={p.id}
+                      propiedad={p}
+                      transacciones={transacciones}
+                      tareas={tareas}
+                      currentAnio={currentAnio}
+                      onSelect={() => onSelectId(p.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

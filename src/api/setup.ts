@@ -3,6 +3,7 @@ import { apiPost, getAccessToken } from './auth'
 import { deleteFile, findFileInFolder, getOrCreateFolder } from './drive'
 import { writeFormattedSheets, type SheetSpec } from './sheets'
 import {
+  esDeAlquiler,
   esDeJose,
   ESTADO_LABELS,
   miParte,
@@ -284,12 +285,15 @@ function buildResumen(propiedades: Propiedad[], anio: string) {
     return [p.nombre, gestion(p), ESTADO_LABELS[p.estado], ingresosF, gastosF, netoF, rentaPendienteF]
   })
   const n = propiedades.length
+  // El total excluye, además de lo gestionado para otros, las propiedades
+  // de uso propio/vivienda habitual — no son rendimiento de alquiler.
+  const excluirEstado = `$C$2:$C$${n + 1};"<>Uso propio";$C$2:$C$${n + 1};"<>Vivienda habitual"`
   rows.push([
-    'TOTAL (tus propiedades)',
+    'TOTAL (tus propiedades en alquiler)',
     '',
     '',
-    `=SUMIF($B$2:$B$${n + 1};"Tuya";D$2:D$${n + 1})`,
-    `=SUMIF($B$2:$B$${n + 1};"Tuya";E$2:E$${n + 1})`,
+    `=SUMIFS(D$2:D$${n + 1};$B$2:$B$${n + 1};"Tuya";${excluirEstado})`,
+    `=SUMIFS(E$2:E$${n + 1};$B$2:$B$${n + 1};"Tuya";${excluirEstado})`,
     `=D${n + 2}-E${n + 2}`,
     '',
   ])
@@ -478,7 +482,7 @@ export async function exportarASheets(
     await deleteFile(existing.id)
   }
 
-  const propiedadesJose = propiedades.filter(esDeJose)
+  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
   const locales = propiedadesJose.filter((p) => p.tipo === 'local')
   const anios = anosConDatos(transacciones)
   const anioActual = new Date().getFullYear().toString()

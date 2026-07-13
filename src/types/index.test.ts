@@ -4,6 +4,7 @@ import {
   calcularReparto,
   calcularRentaLocal,
   cuotaIRPF,
+  esDeAlquiler,
   generarGastosPendientes,
   miParte,
   ordenarTareas,
@@ -79,6 +80,20 @@ describe('miParte', () => {
 
   it('sin porcentaje definido, asume el 100%', () => {
     expect(miParte(1000, {})).toBe(1000)
+  })
+})
+
+describe('esDeAlquiler', () => {
+  it('es true para estados de ciclo de alquiler', () => {
+    expect(esDeAlquiler({ estado: 'alquilado' })).toBe(true)
+    expect(esDeAlquiler({ estado: 'vacio' })).toBe(true)
+    expect(esDeAlquiler({ estado: 'reforma' })).toBe(true)
+    expect(esDeAlquiler({ estado: 'venta' })).toBe(true)
+  })
+
+  it('es false para uso propio y vivienda habitual', () => {
+    expect(esDeAlquiler({ estado: 'uso_propio' })).toBe(false)
+    expect(esDeAlquiler({ estado: 'vivienda_habitual' })).toBe(false)
   })
 })
 

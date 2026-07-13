@@ -145,11 +145,24 @@ describe('exportarASheets', () => {
       '=SUMIFS(\'Movimientos\'!$F:$F;\'Movimientos\'!$B:$B;$A3;\'Movimientos\'!$D:$D;"Ingreso";\'Movimientos\'!$A:$A;">="&DATE(2026;1;1);\'Movimientos\'!$A:$A;"<="&DATE(2026;12;31))*1',
     )
 
-    // Fila TOTAL: solo suma las filas "Tuya".
+    // Fila TOTAL: solo suma las filas "Tuya" y que no sean uso propio/vivienda habitual.
     const total = resumen.rows[2]
-    expect(total[0]).toBe('TOTAL (tus propiedades)')
-    expect(total[3]).toBe('=SUMIF($B$2:$B$3;"Tuya";D$2:D$3)')
+    expect(total[0]).toBe('TOTAL (tus propiedades en alquiler)')
+    expect(total[3]).toBe(
+      '=SUMIFS(D$2:D$3;$B$2:$B$3;"Tuya";$C$2:$C$3;"<>Uso propio";$C$2:$C$3;"<>Vivienda habitual")',
+    )
     expect(total[5]).toBe('=D4-E4')
+  })
+
+  it('Resumen: excluye del TOTAL las propiedades de uso propio/vivienda habitual', async () => {
+    const p1 = propiedad({ id: 'p1', nombre: 'Piso Alquilado', tipo: 'piso' })
+    const p2 = propiedad({ id: 'p2', nombre: 'Mi vivienda', tipo: 'piso', estado: 'vivienda_habitual' })
+    const byTitle = await exportar([p1, p2], [], [])
+    const resumen = byTitle.get('Resumen')!
+    const total = resumen.rows[resumen.rows.length - 1]
+    expect(total[3]).toBe(
+      '=SUMIFS(D$2:D$3;$B$2:$B$3;"Tuya";$C$2:$C$3;"<>Uso propio";$C$2:$C$3;"<>Vivienda habitual")',
+    )
   })
 
   it('Movimientos: reparto por fórmula referenciando "Reparto de suministros"', async () => {
@@ -234,5 +247,17 @@ describe('exportarASheets', () => {
       '=(SUMIFS(\'Movimientos\'!$F:$F;\'Movimientos\'!$B:$B;B$1;\'Movimientos\'!$D:$D;"Ingreso";\'Movimientos\'!$A:$A;">="&DATE($A2;1;1);\'Movimientos\'!$A:$A;"<="&DATE($A2;12;31))-SUMIFS(\'Movimientos\'!$F:$F;\'Movimientos\'!$B:$B;B$1;\'Movimientos\'!$D:$D;"Gasto";\'Movimientos\'!$A:$A;">="&DATE($A2;1;1);\'Movimientos\'!$A:$A;"<="&DATE($A2;12;31)))*VLOOKUP(B$1;\'Propiedades\'!$A:$G;7;FALSE)/100',
     )
     expect(fila[2]).toBe('=SUM(B2:B2)')
+  })
+
+  it('Evolución anual y Estimador Renta excluyen las de uso propio/vivienda habitual', async () => {
+    const p1 = propiedad({ id: 'p1', nombre: 'Piso Alquilado', tipo: 'piso' })
+    const p2 = propiedad({ id: 'p2', nombre: 'Mi vivienda', tipo: 'piso', estado: 'vivienda_habitual' })
+    const byTitle = await exportar([p1, p2], [], [])
+
+    const evolucion = byTitle.get('Evolución anual')!
+    expect(evolucion.headers).toEqual(['Año', 'Piso Alquilado', 'Total'])
+
+    const porPropiedad = byTitle.get('Estimador Renta (por propiedad)')!
+    expect(porPropiedad.rows.every((r) => r[1] === 'Piso Alquilado')).toBe(true)
   })
 })
