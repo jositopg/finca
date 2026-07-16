@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext'
 import { TransactionItem } from '../components/TransactionItem'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { FacturaAlquiler } from '../components/FacturaAlquiler'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { TransactionForm } from '../components/TransactionForm'
 import { Button } from '../components/Button'
@@ -33,6 +34,7 @@ export function TransaccionesView() {
   const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
   const [editTx, setEditTx] = useState<Transaccion | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [facturaTxId, setFacturaTxId] = useState<string | null>(null)
   const [filterTipo, setFilterTipo] = useState<TransaccionTipo | 'todos'>('todos')
   const [filterProp, setFilterProp] = useState<string>('todas')
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
@@ -220,6 +222,7 @@ export function TransaccionesView() {
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
+                          onFactura={(t) => setFacturaTxId(t.id)}
                         />
                       )
                     })}
@@ -274,6 +277,15 @@ export function TransaccionesView() {
         }}
         onCancel={() => setConfirmId(null)}
       />
+
+      {facturaTxId &&
+        (() => {
+          const facturaTx = transacciones.find((t) => t.id === facturaTxId)
+          const facturaProp = facturaTx ? propiedades.find((p) => p.id === facturaTx.propiedadId) : undefined
+          return facturaTx && facturaProp ? (
+            <FacturaAlquiler tx={facturaTx} propiedad={facturaProp} onClose={() => setFacturaTxId(null)} />
+          ) : null
+        })()}
     </div>
   )
 }

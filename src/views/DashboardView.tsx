@@ -5,6 +5,7 @@ import {
   Droplet,
   FileSpreadsheet,
   Plus,
+  Receipt,
   RefreshCw,
   TrendingDown,
   TrendingUp,
@@ -15,6 +16,7 @@ import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { exportarASheets } from '../api/setup'
 import { BottomSheet } from '../components/BottomSheet'
+import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
 import { EvolucionAnual } from '../components/EvolucionAnual'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
@@ -48,6 +50,8 @@ export function DashboardView({ onNavigate }: Props) {
     transacciones,
     ingresosExternos,
     tareas,
+    datosFacturacion,
+    guardarDatosFacturacion,
     isLoadingData,
     refreshData,
     addProp,
@@ -57,6 +61,7 @@ export function DashboardView({ onNavigate }: Props) {
   const { showToast } = useToast()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
+  const [showDatosFacturacion, setShowDatosFacturacion] = useState(false)
   const [exporting, setExporting] = useState(false)
 
   const now = new Date()
@@ -148,6 +153,13 @@ export function DashboardView({ onNavigate }: Props) {
               className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
             >
               <Download size={18} />
+            </button>
+            <button
+              onClick={() => setShowDatosFacturacion(true)}
+              title="Mis datos de facturación"
+              className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
+            >
+              <Receipt size={18} />
             </button>
             <button
               onClick={refreshData}
@@ -360,6 +372,21 @@ export function DashboardView({ onNavigate }: Props) {
           propiedades={propiedades}
           onSave={async (t) => { await addTx(t); setShowAddTx(false) }}
           onCancel={() => setShowAddTx(false)}
+        />
+      </BottomSheet>
+
+      <BottomSheet
+        open={showDatosFacturacion}
+        onClose={() => setShowDatosFacturacion(false)}
+        title="Mis datos de facturación"
+      >
+        <DatosFacturacionForm
+          initial={datosFacturacion}
+          onSave={async (d) => {
+            await guardarDatosFacturacion(d)
+            setShowDatosFacturacion(false)
+          }}
+          onCancel={() => setShowDatosFacturacion(false)}
         />
       </BottomSheet>
     </div>

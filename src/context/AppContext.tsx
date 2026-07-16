@@ -26,10 +26,12 @@ import {
   deletePropiedad,
   deleteTarea,
   deleteTransaccion,
+  getDatosFacturacion,
   getIngresosExternos,
   getPropiedades,
   getTareas,
   getTransacciones,
+  guardarDatosFacturacion as dbGuardarDatosFacturacion,
   updateIngresoExterno,
   updatePropiedad,
   updateTarea,
@@ -39,6 +41,7 @@ import { getOrCreateFolder } from '../api/drive'
 import { useToast } from './ToastContext'
 import {
   generarGastosPendientes,
+  type DatosFacturacion,
   type IngresoExterno,
   type Propiedad,
   type Tarea,
@@ -55,6 +58,7 @@ interface Cache {
   transacciones: Transaccion[]
   ingresosExternos: IngresoExterno[]
   tareas: Tarea[]
+  datosFacturacion: DatosFacturacion | null
   cachedAt: string
 }
 
@@ -101,6 +105,8 @@ interface AppContextValue {
   addTareaProp: (t: Tarea) => Promise<void>
   updateTareaProp: (t: Tarea) => Promise<void>
   deleteTareaProp: (id: string) => Promise<void>
+  datosFacturacion: DatosFacturacion | null
+  guardarDatosFacturacion: (d: DatosFacturacion) => Promise<void>
   ensureDriveAccess: () => Promise<void>
   ensurePropFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
@@ -114,6 +120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [transacciones, setTransacciones] = useState<Transaccion[]>([])
   const [ingresosExternos, setIngresosExternos] = useState<IngresoExterno[]>([])
   const [tareas, setTareas] = useState<Tarea[]>([])
+  const [datosFacturacion, setDatosFacturacion] = useState<DatosFacturacion | null>(null)
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [usingCache, setUsingCache] = useState(false)
   const [cacheDate, setCacheDate] = useState<string | null>(null)
@@ -165,11 +172,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadingRef.current = true
     setIsLoadingData(true)
     try {
-      const [props, txs, ingresos, tareasData] = await Promise.all([
+      const [props, txs, ingresos, tareasData, facturacion] = await Promise.all([
         getPropiedades(),
         getTransacciones(),
         getIngresosExternos(),
         getTareas(),
+        getDatosFacturacion(),
       ])
 
       let txsFinal = txs
@@ -193,9 +201,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTransacciones(txsFinal)
       setIngresosExternos(ingresos)
       setTareas(tareasData)
+      setDatosFacturacion(facturacion)
       setUsingCache(false)
       setCacheDate(null)
-      saveCache({ propiedades: props, transacciones: txsFinal, ingresosExternos: ingresos, tareas: tareasData })
+      saveCache({
+        propiedades: props,
+        transacciones: txsFinal,
+        ingresosExternos: ingresos,
+        tareas: tareasData,
+        datosFacturacion: facturacion,
+      })
     } catch (err) {
       console.error('Load data error', err)
       const cached = loadCache()
@@ -204,6 +219,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTransacciones(cached.transacciones)
         setIngresosExternos(cached.ingresosExternos)
         setTareas(cached.tareas ?? [])
+        setDatosFacturacion(cached.datosFacturacion ?? null)
         setUsingCache(true)
         setCacheDate(cached.cachedAt)
         showToast('Sin conexión — mostrando los últimos datos guardados')
@@ -244,6 +260,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setTransacciones([])
         setIngresosExternos([])
         setTareas([])
+        setDatosFacturacion(null)
       }
     })
 
@@ -473,6 +490,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast],
   )
 
+  const guardarDatosFacturacionCtx = useCallback(
+    async (d: DatosFacturacion) => {
+      try {
+        await dbGuardarDatosFacturacion(d)
+        setDatosFacturacion(d)
+      } catch (err) {
+        showToast('No se pudieron guardar tus datos de facturación')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
   const ensurePropFolder = useCallback(
     async (propiedadId: string, nombre: string): Promise<string> => {
       const propiedad = propiedades.find((p) => p.id === propiedadId)
@@ -538,6 +568,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addTareaProp,
         updateTareaProp,
         deleteTareaProp,
+        datosFacturacion,
+        guardarDatosFacturacion: guardarDatosFacturacionCtx,
         ensureDriveAccess,
         ensurePropFolder,
       }}

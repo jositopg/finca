@@ -301,6 +301,7 @@ export interface Transaccion {
   archivos: string[] // Drive file IDs
   creadoEn: string
   referencia?: string // nº factura / referencia
+  numeroFactura?: string // número correlativo asignado al generar la factura/recibo de alquiler — se pone una vez y no cambia
 }
 
 // A partir del día 5 del mes, si una propiedad alquilada (con alquiler
@@ -718,4 +719,49 @@ export function ordenarTareas(tareas: Tarea[]): Tarea[] {
     if (b.fechaLimite) return 1
     return a.creadoEn.localeCompare(b.creadoEn)
   })
+}
+
+// ─── Facturas/recibos de alquiler ───────────────────────────────────────────
+// Identidad del arrendador (Jose) para el encabezado "Emisor" de cada
+// factura/recibo — se guarda una vez y se reutiliza en todas.
+export interface DatosFacturacion {
+  nombre: string
+  nif: string
+  direccion: string
+}
+
+export function datosFacturacionCompletos(d: DatosFacturacion | null): d is DatosFacturacion {
+  return !!d && !!d.nombre.trim() && !!d.nif.trim() && !!d.direccion.trim()
+}
+
+// Prefijo distinto para diferenciar dos series de numeración: "F" para
+// facturas de verdad (locales, sujetos a IGIC — Jose actúa como negocio) y
+// "R" para recibos de alquiler de vivienda (exenta de IVA, no requiere
+// factura formal). Cada serie lleva su propia numeración correlativa, para
+// no dejar huecos artificiales en ninguna de las dos.
+export type TipoDocumentoAlquiler = 'F' | 'R'
+
+// Siguiente número correlativo de una serie para un año: mira el máximo ya
+// asignado (persistido en Transaccion.numeroFactura, inmutable una vez
+// puesto) y le suma 1 — nunca reutiliza ni renumera huecos de documentos
+// borrados, como corresponde a una numeración correlativa real.
+export function siguienteNumeroFactura(
+  transacciones: Pick<Transaccion, 'numeroFactura'>[],
+  prefijo: TipoDocumentoAlquiler,
+  anio: string,
+): string {
+  const patron = new RegExp(`^${prefijo}-${anio}-(\\d+)$`)
+  const usados = transacciones
+    .map((t) => t.numeroFactura)
+    .map((n) => (n ? patron.exec(n)?.[1] : undefined))
+    .filter((n): n is string => !!n)
+    .map(Number)
+  const siguiente = (usados.length > 0 ? Math.max(...usados) : 0) + 1
+  return `${prefijo}-${anio}-${String(siguiente).padStart(3, '0')}`
+}
+
+// Local -> factura de verdad (sujeta a IGIC); resto -> recibo de alquiler
+// de vivienda (exento de IVA).
+export function tipoDocumentoAlquiler(propiedad: Pick<Propiedad, 'tipo'>): TipoDocumentoAlquiler {
+  return propiedad.tipo === 'local' ? 'F' : 'R'
 }

@@ -35,6 +35,16 @@
   }
 }
 
+/* Facturas/recibos (FacturaAlquiler.tsx): se renderizan en un portal fuera
+   de #root para poder imprimir solo el documento — al imprimir, se oculta
+   el resto de la app (Nav, etc.) y el portal, al no ser hijo de #root, se
+   queda visible con su propio print:hidden para ocultar solo los botones. */
+@media print {
+  #root {
+    display: none !important;
+  }
+}
+
 @layer utilities {
   .scrollbar-none {
     -ms-overflow-style: none;

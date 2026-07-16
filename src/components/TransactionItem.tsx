@@ -1,4 +1,4 @@
-import { Copy, FileText, Paperclip, Pencil, Trash2 } from 'lucide-react'
+import { Copy, FileText, Pencil, Receipt, Paperclip, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { calcularReparto, type Propiedad, type Transaccion } from '../types'
@@ -11,6 +11,7 @@ interface Props {
   onDuplicate?: (tx: Transaccion) => void
   onEdit?: (tx: Transaccion) => void
   onOpenFile?: (fileId: string) => void
+  onFactura?: (tx: Transaccion) => void
 }
 
 function fmt(n: number) {
@@ -25,10 +26,12 @@ export function TransactionItem({
   onDuplicate,
   onEdit,
   onOpenFile,
+  onFactura,
 }: Props) {
   const isIngreso = tx.tipo === 'ingreso'
   const reparto =
     !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
+  const esFacturable = isIngreso && tx.categoria === 'Alquiler mensual' && !!propiedad
 
   return (
     <div
@@ -104,6 +107,18 @@ export function TransactionItem({
               })}{' '}
               €
             </span>
+            {onFactura && esFacturable && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onFactura(tx)
+                }}
+                title={tx.numeroFactura ? `Ver factura ${tx.numeroFactura}` : 'Generar factura/recibo'}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
+              >
+                <Receipt size={13} />
+              </button>
+            )}
             {onEdit && (
               <button
                 onClick={(e) => {

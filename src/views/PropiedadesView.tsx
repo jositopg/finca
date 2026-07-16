@@ -17,6 +17,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
+import { FacturaAlquiler } from '../components/FacturaAlquiler'
 import { GastoSuministro } from '../components/GastoSuministro'
 import { HistorialAlquileres } from '../components/HistorialAlquileres'
 import { TareasPropiedad } from '../components/TareasPropiedad'
@@ -304,6 +305,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
   const [showFiscal, setShowFiscal] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
+  const [facturaTxId, setFacturaTxId] = useState<string | null>(null)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
   const [umbralNetaStr, setUmbralNetaStr] = useState(
     () => localStorage.getItem('finca_umbral_rentabilidad') ?? '4',
@@ -740,6 +742,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
+                          onFactura={(t) => setFacturaTxId(t.id)}
                         />
                       ))}
                     </div>
@@ -826,6 +829,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           }}
           onCancel={() => setConfirmDelete(null)}
         />
+
+        {facturaTxId &&
+          (() => {
+            const facturaTx = transacciones.find((t) => t.id === facturaTxId)
+            return facturaTx ? (
+              <FacturaAlquiler tx={facturaTx} propiedad={propiedad} onClose={() => setFacturaTxId(null)} />
+            ) : null
+          })()}
       </div>
     )
   }

@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type {
   ContratoHistorico,
+  DatosFacturacion,
   GastoRecurrente,
   IngresoExterno,
   Propiedad,
@@ -53,6 +54,7 @@ interface TransaccionRow {
   archivos: string[] | null
   creado_en: string
   referencia: string | null
+  numero_factura: string | null
 }
 
 function rowToPropiedad(row: PropiedadRow): Propiedad {
@@ -129,6 +131,7 @@ function rowToTransaccion(row: TransaccionRow): Transaccion {
     archivos: row.archivos ?? [],
     creadoEn: row.creado_en,
     referencia: row.referencia ?? undefined,
+    numeroFactura: row.numero_factura ?? undefined,
   }
 }
 
@@ -144,6 +147,7 @@ function transaccionToRow(t: Transaccion): TransaccionRow {
     archivos: t.archivos,
     creado_en: t.creadoEn,
     referencia: t.referencia ?? null,
+    numero_factura: t.numeroFactura ?? null,
   }
 }
 
@@ -331,4 +335,49 @@ export async function updateTarea(tarea: Tarea): Promise<void> {
 export async function deleteTarea(id: string): Promise<void> {
   const { error } = await supabase.from('tareas').delete().eq('id', id)
   if (error) throw error
+}
+
+// ─── Datos de facturación (emisor de facturas/recibos) ─────────────────────
+// Fila única — se lee/escribe sin id porque el llamante nunca lo necesita.
+
+interface DatosFacturacionRow {
+  id: string
+  nombre: string
+  nif: string
+  direccion: string
+}
+
+export async function getDatosFacturacion(): Promise<DatosFacturacion | null> {
+  const { data, error } = await supabase
+    .from('datos_facturacion')
+    .select('*')
+    .order('actualizado_en', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  const row = data as DatosFacturacionRow
+  return { nombre: row.nombre, nif: row.nif, direccion: row.direccion }
+}
+
+export async function guardarDatosFacturacion(d: DatosFacturacion): Promise<void> {
+  const { data: existing, error: selectError } = await supabase
+    .from('datos_facturacion')
+    .select('id')
+    .limit(1)
+    .maybeSingle()
+  if (selectError) throw selectError
+
+  if (existing) {
+    const { error } = await supabase
+      .from('datos_facturacion')
+      .update({ nombre: d.nombre, nif: d.nif, direccion: d.direccion, actualizado_en: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('datos_facturacion')
+      .insert({ nombre: d.nombre, nif: d.nif, direccion: d.direccion })
+    if (error) throw error
+  }
 }

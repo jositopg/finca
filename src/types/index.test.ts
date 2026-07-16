@@ -4,6 +4,7 @@ import {
   calcularReparto,
   calcularRentaLocal,
   cuotaIRPF,
+  datosFacturacionCompletos,
   esDeAlquiler,
   estimarAhorroRenta,
   generarGastosPendientes,
@@ -11,7 +12,9 @@ import {
   ordenarTareas,
   parseImporte,
   rentaPendiente,
+  siguienteNumeroFactura,
   tareaVencida,
+  tipoDocumentoAlquiler,
   tipoMarginalIRPF,
   type IngresoExterno,
   type Propiedad,
@@ -338,5 +341,51 @@ describe('ordenarTareas', () => {
     const conFecha = tarea({ id: 'con-fecha', fechaLimite: '2026-06-01' })
     const sinFecha = tarea({ id: 'sin-fecha' })
     expect(ordenarTareas([sinFecha, conFecha]).map((t) => t.id)).toEqual(['con-fecha', 'sin-fecha'])
+  })
+})
+
+describe('datosFacturacionCompletos', () => {
+  it('false si es null o falta algún campo', () => {
+    expect(datosFacturacionCompletos(null)).toBe(false)
+    expect(datosFacturacionCompletos({ nombre: '', nif: '12345678A', direccion: 'Calle X' })).toBe(false)
+    expect(datosFacturacionCompletos({ nombre: 'Jose', nif: '  ', direccion: 'Calle X' })).toBe(false)
+  })
+
+  it('true si los tres campos tienen contenido', () => {
+    expect(datosFacturacionCompletos({ nombre: 'Jose', nif: '12345678A', direccion: 'Calle X' })).toBe(true)
+  })
+})
+
+describe('tipoDocumentoAlquiler', () => {
+  it('local -> factura (F), el resto -> recibo (R)', () => {
+    expect(tipoDocumentoAlquiler({ tipo: 'local' })).toBe('F')
+    expect(tipoDocumentoAlquiler({ tipo: 'piso' })).toBe('R')
+    expect(tipoDocumentoAlquiler({ tipo: 'casa' })).toBe('R')
+  })
+})
+
+describe('siguienteNumeroFactura', () => {
+  it('empieza en 001 si no hay ninguna asignada ese año/serie', () => {
+    expect(siguienteNumeroFactura([], 'R', '2026')).toBe('R-2026-001')
+  })
+
+  it('continúa la numeración a partir de la más alta ya asignada', () => {
+    const txs = [{ numeroFactura: 'R-2026-001' }, { numeroFactura: 'R-2026-003' }, { numeroFactura: 'R-2026-002' }]
+    expect(siguienteNumeroFactura(txs, 'R', '2026')).toBe('R-2026-004')
+  })
+
+  it('lleva series independientes por prefijo (F y R no se mezclan)', () => {
+    const txs = [{ numeroFactura: 'F-2026-005' }]
+    expect(siguienteNumeroFactura(txs, 'R', '2026')).toBe('R-2026-001')
+  })
+
+  it('lleva series independientes por año', () => {
+    const txs = [{ numeroFactura: 'R-2025-009' }]
+    expect(siguienteNumeroFactura(txs, 'R', '2026')).toBe('R-2026-001')
+  })
+
+  it('ignora transacciones sin numeroFactura', () => {
+    const txs = [{ numeroFactura: undefined }, { numeroFactura: 'R-2026-002' }]
+    expect(siguienteNumeroFactura(txs, 'R', '2026')).toBe('R-2026-003')
   })
 })
