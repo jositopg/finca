@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Edit2,
   ExternalLink,
+  FileText,
   Plus,
   BarChart2,
   Trash2,
@@ -38,6 +39,7 @@ import {
   parseImporte,
   rentaPendiente,
   tareaVencida,
+  tipoDocumentoAlquiler,
   TIPO_LABELS,
   valorarPropiedad,
   type Propiedad,
@@ -295,6 +297,67 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
   )
 }
 
+// ── Facturas / recibos de alquiler (acceso directo por propiedad) ─────────────
+function FacturasPropiedad({
+  propiedad,
+  txs,
+  onOpenFactura,
+}: {
+  propiedad: Propiedad
+  txs: Transaccion[]
+  onOpenFactura: (tx: Transaccion) => void
+}) {
+  const facturas = txs
+    .filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+
+  if (facturas.length === 0) return null
+
+  const esFactura = tipoDocumentoAlquiler(propiedad) === 'F'
+  const pendientes = facturas.filter((t) => !t.numeroFactura).length
+
+  return (
+    <div className="px-5 mb-4">
+      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <FileText size={14} className="text-outline-variant" />
+            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+              {esFactura ? 'Facturas' : 'Recibos'}
+            </p>
+          </div>
+          {pendientes > 0 && (
+            <span className="text-xs text-warning font-medium">
+              {pendientes} pendiente{pendientes === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-col divide-y divide-surface-high">
+          {facturas.map((tx) => (
+            <button
+              key={tx.id}
+              onClick={() => onOpenFactura(tx)}
+              className="flex items-center justify-between py-2.5 text-left first:pt-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <p className="text-sm text-on-surface truncate">
+                  {tx.numeroFactura ? `Nº ${tx.numeroFactura}` : 'Pendiente de generar'}
+                </p>
+                <p className="text-xs text-outline-variant capitalize">
+                  {format(parseISO(tx.fecha), 'd MMM yyyy', { locale: es })}
+                </p>
+              </div>
+              <span className="text-xs font-medium tabular-nums text-on-surface ml-2 flex-shrink-0">
+                {fmt(tx.importe)} €
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main view ────────────────────────────────────────────────────────────────
 export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const { propiedades, transacciones, tareas, addProp, updateProp, deleteProp, addTx, deleteTx } =
@@ -496,6 +559,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             </div>
           </div>
         )}
+
+        {/* Facturas/recibos de alquiler — acceso directo, sin tener que
+            buscarlos entre los movimientos */}
+        <FacturasPropiedad
+          propiedad={propiedad}
+          txs={txs}
+          onOpenFactura={(t) => setFacturaTxId(t.id)}
+        />
 
         {/* Iniciar nuevo alquiler — propiedades vacías que ya tuvieron
             inquilino este año */}
