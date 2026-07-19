@@ -39,7 +39,6 @@ import {
   parseImporte,
   rentaPendiente,
   tareaVencida,
-  tipoDocumentoAlquiler,
   TIPO_LABELS,
   valorarPropiedad,
   type Propiedad,
@@ -307,13 +306,14 @@ function FacturasPropiedad({
   txs: Transaccion[]
   onOpenFactura: (tx: Transaccion) => void
 }) {
+  if (propiedad.tipo !== 'local') return null
+
   const facturas = txs
     .filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
     .sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   if (facturas.length === 0) return null
 
-  const esFactura = tipoDocumentoAlquiler(propiedad) === 'F'
   const pendientes = facturas.filter((t) => !t.numeroFactura).length
 
   return (
@@ -323,7 +323,7 @@ function FacturasPropiedad({
           <div className="flex items-center gap-2">
             <FileText size={14} className="text-outline-variant" />
             <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
-              {esFactura ? 'Facturas' : 'Recibos'}
+              Facturas
             </p>
           </div>
           {pendientes > 0 && (
