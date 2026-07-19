@@ -26,6 +26,7 @@ import { TerminarContrato } from '../components/TerminarContrato'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransactionItem } from '../components/TransactionItem'
+import { AlDiaToggle } from '../components/AlDiaToggle'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
@@ -120,10 +121,13 @@ function PropiedadCard({
           )}
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          <Badge
-            label={ESTADO_LABELS[p.estado]}
-            variant={ESTADO_BADGE_VARIANT[p.estado]}
-          />
+          <div className="flex items-center gap-1.5">
+            <AlDiaToggle propiedad={p} stopPropagation />
+            <Badge
+              label={ESTADO_LABELS[p.estado]}
+              variant={ESTADO_BADGE_VARIANT[p.estado]}
+            />
+          </div>
           {p.propietarioNombre ? (
             <span className="text-xs text-warning font-medium">De {p.propietarioNombre}</span>
           ) : (
@@ -472,7 +476,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               </button>
             </div>
           </div>
-          <div className="flex gap-2 mt-3 flex-wrap">
+          <div className="flex gap-2 mt-3 flex-wrap items-center">
+            <AlDiaToggle propiedad={propiedad} />
             <Badge
               label={ESTADO_LABELS[propiedad.estado]}
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}

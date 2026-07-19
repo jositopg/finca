@@ -41,6 +41,7 @@ interface PropiedadRow {
   valor_referencia: number | string | null
   valor_mercado: number | string | null
   propietario_nombre: string | null
+  al_dia_desde: string | null
 }
 
 interface TransaccionRow {
@@ -85,6 +86,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     valorReferencia: row.valor_referencia != null ? Number(row.valor_referencia) : undefined,
     valorMercado: row.valor_mercado != null ? Number(row.valor_mercado) : undefined,
     propietarioNombre: row.propietario_nombre ?? undefined,
+    alDiaDesde: row.al_dia_desde ?? undefined,
   }
 }
 
@@ -116,6 +118,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     valor_referencia: p.valorReferencia ?? null,
     valor_mercado: p.valorMercado ?? null,
     propietario_nombre: p.propietarioNombre ?? null,
+    al_dia_desde: p.alDiaDesde ?? null,
   }
 }
 

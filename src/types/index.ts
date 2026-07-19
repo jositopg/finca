@@ -60,6 +60,7 @@ export interface Propiedad {
   valorReferencia?: number // valor de referencia del Catastro (uso fiscal)
   valorMercado?: number // estimación de valor de mercado, para calcular rentabilidad
   propietarioNombre?: string // si Jose solo la gestiona pero es de otra persona (p.ej. "Martín")
+  alDiaDesde?: string // ISO datetime: última vez que se marcó "al día" con todos los datos del periodo (ver estaAlDia)
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -764,4 +765,20 @@ export function siguienteNumeroFactura(
 // de vivienda (exento de IVA).
 export function tipoDocumentoAlquiler(propiedad: Pick<Propiedad, 'tipo'>): TipoDocumentoAlquiler {
   return propiedad.tipo === 'local' ? 'F' : 'R'
+}
+
+// Inicio del periodo "al día" vigente: el día 15 más reciente (del mes
+// actual si ya se ha pasado de ese día, si no del mes anterior). Marcar
+// "al día" solo cuenta para el periodo en curso — al llegar el siguiente
+// día 15 el periodo cambia y hay que volver a marcarla, sin necesidad de
+// ningún proceso en segundo plano que "reinicie" nada.
+export function inicioPeriodoAlDia(ahora: Date = new Date()): Date {
+  const anio = ahora.getFullYear()
+  const mes = ahora.getMonth()
+  return ahora.getDate() >= 15 ? new Date(anio, mes, 15) : new Date(anio, mes - 1, 15)
+}
+
+export function estaAlDia(propiedad: Pick<Propiedad, 'alDiaDesde'>, ahora: Date = new Date()): boolean {
+  if (!propiedad.alDiaDesde) return false
+  return new Date(propiedad.alDiaDesde) >= inicioPeriodoAlDia(ahora)
 }

@@ -6,8 +6,10 @@ import {
   cuotaIRPF,
   datosFacturacionCompletos,
   esDeAlquiler,
+  estaAlDia,
   estimarAhorroRenta,
   generarGastosPendientes,
+  inicioPeriodoAlDia,
   miParte,
   ordenarTareas,
   parseImporte,
@@ -361,6 +363,40 @@ describe('tipoDocumentoAlquiler', () => {
     expect(tipoDocumentoAlquiler({ tipo: 'local' })).toBe('F')
     expect(tipoDocumentoAlquiler({ tipo: 'piso' })).toBe('R')
     expect(tipoDocumentoAlquiler({ tipo: 'casa' })).toBe('R')
+  })
+})
+
+describe('inicioPeriodoAlDia', () => {
+  it('a partir del día 15 (inclusive), el periodo empieza ese mismo mes', () => {
+    expect(inicioPeriodoAlDia(new Date(2026, 6, 15))).toEqual(new Date(2026, 6, 15))
+    expect(inicioPeriodoAlDia(new Date(2026, 6, 20))).toEqual(new Date(2026, 6, 15))
+  })
+
+  it('antes del día 15, el periodo viene del mes anterior', () => {
+    expect(inicioPeriodoAlDia(new Date(2026, 6, 14))).toEqual(new Date(2026, 5, 15))
+    expect(inicioPeriodoAlDia(new Date(2026, 6, 1))).toEqual(new Date(2026, 5, 15))
+  })
+
+  it('enero antes del 15 retrocede al 15 de diciembre del año anterior', () => {
+    expect(inicioPeriodoAlDia(new Date(2026, 0, 10))).toEqual(new Date(2025, 11, 15))
+  })
+})
+
+describe('estaAlDia', () => {
+  it('sin alDiaDesde, nunca está al día', () => {
+    expect(estaAlDia({ alDiaDesde: undefined }, new Date(2026, 6, 20))).toBe(false)
+  })
+
+  it('marcada dentro del periodo en curso, está al día', () => {
+    expect(estaAlDia({ alDiaDesde: new Date(2026, 6, 16).toISOString() }, new Date(2026, 6, 20))).toBe(
+      true,
+    )
+  })
+
+  it('marcada en un periodo anterior, ya no cuenta tras el reinicio del día 15', () => {
+    expect(estaAlDia({ alDiaDesde: new Date(2026, 5, 20).toISOString() }, new Date(2026, 6, 20))).toBe(
+      false,
+    )
   })
 })
 
