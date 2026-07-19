@@ -31,7 +31,8 @@ export function TransactionItem({
   const isIngreso = tx.tipo === 'ingreso'
   const reparto =
     !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
-  const esFacturable = isIngreso && tx.categoria === 'Alquiler mensual' && !!propiedad
+  const esFacturable =
+    isIngreso && tx.categoria === 'Alquiler mensual' && propiedad?.tipo === 'local'
 
   return (
     <div
@@ -113,7 +114,7 @@ export function TransactionItem({
                   e.stopPropagation()
                   onFactura(tx)
                 }}
-                title={tx.numeroFactura ? `Ver factura ${tx.numeroFactura}` : 'Generar factura/recibo'}
+                title={tx.numeroFactura ? `Ver factura ${tx.numeroFactura}` : 'Generar factura'}
                 className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
               >
                 <Receipt size={13} />
