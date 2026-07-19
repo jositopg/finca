@@ -57,12 +57,16 @@ export function DatosFacturacionForm({ initial, onSave, onCancel }: Props) {
         error={errors.nif}
       />
       <Input
-        label="Dirección"
-        placeholder="Calle Mayor 5, Las Palmas de Gran Canaria"
+        label="Dirección completa"
+        placeholder="Calle Mayor 5, 35001 Las Palmas de Gran Canaria, Las Palmas"
         value={direccion}
         onChange={(e) => setDireccion(e.target.value)}
         error={errors.direccion}
       />
+      <p className="text-xs text-outline-variant -mt-3">
+        Incluye código postal, municipio y provincia — es el domicilio que aparecerá en tus
+        facturas.
+      </p>
       <div className="flex gap-3 pt-2">
         <Button variant="secondary" fullWidth onClick={onCancel}>
           Cancelar
