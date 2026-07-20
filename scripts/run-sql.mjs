@@ -1,15 +1,18 @@
-// Ejecuta SQL directo contra Postgres usando SUPABASE_DB_URL (en .env.local,
-// nunca commiteado). Para cambios de esquema (columnas, índices, RLS...) que
-// PostgREST/supabase-js no pueden hacer.
+// Ejecuta SQL directo contra Postgres usando DATABASE_URL, leída de
+// ~/.finca-db.env (fuera del repo, chmod 600 — nunca en git). Para cambios
+// de esquema (columnas, índices, RLS...) que PostgREST/supabase-js no
+// pueden hacer.
 //
 // Uso: node scripts/run-sql.mjs "ALTER TABLE propiedades ADD COLUMN x text;"
 //   o: node scripts/run-sql.mjs archivo.sql
 
 import { readFileSync, existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { Client } from 'pg'
 
-function loadEnvLocal() {
-  const path = new URL('../.env.local', import.meta.url)
+function loadDbEnv() {
+  const path = join(homedir(), '.finca-db.env')
   if (!existsSync(path)) return
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     const m = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(line.trim())
@@ -18,9 +21,9 @@ function loadEnvLocal() {
 }
 
 async function main() {
-  loadEnvLocal()
-  const dbUrl = process.env.SUPABASE_DB_URL
-  if (!dbUrl) throw new Error('Falta SUPABASE_DB_URL en .env.local')
+  loadDbEnv()
+  const dbUrl = process.env.DATABASE_URL
+  if (!dbUrl) throw new Error('Falta DATABASE_URL en ~/.finca-db.env')
 
   const arg = process.argv[2]
   if (!arg) throw new Error('Uso: node scripts/run-sql.mjs "<SQL>" | archivo.sql')
