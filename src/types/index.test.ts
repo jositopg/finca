@@ -5,6 +5,7 @@ import {
   calcularRentaLocal,
   cuotaIRPF,
   datosFacturacionCompletos,
+  deudaInquilino,
   esDeAlquiler,
   estaAlDia,
   estimarAhorroRenta,
@@ -292,6 +293,56 @@ describe('rentaPendiente', () => {
       false,
     )
     expect(rentaPendiente(propiedad({ alquilerMensual: undefined }), [], new Date('2026-01-10'))).toBe(false)
+  })
+})
+
+describe('deudaInquilino', () => {
+  it('no calcula deuda sin fecha de inicio de contrato', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: undefined })
+    expect(deudaInquilino(p, [], new Date('2026-06-01'))).toBeNull()
+  })
+
+  it('acumula lo esperado desde el inicio del contrato menos lo ya cobrado', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
+    // Enero, febrero, marzo esperados (500 x 3 = 1500); solo se cobró enero.
+    const txs = [transaccion({ importe: 500, fecha: '2026-01-05' })]
+    const deuda = deudaInquilino(p, txs, new Date('2026-03-15'))
+    expect(deuda).toEqual({ importe: 1000, meses: 2 })
+  })
+
+  it('un pago que cubre varios meses de golpe reduce la deuda sin "casarlo" a ningún mes', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
+    const txs = [transaccion({ importe: 1500, fecha: '2026-03-10' })]
+    expect(deudaInquilino(p, txs, new Date('2026-03-15'))).toBeNull()
+  })
+
+  it('no hay deuda si está todo pagado', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
+    const txs = [transaccion({ importe: 500, fecha: '2026-01-05' })]
+    expect(deudaInquilino(p, txs, new Date('2026-01-20'))).toBeNull()
+  })
+
+  it('deudaDesde adelanta el punto de partida sin tocar el contrato', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01', deudaDesde: '2026-03' })
+    const deuda = deudaInquilino(p, [], new Date('2026-03-31'))
+    expect(deuda).toEqual({ importe: 500, meses: 1 })
+  })
+
+  it('no aplica a propiedades no alquiladas ni sin alquiler pactado', () => {
+    expect(
+      deudaInquilino(
+        propiedad({ estado: 'vacio', alquilerMensual: 500, contratoInicio: '2026-01-01' }),
+        [],
+        new Date('2026-03-01'),
+      ),
+    ).toBeNull()
+    expect(
+      deudaInquilino(
+        propiedad({ alquilerMensual: undefined, contratoInicio: '2026-01-01' }),
+        [],
+        new Date('2026-03-01'),
+      ),
+    ).toBeNull()
   })
 })
 

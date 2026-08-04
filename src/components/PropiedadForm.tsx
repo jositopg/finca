@@ -318,6 +318,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       contratoArchivoId: initial?.contratoArchivoId,
       contratoArchivoNombre: initial?.contratoArchivoNombre,
       alDiaDesde: initial?.alDiaDesde,
+      deudaDesde: initial?.deudaDesde,
     }
 
     try {

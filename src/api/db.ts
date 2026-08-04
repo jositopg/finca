@@ -46,6 +46,7 @@ interface PropiedadRow {
   contrato_luz_empresa: string | null
   contrato_agua_numero: string | null
   contrato_agua_empresa: string | null
+  deuda_desde: string | null
 }
 
 interface TransaccionRow {
@@ -95,6 +96,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     contratoLuzEmpresa: row.contrato_luz_empresa ?? undefined,
     contratoAguaNumero: row.contrato_agua_numero ?? undefined,
     contratoAguaEmpresa: row.contrato_agua_empresa ?? undefined,
+    deudaDesde: row.deuda_desde ?? undefined,
   }
 }
 
@@ -131,6 +133,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     contrato_luz_empresa: p.contratoLuzEmpresa ?? null,
     contrato_agua_numero: p.contratoAguaNumero ?? null,
     contrato_agua_empresa: p.contratoAguaEmpresa ?? null,
+    deuda_desde: p.deudaDesde ?? null,
   }
 }
 

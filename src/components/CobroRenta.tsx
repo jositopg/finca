@@ -5,10 +5,11 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularRentaLocal, parseImporte, type Propiedad, type Transaccion } from '../types'
+import { calcularRentaLocal, deudaInquilino, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedad: Propiedad
+  transacciones: Transaccion[]
 }
 
 function uuid() {
@@ -19,7 +20,7 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function CobroRenta({ propiedad }: Props) {
+export function CobroRenta({ propiedad, transacciones }: Props) {
   const { addTx } = useApp()
   const [open, setOpen] = useState(false)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -30,6 +31,8 @@ export function CobroRenta({ propiedad }: Props) {
   )
 
   if (!propiedad.alquilerMensual) return null
+
+  const deuda = deudaInquilino(propiedad, transacciones)
 
   const rentaBrutaParseada = parseImporte(rentaBrutaStr)
   const rentaBruta = esLocal
@@ -116,6 +119,13 @@ export function CobroRenta({ propiedad }: Props) {
               <span className="text-sm text-outline-variant">Importe</span>
               <span className="text-base font-bold text-success tabular-nums">{fmt(importe)} €</span>
             </div>
+          )}
+
+          {deuda && (
+            <p className="text-xs text-warning bg-warning-container/40 rounded-xl px-4 py-2.5">
+              Antes de este cobro, el inquilino debe {fmt(deuda.importe)} € (aprox.{' '}
+              {deuda.meses.toFixed(1)} meses) de mensualidades anteriores.
+            </p>
           )}
 
           <Input

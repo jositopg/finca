@@ -69,6 +69,7 @@ export interface Propiedad {
   contratoLuzEmpresa?: string
   contratoAguaNumero?: string
   contratoAguaEmpresa?: string
+  deudaDesde?: string // YYYY-MM: mes desde el que se cuenta la deuda de renta (ver deudaInquilino) — "dar la deuda por saldada" lo adelanta al mes actual sin tocar el contrato
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -333,6 +334,51 @@ export function rentaPendiente(
       t.fecha.startsWith(mesActual),
   )
   return !pagado
+}
+
+// Deuda de renta acumulada: no es un registro aparte que haya que llevar a
+// mano — se calcula sola comparando lo que debería haber entrado desde el
+// inicio del contrato (alquilerMensual × meses transcurridos) contra la suma
+// de todo lo que ya se ha registrado como "Alquiler mensual". Cualquier
+// ingreso nuevo de esa categoría (aunque sea parcial, o cubra varios meses
+// de golpe) reduce la deuda sola al añadirlo — no hace falta "casar" pagos
+// contra meses concretos. `deudaDesde` (YYYY-MM) permite dar la deuda por
+// saldada sin tocar el contrato: la cuenta empieza a contar desde ahí en vez
+// de desde el inicio real, para no arrastrar meses antiguos mal registrados.
+export function deudaInquilino(
+  propiedad: Pick<Propiedad, 'id' | 'estado' | 'alquilerMensual' | 'contratoInicio' | 'deudaDesde'>,
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): { importe: number; meses: number } | null {
+  if (propiedad.estado !== 'alquilado') return null
+  if (!propiedad.alquilerMensual || propiedad.alquilerMensual <= 0) return null
+  if (!propiedad.contratoInicio) return null
+
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const mesInicioContrato = propiedad.contratoInicio.slice(0, 7)
+  const mesInicio =
+    propiedad.deudaDesde && propiedad.deudaDesde > mesInicioContrato
+      ? propiedad.deudaDesde
+      : mesInicioContrato
+
+  if (mesInicio > mesActual) return null
+
+  const esperado = propiedad.alquilerMensual * mesesEntre(mesInicio, mesActual).length
+
+  const pagado = transacciones
+    .filter(
+      (t) =>
+        t.propiedadId === propiedad.id &&
+        t.tipo === 'ingreso' &&
+        t.categoria === 'Alquiler mensual' &&
+        t.fecha.slice(0, 7) >= mesInicio,
+    )
+    .reduce((s, t) => s + t.importe, 0)
+
+  const importe = Math.round((esperado - pagado) * 100) / 100
+  if (importe <= 0) return null
+
+  return { importe, meses: importe / propiedad.alquilerMensual }
 }
 
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────

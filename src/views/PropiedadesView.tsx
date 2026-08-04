@@ -33,6 +33,7 @@ import { Button } from '../components/Button'
 import {
   calcularRentabilidad,
   calcularReparto,
+  deudaInquilino,
   esDeAlquiler,
   esDeJose,
   ESTADO_BADGE_VARIANT,
@@ -375,6 +376,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const [showFiscal, setShowFiscal] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [facturaTxId, setFacturaTxId] = useState<string | null>(null)
+  const [confirmSaldarDeuda, setConfirmSaldarDeuda] = useState(false)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
   const [umbralNetaStr, setUmbralNetaStr] = useState(
     () => localStorage.getItem('finca_umbral_rentabilidad') ?? '4',
@@ -409,6 +411,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const grupos = groupByMonth(txsFiltradas)
     const rentaSinCobrarDetalle = rentaPendiente(propiedad, transacciones)
+    const deuda = deudaInquilino(propiedad, txs)
     const tareasVencidas = tareas.filter((t) => t.propiedadId === propiedad.id && tareaVencida(t)).length
 
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
@@ -553,12 +556,36 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         )}
 
+        {/* Deuda de renta acumulada — se calcula sola comparando lo
+            esperado desde el inicio del contrato contra lo ya cobrado */}
+        {deuda && (
+          <div className="px-5 mb-4">
+            <div className="bg-error-container rounded-xl p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-error">
+                  Debe {fmt(deuda.importe)} €
+                </p>
+                <p className="text-xs text-error/80 mt-0.5">
+                  Aprox. {deuda.meses.toFixed(1)} mensualidades atrasadas
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmSaldarDeuda(true)}
+                className="text-xs font-medium text-error underline flex-shrink-0"
+              >
+                Dar por saldada
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Cobro de renta y fin de contrato — acceso rápido */}
         {propiedad.estado === 'alquilado' && (
           <div className="px-5 mb-4 flex gap-2">
             {propiedad.alquilerMensual && (
               <div className="flex-1">
-                <CobroRenta propiedad={propiedad} />
+                <CobroRenta propiedad={propiedad} transacciones={txs} />
               </div>
             )}
             <div className="flex-1">
@@ -950,6 +977,18 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             setConfirmDelete(null)
           }}
           onCancel={() => setConfirmDelete(null)}
+        />
+
+        <ConfirmDialog
+          open={confirmSaldarDeuda}
+          title="Dar la deuda por saldada"
+          message="Deja de contar deuda desde este mes en adelante. No borra ni cambia ningún movimiento — solo ajusta desde qué mes se calcula lo pendiente."
+          confirmLabel="Dar por saldada"
+          onConfirm={async () => {
+            await updateProp({ ...propiedad, deudaDesde: format(new Date(), 'yyyy-MM') })
+            setConfirmSaldarDeuda(false)
+          }}
+          onCancel={() => setConfirmSaldarDeuda(false)}
         />
 
         {facturaTxId &&
