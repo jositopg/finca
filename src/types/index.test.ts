@@ -78,6 +78,12 @@ describe('parseImporte', () => {
     expect(Number.isNaN(parseImporte(''))).toBe(true)
     expect(Number.isNaN(parseImporte('  '))).toBe(true)
   })
+
+  it('ignora el símbolo del euro copiado de un documento (catastro, tasación...)', () => {
+    expect(parseImporte('128.061,67 €')).toBe(128061.67)
+    expect(parseImporte('128.061,67€')).toBe(128061.67)
+    expect(parseImporte('800 €')).toBe(800)
+  })
 })
 
 describe('miParte', () => {
