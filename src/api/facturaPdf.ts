@@ -30,8 +30,8 @@ export async function generarFacturaPDF(
   const tipoDoc = tipoDocumentoAlquiler(propiedad)
   const esFactura = tipoDoc === 'F'
   const desglose = propiedad.tipo === 'local' ? calcularRentaLocal(baseDesdeRentaNeta(tx.importe)) : null
-  const hoy = new Date()
   const fechaTx = parseISO(tx.fecha)
+  const fechaEmision = new Date(fechaTx.getFullYear(), fechaTx.getMonth(), 1)
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
 
@@ -50,7 +50,9 @@ export async function generarFacturaPDF(
   doc.text('Fecha de emisión', PAGE_WIDTH - MARGIN, 26, { align: 'right' })
   doc.setFontSize(11)
   doc.setTextColor(20)
-  doc.text(format(hoy, "d 'de' MMMM 'de' yyyy", { locale: es }), PAGE_WIDTH - MARGIN, 32, { align: 'right' })
+  doc.text(format(fechaEmision, "d 'de' MMMM 'de' yyyy", { locale: es }), PAGE_WIDTH - MARGIN, 32, {
+    align: 'right',
+  })
 
   doc.setDrawColor(30)
   doc.setLineWidth(0.6)
