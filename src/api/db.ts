@@ -42,6 +42,10 @@ interface PropiedadRow {
   valor_mercado: number | string | null
   propietario_nombre: string | null
   al_dia_desde: string | null
+  contrato_luz_numero: string | null
+  contrato_luz_empresa: string | null
+  contrato_agua_numero: string | null
+  contrato_agua_empresa: string | null
 }
 
 interface TransaccionRow {
@@ -87,6 +91,10 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     valorMercado: row.valor_mercado != null ? Number(row.valor_mercado) : undefined,
     propietarioNombre: row.propietario_nombre ?? undefined,
     alDiaDesde: row.al_dia_desde ?? undefined,
+    contratoLuzNumero: row.contrato_luz_numero ?? undefined,
+    contratoLuzEmpresa: row.contrato_luz_empresa ?? undefined,
+    contratoAguaNumero: row.contrato_agua_numero ?? undefined,
+    contratoAguaEmpresa: row.contrato_agua_empresa ?? undefined,
   }
 }
 
@@ -119,6 +127,10 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     valor_mercado: p.valorMercado ?? null,
     propietario_nombre: p.propietarioNombre ?? null,
     al_dia_desde: p.alDiaDesde ?? null,
+    contrato_luz_numero: p.contratoLuzNumero ?? null,
+    contrato_luz_empresa: p.contratoLuzEmpresa ?? null,
+    contrato_agua_numero: p.contratoAguaNumero ?? null,
+    contrato_agua_empresa: p.contratoAguaEmpresa ?? null,
   }
 }
 

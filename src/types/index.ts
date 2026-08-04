@@ -65,6 +65,10 @@ export interface Propiedad {
   valorMercado?: number // estimación de valor de mercado, para calcular rentabilidad
   propietarioNombre?: string // si Jose solo la gestiona pero es de otra persona (p.ej. "Martín")
   alDiaDesde?: string // ISO datetime: última vez que se marcó "al día" con todos los datos del periodo (ver estaAlDia)
+  contratoLuzNumero?: string
+  contratoLuzEmpresa?: string
+  contratoAguaNumero?: string
+  contratoAguaEmpresa?: string
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que

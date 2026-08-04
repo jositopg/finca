@@ -617,6 +617,44 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         )}
 
+        {/* Contratos de luz y agua */}
+        {(propiedad.contratoLuzNumero ||
+          propiedad.contratoLuzEmpresa ||
+          propiedad.contratoAguaNumero ||
+          propiedad.contratoAguaEmpresa) && (
+          <div className="px-5 mb-4">
+            <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex flex-col gap-3">
+              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+                Contratos de luz y agua
+              </p>
+              {(propiedad.contratoLuzNumero || propiedad.contratoLuzEmpresa) && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-on-surface">
+                    Luz{propiedad.contratoLuzEmpresa ? ` · ${propiedad.contratoLuzEmpresa}` : ''}
+                  </span>
+                  {propiedad.contratoLuzNumero && (
+                    <span className="text-xs text-outline-variant font-mono truncate">
+                      {propiedad.contratoLuzNumero}
+                    </span>
+                  )}
+                </div>
+              )}
+              {(propiedad.contratoAguaNumero || propiedad.contratoAguaEmpresa) && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm text-on-surface">
+                    Agua{propiedad.contratoAguaEmpresa ? ` · ${propiedad.contratoAguaEmpresa}` : ''}
+                  </span>
+                  {propiedad.contratoAguaNumero && (
+                    <span className="text-xs text-outline-variant font-mono truncate">
+                      {propiedad.contratoAguaNumero}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Notas */}
         {propiedad.notas && (
           <div className="px-5 mb-4">

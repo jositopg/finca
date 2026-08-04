@@ -243,6 +243,10 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
     initial?.porcentajePropiedad != null ? initial.porcentajePropiedad.toString() : '',
   )
   const [notas, setNotas] = useState(initial?.notas ?? '')
+  const [contratoLuzNumero, setContratoLuzNumero] = useState(initial?.contratoLuzNumero ?? '')
+  const [contratoLuzEmpresa, setContratoLuzEmpresa] = useState(initial?.contratoLuzEmpresa ?? '')
+  const [contratoAguaNumero, setContratoAguaNumero] = useState(initial?.contratoAguaNumero ?? '')
+  const [contratoAguaEmpresa, setContratoAguaEmpresa] = useState(initial?.contratoAguaEmpresa ?? '')
   const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
   const [gastosRecurrentes, setGastosRecurrentes] = useState<GastoRecurrente[]>(
     initial?.gastosRecurrentes ?? [],
@@ -304,11 +308,16 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       contratoFin: contratoFin || undefined,
       porcentajePropiedad: porcentajePropiedad ? parseImporte(porcentajePropiedad) : undefined,
       notas: notas.trim() || undefined,
+      contratoLuzNumero: contratoLuzNumero.trim() || undefined,
+      contratoLuzEmpresa: contratoLuzEmpresa.trim() || undefined,
+      contratoAguaNumero: contratoAguaNumero.trim() || undefined,
+      contratoAguaEmpresa: contratoAguaEmpresa.trim() || undefined,
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
       gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
       historialContratos: initial?.historialContratos,
       contratoArchivoId: initial?.contratoArchivoId,
       contratoArchivoNombre: initial?.contratoArchivoNombre,
+      alDiaDesde: initial?.alDiaDesde,
     }
 
     try {
@@ -397,6 +406,53 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
               value={valorMercado}
               onChange={(e) => setValorMercado(e.target.value)}
               error={errors.valorMercado}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">
+        <div className="-mb-1">
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+            Contratos de luz y agua
+          </p>
+          <p className="text-xs text-outline-variant mt-0.5">
+            Opcional — a mano cuando llame la compañía o haya que dar de alta un suministro
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Input
+              label="Nº contrato luz (opcional)"
+              placeholder="ES0123456789012345AB"
+              value={contratoLuzNumero}
+              onChange={(e) => setContratoLuzNumero(e.target.value)}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              label="Compañía de luz (opcional)"
+              placeholder="Endesa"
+              value={contratoLuzEmpresa}
+              onChange={(e) => setContratoLuzEmpresa(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Input
+              label="Nº contrato agua (opcional)"
+              placeholder="123456"
+              value={contratoAguaNumero}
+              onChange={(e) => setContratoAguaNumero(e.target.value)}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              label="Compañía de agua (opcional)"
+              placeholder="Emalsa"
+              value={contratoAguaEmpresa}
+              onChange={(e) => setContratoAguaEmpresa(e.target.value)}
             />
           </div>
         </div>
