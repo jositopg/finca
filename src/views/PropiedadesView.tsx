@@ -356,12 +356,22 @@ function FacturasPropiedad({ propiedad, txs }: { propiedad: Propiedad; txs: Tran
 
 // ─── Main view ────────────────────────────────────────────────────────────────
 export function PropiedadesView({ selectedId, onSelectId }: Props) {
-  const { propiedades, transacciones, tareas, addProp, updateProp, deleteProp, addTx, deleteTx } =
-    useApp()
+  const {
+    propiedades,
+    transacciones,
+    tareas,
+    addProp,
+    updateProp,
+    deleteProp,
+    addTx,
+    updateTx,
+    deleteTx,
+  } = useApp()
   const [showAddProp, setShowAddProp] = useState(false)
   const [editProp, setEditProp] = useState<Propiedad | null>(null)
   const [showAddTx, setShowAddTx] = useState(false)
   const [duplicateTx, setDuplicateTx] = useState<Transaccion | null>(null)
+  const [editTx, setEditTx] = useState<Transaccion | null>(null)
   const [showFiscal, setShowFiscal] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [facturaTxId, setFacturaTxId] = useState<string | null>(null)
@@ -803,6 +813,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                             setDuplicateTx(t)
                             setShowAddTx(true)
                           }}
+                          onEdit={(t) => setEditTx(t)}
                           onOpenFile={(id) =>
                             window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
                           }
@@ -834,25 +845,34 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
         {/* Bottom sheets */}
         <BottomSheet
-          open={showAddTx}
+          open={showAddTx || !!editTx}
           onClose={() => {
             setShowAddTx(false)
             setDuplicateTx(null)
+            setEditTx(null)
           }}
-          title={duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
+          title={editTx ? 'Editar movimiento' : duplicateTx ? 'Duplicar movimiento' : 'Nueva transacción'}
         >
           <TransactionForm
+            key={editTx?.id ?? duplicateTx?.id ?? 'new'}
             propiedades={propiedades}
             defaultPropiedadId={propiedad.id}
-            initial={duplicateTx ?? undefined}
+            initial={editTx ?? duplicateTx ?? undefined}
+            isEditing={!!editTx}
             onSave={async (t) => {
-              await addTx(t)
+              if (editTx) {
+                await updateTx(t)
+              } else {
+                await addTx(t)
+              }
               setShowAddTx(false)
               setDuplicateTx(null)
+              setEditTx(null)
             }}
             onCancel={() => {
               setShowAddTx(false)
               setDuplicateTx(null)
+              setEditTx(null)
             }}
           />
         </BottomSheet>
