@@ -14,6 +14,7 @@ import {
 import { format, differenceInDays, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
+import { useToast } from '../context/ToastContext'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CobroRenta } from '../components/CobroRenta'
@@ -301,62 +302,53 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
 }
 
 // ── Facturas / recibos de alquiler (acceso directo por propiedad) ─────────────
-function FacturasPropiedad({
-  propiedad,
-  txs,
-  onOpenFactura,
-}: {
-  propiedad: Propiedad
-  txs: Transaccion[]
-  onOpenFactura: (tx: Transaccion) => void
-}) {
+function FacturasPropiedad({ propiedad, txs }: { propiedad: Propiedad; txs: Transaccion[] }) {
+  const { ensureIngresosFolder } = useApp()
+  const { showToast } = useToast()
+  const [abriendo, setAbriendo] = useState(false)
+
   if (propiedad.tipo !== 'local') return null
 
-  const facturas = txs
-    .filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
-    .sort((a, b) => b.fecha.localeCompare(a.fecha))
-
+  const facturas = txs.filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
   if (facturas.length === 0) return null
 
   const pendientes = facturas.filter((t) => !t.numeroFactura).length
 
+  async function handleVerEnDrive() {
+    setAbriendo(true)
+    try {
+      const folderId = await ensureIngresosFolder(propiedad.id, propiedad.nombre)
+      window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank', 'noopener')
+    } catch (err) {
+      console.error('Abrir carpeta de facturas error', err)
+      showToast('No se pudo abrir la carpeta de Drive')
+    } finally {
+      setAbriendo(false)
+    }
+  }
+
   return (
     <div className="px-5 mb-4">
-      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <FileText size={14} className="text-outline-variant" />
-            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
-              Facturas
+      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText size={14} className="text-outline-variant flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Facturas</p>
+            <p className="text-xs text-outline-variant mt-0.5">
+              {facturas.length} generada{facturas.length === 1 ? '' : 's'}
+              {pendientes > 0 && ` · ${pendientes} pendiente${pendientes === 1 ? '' : 's'}`}
             </p>
           </div>
-          {pendientes > 0 && (
-            <span className="text-xs text-warning font-medium">
-              {pendientes} pendiente{pendientes === 1 ? '' : 's'}
-            </span>
-          )}
         </div>
-        <div className="flex flex-col divide-y divide-surface-high">
-          {facturas.map((tx) => (
-            <button
-              key={tx.id}
-              onClick={() => onOpenFactura(tx)}
-              className="flex items-center justify-between py-2.5 text-left first:pt-0 last:pb-0"
-            >
-              <div className="min-w-0">
-                <p className="text-sm text-on-surface truncate">
-                  {tx.numeroFactura ? `Nº ${tx.numeroFactura}` : 'Pendiente de generar'}
-                </p>
-                <p className="text-xs text-outline-variant capitalize">
-                  {format(parseISO(tx.fecha), 'd MMM yyyy', { locale: es })}
-                </p>
-              </div>
-              <span className="text-xs font-medium tabular-nums text-on-surface ml-2 flex-shrink-0">
-                {fmt(tx.importe)} €
-              </span>
-            </button>
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={handleVerEnDrive}
+          disabled={abriendo}
+          className="flex items-center gap-1.5 text-xs font-medium text-primary flex-shrink-0 disabled:opacity-50"
+        >
+          <ExternalLink size={14} />
+          {abriendo ? 'Abriendo...' : 'Ver en Drive'}
+        </button>
       </div>
     </div>
   )
@@ -565,13 +557,9 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
         )}
 
-        {/* Facturas/recibos de alquiler — acceso directo, sin tener que
-            buscarlos entre los movimientos */}
-        <FacturasPropiedad
-          propiedad={propiedad}
-          txs={txs}
-          onOpenFactura={(t) => setFacturaTxId(t.id)}
-        />
+        {/* Facturas/recibos de alquiler — acceso directo a la carpeta de
+            Drive en vez de listarlas una a una */}
+        <FacturasPropiedad propiedad={propiedad} txs={txs} />
 
         {/* Iniciar nuevo alquiler — propiedades vacías que ya tuvieron
             inquilino este año */}

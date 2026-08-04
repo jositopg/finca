@@ -113,6 +113,7 @@ interface AppContextValue {
   ensureDriveAccess: () => Promise<void>
   ensureTxFolder: (propiedadId: string, nombre: string, tipo: TransaccionTipo, fecha: Date) => Promise<string>
   ensureContratoFolder: (propiedadId: string, nombre: string) => Promise<string>
+  ensureIngresosFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -608,6 +609,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [ensurePropFolder, showToast],
   )
 
+  // Carpeta "Ingresos" de la propiedad (sin bajar a año/mes) — para el
+  // acceso directo "Ver facturas en Drive" desde la ficha de la propiedad.
+  const ensureIngresosFolder = useCallback(
+    async (propiedadId: string, nombre: string): Promise<string> => {
+      try {
+        const propFolderId = await ensurePropFolder(propiedadId, nombre)
+        const ingresosFolder = await getOrCreateFolder('Ingresos', propFolderId)
+        return ingresosFolder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
+      }
+    },
+    [ensurePropFolder, showToast],
+  )
+
   return (
     <AppContext.Provider
       value={{
@@ -641,6 +658,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ensureDriveAccess,
         ensureTxFolder,
         ensureContratoFolder,
+        ensureIngresosFolder,
       }}
     >
       {children}
