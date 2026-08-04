@@ -37,6 +37,8 @@ import {
   updateTarea,
   updateTransaccion,
 } from '../api/db'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { getOrCreateFolder } from '../api/drive'
 import { useToast } from './ToastContext'
 import {
@@ -46,6 +48,7 @@ import {
   type Propiedad,
   type Tarea,
   type Transaccion,
+  type TransaccionTipo,
 } from '../types'
 
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
@@ -108,7 +111,8 @@ interface AppContextValue {
   datosFacturacion: DatosFacturacion | null
   guardarDatosFacturacion: (d: DatosFacturacion) => Promise<void>
   ensureDriveAccess: () => Promise<void>
-  ensurePropFolder: (propiedadId: string, nombre: string) => Promise<string>
+  ensureTxFolder: (propiedadId: string, nombre: string, tipo: TransaccionTipo, fecha: Date) => Promise<string>
+  ensureContratoFolder: (propiedadId: string, nombre: string) => Promise<string>
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
@@ -540,6 +544,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [propiedades, ensureDriveAccess, showToast],
   )
 
+  const nombreCarpetaMes = (fecha: Date): string => {
+    const mesTexto = format(fecha, 'MMMM', { locale: es })
+    return `${format(fecha, 'MM')} - ${mesTexto.charAt(0).toUpperCase()}${mesTexto.slice(1)}`
+  }
+
+  // Dentro de la carpeta de cada propiedad, los documentos se organizan por
+  // qué son (Contrato / Ingresos / Gastos) y, para ingresos y gastos, por
+  // año y mes de la transacción a la que pertenecen — así el seguimiento
+  // mes a mes no obliga a rebuscar entre archivos de tipos distintos.
+  const ensureTxFolder = useCallback(
+    async (propiedadId: string, nombre: string, tipo: TransaccionTipo, fecha: Date): Promise<string> => {
+      try {
+        const propFolderId = await ensurePropFolder(propiedadId, nombre)
+        const tipoFolder = await getOrCreateFolder(tipo === 'ingreso' ? 'Ingresos' : 'Gastos', propFolderId)
+        const anioFolder = await getOrCreateFolder(format(fecha, 'yyyy'), tipoFolder.id)
+        const mesFolder = await getOrCreateFolder(nombreCarpetaMes(fecha), anioFolder.id)
+        return mesFolder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
+      }
+    },
+    [ensurePropFolder, showToast],
+  )
+
+  const ensureContratoFolder = useCallback(
+    async (propiedadId: string, nombre: string): Promise<string> => {
+      try {
+        const propFolderId = await ensurePropFolder(propiedadId, nombre)
+        const contratoFolder = await getOrCreateFolder('Contrato', propFolderId)
+        return contratoFolder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
+      }
+    },
+    [ensurePropFolder, showToast],
+  )
+
   return (
     <AppContext.Provider
       value={{
@@ -571,7 +614,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         datosFacturacion,
         guardarDatosFacturacion: guardarDatosFacturacionCtx,
         ensureDriveAccess,
-        ensurePropFolder,
+        ensureTxFolder,
+        ensureContratoFolder,
       }}
     >
       {children}

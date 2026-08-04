@@ -162,12 +162,8 @@ export async function generarFacturaPDF(
 
 export function nombreArchivoFactura(tx: Transaccion, propiedad: Propiedad): string {
   const numero = tx.numeroFactura ?? 'borrador'
-  const slug = propiedad.nombre
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // marcas diacríticas tras NFD (á -> a + ´)
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-  return `${numero}-${slug}.pdf`
+  const etiqueta = tipoDocumentoAlquiler(propiedad) === 'F' ? 'Factura' : 'Recibo'
+  const mes = format(parseISO(tx.fecha), 'MMMM yyyy', { locale: es })
+  const mesCapitalizado = mes.charAt(0).toUpperCase() + mes.slice(1)
+  return `${etiqueta} ${numero} - ${mesCapitalizado}.pdf`
 }

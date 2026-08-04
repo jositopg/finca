@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Paperclip, X, Upload } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { Button } from './Button'
 import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
@@ -35,7 +35,7 @@ export function TransactionForm({
   onSave,
   onCancel,
 }: Props) {
-  const { ensurePropFolder, addTx } = useApp()
+  const { ensureTxFolder, addTx } = useApp()
   const [tipo, setTipo] = useState<TransaccionTipo>(initial?.tipo ?? defaultTipo)
   const [propiedadId, setPropiedadId] = useState(
     initial?.propiedadId ?? defaultPropiedadId ?? propiedades[0]?.id ?? '',
@@ -79,7 +79,7 @@ export function TransactionForm({
     let archivoIds: string[] = []
     if (pendingFiles.length > 0) {
       const propiedad = propiedades.find((p) => p.id === propiedadId)!
-      const folderId = await ensurePropFolder(propiedadId, propiedad.nombre)
+      const folderId = await ensureTxFolder(propiedadId, propiedad.nombre, tipo, parseISO(fecha))
       const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
       archivoIds = uploaded.map((f) => f.id)
       // Si el guardado de la transacción falla justo después (red, RLS,

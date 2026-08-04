@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function ContratoAlquiler({ propiedad }: Props) {
-  const { ensurePropFolder, updateProp } = useApp()
+  const { ensureContratoFolder, updateProp } = useApp()
   const [uploading, setUploading] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -21,7 +21,7 @@ export function ContratoAlquiler({ propiedad }: Props) {
     if (!file) return
     setUploading(true)
     try {
-      const folderId = await ensurePropFolder(propiedad.id, propiedad.nombre)
+      const folderId = await ensureContratoFolder(propiedad.id, propiedad.nombre)
       const uploaded = await uploadFile(file, folderId)
       await updateProp({
         ...propiedad,

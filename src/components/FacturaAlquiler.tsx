@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { Download, ExternalLink, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
@@ -22,10 +24,11 @@ interface Props {
 }
 
 export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
-  const { datosFacturacion, transacciones, updateTx, guardarDatosFacturacion, ensurePropFolder } = useApp()
+  const { datosFacturacion, transacciones, updateTx, guardarDatosFacturacion, ensureTxFolder } = useApp()
   const { showToast } = useToast()
   const [generando, setGenerando] = useState(false)
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [carpetaId, setCarpetaId] = useState<string | null>(null)
 
   const tipoDoc = tipoDocumentoAlquiler(propiedad)
   const esFactura = tipoDoc === 'F'
@@ -57,13 +60,14 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
       const numero = siguienteNumeroFactura(transacciones, tipoDoc, anio)
       const txConNumero: Transaccion = { ...tx, numeroFactura: numero }
 
-      const folderId = await ensurePropFolder(propiedad.id, propiedad.nombre)
+      const folderId = await ensureTxFolder(propiedad.id, propiedad.nombre, tx.tipo, parseISO(tx.fecha))
       const pdf = await generarFacturaPDF(txConNumero, propiedad, datosFacturacion)
       const blob = pdf.output('blob')
       const archivo = new File([blob], nombreArchivoFactura(txConNumero, propiedad), {
         type: 'application/pdf',
       })
       const subido = await uploadFile(archivo, folderId)
+      setCarpetaId(folderId)
 
       await updateTx({ ...txConNumero, archivos: [...tx.archivos, subido.id] })
       showToast(`${esFactura ? 'Factura' : 'Recibo'} guardado en Drive`, 'success')
@@ -121,7 +125,7 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
               </a>
             )}
             <a
-              href={`https://drive.google.com/drive/folders/${propiedad.folderId}`}
+              href={`https://drive.google.com/drive/folders/${carpetaId ?? propiedad.folderId}`}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 text-xs text-primary font-medium px-2"
@@ -139,7 +143,9 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
 
       {tx.numeroFactura && (
         <p className="text-xs text-success text-center py-2 bg-success-container/30">
-          {esFactura ? 'Factura' : 'Recibo'} nº {tx.numeroFactura} guardado en la carpeta de "{propiedad.nombre}"
+          {esFactura ? 'Factura' : 'Recibo'} nº {tx.numeroFactura} guardado en "{propiedad.nombre}" /{' '}
+          {tx.tipo === 'ingreso' ? 'Ingresos' : 'Gastos'} / {format(parseISO(tx.fecha), 'yyyy')} /{' '}
+          {format(parseISO(tx.fecha), 'MMMM', { locale: es })}
         </p>
       )}
 
