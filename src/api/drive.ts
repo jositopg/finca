@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, getAccessToken } from './auth'
+import { apiDelete, apiGet, apiPost, fetchConTimeout, getAccessToken } from './auth'
 
 const BASE = 'https://www.googleapis.com/drive/v3'
 const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3'
@@ -139,7 +139,7 @@ export async function uploadFile(
   if (!token) throw new Error('Sin token de acceso')
 
   // Initiate resumable upload
-  const initRes = await fetch(`${UPLOAD_BASE}/files?uploadType=resumable`, {
+  const initRes = await fetchConTimeout(`${UPLOAD_BASE}/files?uploadType=resumable`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -151,7 +151,6 @@ export async function uploadFile(
       name: file.name,
       parents: [folderId],
     }),
-    signal: AbortSignal.timeout(20000),
   })
 
   if (!initRes.ok) throw new Error(`Upload init failed: ${initRes.status}`)

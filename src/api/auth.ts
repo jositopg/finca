@@ -122,11 +122,33 @@ export function revokeToken(): void {
   }
 }
 
+// Ninguna llamada de red de este archivo debe poder colgarse para siempre:
+// si el dispositivo pierde la conexión a mitad de una petición (típico en
+// móvil), un `fetch` sin abortar se queda esperando sin fallar nunca — y
+// sin un error que capturar, la UI no puede avisar de nada, se queda
+// "trabada" sin explicación. `AbortController` + timeout manual (en vez de
+// `AbortSignal.timeout`, que requiere un runtime algo más reciente) fuerza
+// un fallo claro y catcheable a los 20s.
+export async function fetchConTimeout(url: string, init: RequestInit, ms = 20000): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('La conexión con Google Drive tardó demasiado — comprueba tu conexión e inténtalo de nuevo')
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function apiGet<T>(url: string): Promise<T> {
   const token = getAccessToken()
   if (!token) throw new Error('Sin token de acceso')
 
-  const res = await fetch(url, {
+  const res = await fetchConTimeout(url, {
     headers: { Authorization: `Bearer ${token}` },
   })
 
@@ -145,7 +167,7 @@ export async function apiPost<T>(url: string, body: unknown): Promise<T> {
   const token = getAccessToken()
   if (!token) throw new Error('Sin token de acceso')
 
-  const res = await fetch(url, {
+  const res = await fetchConTimeout(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -169,7 +191,7 @@ export async function apiPut<T>(url: string, body: unknown): Promise<T> {
   const token = getAccessToken()
   if (!token) throw new Error('Sin token de acceso')
 
-  const res = await fetch(url, {
+  const res = await fetchConTimeout(url, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -186,7 +208,7 @@ export async function apiDelete(url: string): Promise<void> {
   const token = getAccessToken()
   if (!token) throw new Error('Sin token de acceso')
 
-  const res = await fetch(url, {
+  const res = await fetchConTimeout(url, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   })
