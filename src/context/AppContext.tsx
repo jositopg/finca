@@ -318,7 +318,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return Promise.reject(new Error('Google Identity Services no está listo todavía'))
     }
     return new Promise((resolve, reject) => {
-      driveWaiters.current.push({ resolve, reject })
+      // requestToken() pide el token en silencio (prompt: ''); si el
+      // navegador bloquea ese intento silencioso (habitual en Safari/PWA
+      // en móvil) o Google no llega a resolverlo, initTokenClient nunca
+      // invoca ni el callback de éxito ni el de error — sin este timeout,
+      // esta promesa se queda esperando para siempre y cualquier operación
+      // de Drive (subir un archivo, etc.) se ve "colgada" sin ningún aviso.
+      let resuelta = false
+      const waiter = {
+        resolve: () => {
+          if (resuelta) return
+          resuelta = true
+          clearTimeout(timer)
+          resolve()
+        },
+        reject: (err: unknown) => {
+          if (resuelta) return
+          resuelta = true
+          clearTimeout(timer)
+          reject(err)
+        },
+      }
+      const timer = setTimeout(() => {
+        driveWaiters.current = driveWaiters.current.filter((w) => w !== waiter)
+        waiter.reject(new Error('Google Drive no respondió a tiempo — vuelve a intentarlo'))
+      }, 15000)
+      driveWaiters.current.push(waiter)
       requestToken()
     })
   }, [])
