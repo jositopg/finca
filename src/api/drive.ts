@@ -81,6 +81,55 @@ export async function findFileInFolder(
 
 // ─── Files ────────────────────────────────────────────────────────────────────
 
+// Trozos de 1 MiB (múltiplo de 256 KiB, como exige la API de Drive salvo en
+// el último trozo): en una conexión móvil inestable, si un trozo falla solo
+// hay que reintentar ese MB, no el archivo entero desde el principio.
+const CHUNK_SIZE = 4 * 262144
+const MAX_INTENTOS_POR_TRAMO = 6
+const TIMEOUT_TRAMO_MS = 30000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function xhrPut(
+  url: string,
+  body: Blob | null,
+  headers: Record<string, string>,
+  onUploadProgress?: (loaded: number) => void,
+): Promise<{ status: number; responseText: string; range: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+    xhr.timeout = TIMEOUT_TRAMO_MS
+    if (onUploadProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onUploadProgress(e.loaded)
+      }
+    }
+    xhr.onload = () =>
+      resolve({ status: xhr.status, responseText: xhr.responseText, range: xhr.getResponseHeader('Range') })
+    xhr.onerror = () => reject(new Error('Upload network error'))
+    xhr.ontimeout = () => reject(new Error('Upload timeout'))
+    xhr.send(body)
+  })
+}
+
+// Google responde 308 con la cabecera Range ("bytes=0-1048575") indicando
+// hasta qué byte recibió realmente — necesario tras un error de red/timeout,
+// porque el cliente no sabe si el tramo llegó a completarse en el servidor
+// antes de que se cortara la respuesta.
+async function consultarBytesRecibidos(uploadUrl: string, total: number): Promise<number> {
+  const res = await xhrPut(uploadUrl, null, { 'Content-Range': `bytes */${total}` })
+  if (res.status === 308) {
+    const match = res.range ? /bytes=0-(\d+)/.exec(res.range) : null
+    return match ? parseInt(match[1], 10) + 1 : 0
+  }
+  if (res.status >= 200 && res.status < 300) return total
+  throw new Error(`No se pudo comprobar el progreso de la subida: ${res.status}`)
+}
+
 export async function uploadFile(
   file: File,
   folderId: string,
@@ -102,35 +151,49 @@ export async function uploadFile(
       name: file.name,
       parents: [folderId],
     }),
+    signal: AbortSignal.timeout(20000),
   })
 
   if (!initRes.ok) throw new Error(`Upload init failed: ${initRes.status}`)
   const uploadUrl = initRes.headers.get('Location')
   if (!uploadUrl) throw new Error('No upload URL')
 
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('PUT', uploadUrl)
-    xhr.setRequestHeader('Content-Type', file.type)
+  const total = file.size
+  let offset = 0
+  let intentos = 0
 
-    if (onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+  while (true) {
+    const fin = Math.min(offset + CHUNK_SIZE, total)
+    try {
+      const res = await xhrPut(
+        uploadUrl,
+        file.slice(offset, fin),
+        { 'Content-Range': `bytes ${offset}-${fin - 1}/${total}` },
+        (loaded) => onProgress?.(Math.round(((offset + loaded) / total) * 100)),
+      )
+
+      if (res.status === 200 || res.status === 201) {
+        onProgress?.(100)
+        return JSON.parse(res.responseText) as DriveFile
+      }
+      if (res.status === 308) {
+        offset = fin
+        intentos = 0
+        continue
+      }
+      throw new Error(`Upload failed: ${res.status}`)
+    } catch (err) {
+      intentos++
+      if (intentos > MAX_INTENTOS_POR_TRAMO) throw err
+      await sleep(1000 * 2 ** (intentos - 1))
+      try {
+        offset = await consultarBytesRecibidos(uploadUrl, total)
+      } catch {
+        // Si ni siquiera se puede consultar el estado, se reintenta desde
+        // el mismo punto — es la mejor estimación disponible.
       }
     }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const result = JSON.parse(xhr.responseText) as DriveFile
-        resolve(result)
-      } else {
-        reject(new Error(`Upload failed: ${xhr.status}`))
-      }
-    }
-
-    xhr.onerror = () => reject(new Error('Upload network error'))
-    xhr.send(file)
-  })
+  }
 }
 
 export async function getFile(fileId: string): Promise<DriveFile> {

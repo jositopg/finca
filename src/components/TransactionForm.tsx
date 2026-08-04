@@ -6,6 +6,7 @@ import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
 import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO, parseImporte } from '../types'
 import { useApp } from '../context/AppContext'
+import { useToast } from '../context/ToastContext'
 import { uploadFile } from '../api/drive'
 
 function fmt(n: number) {
@@ -36,6 +37,7 @@ export function TransactionForm({
   onCancel,
 }: Props) {
   const { ensureTxFolder, addTx } = useApp()
+  const { showToast } = useToast()
   const [tipo, setTipo] = useState<TransaccionTipo>(initial?.tipo ?? defaultTipo)
   const [propiedadId, setPropiedadId] = useState(
     initial?.propiedadId ?? defaultPropiedadId ?? propiedades[0]?.id ?? '',
@@ -79,14 +81,19 @@ export function TransactionForm({
     let archivoIds: string[] = []
     if (pendingFiles.length > 0) {
       const propiedad = propiedades.find((p) => p.id === propiedadId)!
-      const folderId = await ensureTxFolder(propiedadId, propiedad.nombre, tipo, parseISO(fecha))
-      const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
-      archivoIds = uploaded.map((f) => f.id)
-      // Si el guardado de la transacción falla justo después (red, RLS,
-      // etc.), un reintento no debe volver a subir estos archivos — en
-      // cuanto Drive confirma la subida, pasan a "ya subidos".
-      setExistingArchivos((prev) => [...prev, ...archivoIds])
-      setPendingFiles([])
+      try {
+        const folderId = await ensureTxFolder(propiedadId, propiedad.nombre, tipo, parseISO(fecha))
+        const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
+        archivoIds = uploaded.map((f) => f.id)
+        // Si el guardado de la transacción falla justo después (red, RLS,
+        // etc.), un reintento no debe volver a subir estos archivos — en
+        // cuanto Drive confirma la subida, pasan a "ya subidos".
+        setExistingArchivos((prev) => [...prev, ...archivoIds])
+        setPendingFiles([])
+      } catch (err) {
+        showToast('No se pudo subir el adjunto. Comprueba tu conexión e inténtalo de nuevo.')
+        throw err
+      }
     }
 
     return {
@@ -128,6 +135,8 @@ export function TransactionForm({
       setPendingFiles([])
       setJustSaved(true)
       setTimeout(() => setJustSaved(false), 1500)
+    } catch (err) {
+      console.error('Guardar transacción error', err)
     } finally {
       setSavingOtro(false)
     }
