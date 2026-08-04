@@ -6,6 +6,7 @@ import { Download, ExternalLink, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { uploadFile } from '../api/drive'
+import { keepScreenAwake, releaseScreenWakeLock } from '../api/wakeLock'
 import { generarFacturaPDF, nombreArchivoFactura } from '../api/facturaPdf'
 import { Button } from './Button'
 import { DatosFacturacionForm } from './DatosFacturacionForm'
@@ -55,6 +56,7 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
   async function handleGenerar() {
     if (generando || tx.numeroFactura || !datosFacturacionCompletos(datosFacturacion)) return
     setGenerando(true)
+    await keepScreenAwake()
     try {
       const anio = new Date().getFullYear().toString()
       const numero = siguienteNumeroFactura(transacciones, tipoDoc, anio)
@@ -76,6 +78,7 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
       showToast('No se pudo generar o guardar el documento')
     } finally {
       setGenerando(false)
+      releaseScreenWakeLock()
     }
   }
 

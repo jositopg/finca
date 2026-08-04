@@ -8,6 +8,7 @@ import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO, parseImporte } f
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { uploadFile } from '../api/drive'
+import { keepScreenAwake, releaseScreenWakeLock } from '../api/wakeLock'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -81,6 +82,7 @@ export function TransactionForm({
     let archivoIds: string[] = []
     if (pendingFiles.length > 0) {
       const propiedad = propiedades.find((p) => p.id === propiedadId)!
+      await keepScreenAwake()
       try {
         const folderId = await ensureTxFolder(propiedadId, propiedad.nombre, tipo, parseISO(fecha))
         const uploaded = await Promise.all(pendingFiles.map((f) => uploadFile(f, folderId)))
@@ -93,6 +95,8 @@ export function TransactionForm({
       } catch (err) {
         showToast('No se pudo subir el adjunto. Comprueba tu conexión e inténtalo de nuevo.')
         throw err
+      } finally {
+        releaseScreenWakeLock()
       }
     }
 

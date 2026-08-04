@@ -3,6 +3,7 @@ import { FileText, Upload, ExternalLink, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { uploadFile } from '../api/drive'
+import { keepScreenAwake, releaseScreenWakeLock } from '../api/wakeLock'
 import type { Propiedad } from '../types'
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -24,6 +25,7 @@ export function ContratoAlquiler({ propiedad }: Props) {
     if (!file) return
     setUploading(true)
     setProgreso(0)
+    await keepScreenAwake()
     try {
       const folderId = await ensureContratoFolder(propiedad.id, propiedad.nombre)
       const uploaded = await uploadFile(file, folderId, setProgreso)
@@ -37,6 +39,7 @@ export function ContratoAlquiler({ propiedad }: Props) {
       showToast('No se pudo subir el contrato. Comprueba tu conexión e inténtalo de nuevo.')
     } finally {
       setUploading(false)
+      releaseScreenWakeLock()
     }
   }
 
