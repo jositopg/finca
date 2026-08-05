@@ -12,7 +12,7 @@ import {
   User,
   UserPlus,
 } from 'lucide-react'
-import { format, differenceInDays, parseISO } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
@@ -34,6 +34,7 @@ import { Button } from '../components/Button'
 import {
   calcularRentabilidad,
   calcularReparto,
+  contratoEstado,
   deudaInquilino,
   esDeAlquiler,
   esDeJose,
@@ -46,6 +47,7 @@ import {
   rentaPendiente,
   tareaVencida,
   TIPO_LABELS,
+  tocaRevisarRenta,
   valorarPropiedad,
   type Propiedad,
   type Tarea,
@@ -59,14 +61,6 @@ interface Props {
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-// Días desde/hasta el fin de contrato. Si ya pasó la fecha, el contrato
-// sigue vigente por tácita reconducción (no vence solo, hay que rescindirlo).
-function contratoEstado(contratoFin?: string): { dias: number; vencido: boolean; alerta: boolean } | null {
-  if (!contratoFin) return null
-  const dias = differenceInDays(parseISO(contratoFin), new Date())
-  return { dias, vencido: dias < 0, alerta: dias <= 60 }
 }
 
 function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }[] {
@@ -106,6 +100,7 @@ function PropiedadCard({
   const estadoContratoP = contratoEstado(p.contratoFin)
   const alertaContrato = estadoContratoP?.alerta ?? false
   const rentaSinCobrar = rentaPendiente(p, transacciones)
+  const revisionPendienteP = tocaRevisarRenta(p)
   const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
 
   return (
@@ -163,6 +158,12 @@ function PropiedadCard({
         <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
           <AlertTriangle size={11} />
           Renta sin cobrar este mes
+        </div>
+      )}
+      {revisionPendienteP && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+          <AlertTriangle size={11} />
+          Toca revisar la renta
         </div>
       )}
       {tareasVencidasP > 0 && (
@@ -426,6 +427,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'prop' | 'tx'; id: string } | null>(null)
   const [facturaTxId, setFacturaTxId] = useState<string | null>(null)
   const [confirmSaldarDeuda, setConfirmSaldarDeuda] = useState(false)
+  const [confirmRevisarRenta, setConfirmRevisarRenta] = useState(false)
   const [filterMes, setFilterMes] = useState(format(new Date(), 'yyyy-MM'))
   const [umbralNetaStr, setUmbralNetaStr] = useState(
     () => localStorage.getItem('finca_umbral_rentabilidad') ?? '4',
@@ -489,6 +491,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     // Contract expiry warning (tácita reconducción si ya venció)
     const estadoContrato = contratoEstado(propiedad.contratoFin)
     const contratoAlerta = estadoContrato?.alerta ?? false
+    const revisionRentaPendiente = tocaRevisarRenta(propiedad)
 
     return (
       <div className="flex flex-col pb-24">
@@ -549,6 +552,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             {rentaSinCobrarDetalle && (
               <Badge label="Renta sin cobrar este mes" variant="warning" />
             )}
+            {revisionRentaPendiente && <Badge label="Toca revisar la renta" variant="warning" />}
             {tareasVencidas > 0 && (
               <Badge
                 label={`${tareasVencidas} tarea${tareasVencidas === 1 ? '' : 's'} vencida${tareasVencidas === 1 ? '' : 's'}`}
@@ -625,6 +629,28 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
                 className="text-xs font-medium text-error underline flex-shrink-0"
               >
                 Dar por saldada
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Revisión anual de la renta (cláusula de actualización, p.ej. IPC) —
+            solo avisa de cuándo toca mirarlo, no calcula el importe nuevo */}
+        {revisionRentaPendiente && (
+          <div className="px-5 mb-4">
+            <div className="bg-warning-container rounded-xl p-4 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-warning">Toca revisar la renta</p>
+                <p className="text-xs text-warning/80 mt-0.5">
+                  Ya pasó el aniversario del contrato — revisa si aplica actualización (IPC/IGC)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmRevisarRenta(true)}
+                className="text-xs font-medium text-warning underline flex-shrink-0"
+              >
+                Marcar revisada
               </button>
             </div>
           </div>
@@ -1039,6 +1065,18 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
             setConfirmSaldarDeuda(false)
           }}
           onCancel={() => setConfirmSaldarDeuda(false)}
+        />
+
+        <ConfirmDialog
+          open={confirmRevisarRenta}
+          title="Marcar renta revisada"
+          message="No cambia el alquiler mensual guardado — solo deja constancia de que ya revisaste si tocaba actualizarla este año. Si decides subirla, edita la propiedad para cambiar el importe."
+          confirmLabel="Marcar revisada"
+          onConfirm={async () => {
+            await updateProp({ ...propiedad, rentaRevisadaDesde: new Date().toISOString() })
+            setConfirmRevisarRenta(false)
+          }}
+          onCancel={() => setConfirmRevisarRenta(false)}
         />
 
         {facturaTxId &&

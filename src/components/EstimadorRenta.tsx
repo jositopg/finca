@@ -70,6 +70,12 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
           Aplica los tramos progresivos del IRPF (escala combinada aproximada, puede no coincidir
           exactamente con tu comunidad autónoma) — no sustituye el cálculo real de tu gestoría.
         </p>
+        {estimacion.amortizacionTotal === 0 && propiedades.some((p) => !p.valorConstruccion) && (
+          <p className="text-xs text-outline-variant mt-2">
+            Añade el "valor catastral de la construcción" (recibo del IBI) a tus propiedades para
+            que este cálculo incluya la amortización deducible del 3% anual.
+          </p>
+        )}
       </div>
 
       {/* Otros ingresos */}
@@ -162,6 +168,16 @@ export function EstimadorRenta({ propiedades, transacciones, anio }: Props) {
 
       {/* Resultado */}
       <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex flex-col gap-2">
+        {estimacion.amortizacionTotal > 0 && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-outline-variant">
+              — incluye amortización deducible (3% valor construcción)
+            </span>
+            <span className="tabular-nums text-outline-variant">
+              -{fmt(estimacion.amortizacionTotal)} €
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-between text-xs">
           <span className="text-outline-variant">Rendimiento neto inmobiliario (ya reducido)</span>
           <span className="tabular-nums text-on-surface">

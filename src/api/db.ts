@@ -47,6 +47,8 @@ interface PropiedadRow {
   contrato_agua_numero: string | null
   contrato_agua_empresa: string | null
   deuda_desde: string | null
+  renta_revisada_desde: string | null
+  valor_construccion: number | string | null
 }
 
 interface TransaccionRow {
@@ -99,6 +101,8 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     contratoAguaNumero: row.contrato_agua_numero ?? undefined,
     contratoAguaEmpresa: row.contrato_agua_empresa ?? undefined,
     deudaDesde: row.deuda_desde ?? undefined,
+    rentaRevisadaDesde: row.renta_revisada_desde ?? undefined,
+    valorConstruccion: row.valor_construccion != null ? Number(row.valor_construccion) : undefined,
   }
 }
 
@@ -136,6 +140,8 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     contrato_agua_numero: p.contratoAguaNumero ?? null,
     contrato_agua_empresa: p.contratoAguaEmpresa ?? null,
     deuda_desde: p.deudaDesde ?? null,
+    renta_revisada_desde: p.rentaRevisadaDesde ?? null,
+    valor_construccion: p.valorConstruccion ?? null,
   }
 }
 

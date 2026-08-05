@@ -70,6 +70,8 @@ export interface Propiedad {
   contratoAguaNumero?: string
   contratoAguaEmpresa?: string
   deudaDesde?: string // YYYY-MM: mes desde el que se cuenta la deuda de renta (ver deudaInquilino) — "dar la deuda por saldada" lo adelanta al mes actual sin tocar el contrato
+  rentaRevisadaDesde?: string // ISO datetime: última vez que se marcó la renta como revisada (cláusula de actualización anual, ver tocaRevisarRenta)
+  valorConstruccion?: number // valor catastral de la construcción (sin suelo), del recibo del IBI — base de la amortización deducible en IRPF
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -104,6 +106,22 @@ export function calcularRentabilidad(
     bruta: (ingresosAnuales / valor) * 100,
     neta: ((ingresosAnuales - gastosAnuales) / valor) * 100,
   }
+}
+
+// ─── Amortización del inmueble ──────────────────────────────────────────────
+// Deducción de IRPF por depreciación del inmueble: el 3% anual del valor de
+// construcción (sin el suelo, que no se deprecia) es gasto deducible aunque
+// no suponga un desembolso real ese año — la deducción más grande que suele
+// pasarse por alto en una declaración de alquiler llevada a mano. Aplica a
+// cualquier tipo de inmueble alquilado, no solo a los que llevan la
+// reducción del 60%/50% de vivienda habitual.
+export const AMORTIZACION_PCT = 3
+
+export function amortizacionAnual(
+  propiedad: Pick<Propiedad, 'valorConstruccion' | 'porcentajePropiedad'>,
+): number {
+  if (!propiedad.valorConstruccion) return 0
+  return miParte(propiedad.valorConstruccion, propiedad) * (AMORTIZACION_PCT / 100)
 }
 
 // ─── Valoración: ¿es suficiente la rentabilidad? ───────────────────────────────
@@ -429,6 +447,71 @@ export function deudaInquilino(
   return { importe, meses: importe / propiedad.alquilerMensual }
 }
 
+// Días hasta el fin de contrato (negativo si ya pasó). Si ya pasó la fecha,
+// el contrato sigue vigente por tácita reconducción (no vence solo, hay que
+// rescindirlo) — "vencido" no significa que haya terminado, solo que ya
+// tocaba renovarlo o rescindirlo formalmente. "alerta" a partir de 60 días
+// antes, o si ya está en tácita reconducción.
+export function contratoEstado(
+  contratoFin: string | undefined,
+  hoy: Date = new Date(),
+): { dias: number; vencido: boolean; alerta: boolean } | null {
+  if (!contratoFin) return null
+  const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+  const dias = diasEntreFechas(hoyStr, contratoFin)
+  return { dias, vencido: dias < 0, alerta: dias <= 60 }
+}
+
+// ─── Revisión anual de renta (cláusula de actualización, p.ej. IPC) ────────────
+// La mayoría de contratos de alquiler llevan una cláusula de actualización
+// anual de la renta en el aniversario de la firma — esto no calcula el
+// importe actualizado (requeriría el IPC/IGC publicado ese mes, que la app
+// no consulta), solo avisa de cuándo toca mirarlo. La fecha de referencia es
+// siempre el aniversario del día/mes de `contratoInicio`, nunca la fecha en
+// que se marcó como revisada — así que revisar tarde un año no adelanta ni
+// atrasa el aniversario del año siguiente.
+export function tocaRevisarRenta(
+  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'rentaRevisadaDesde'>,
+  hoy: Date = new Date(),
+): boolean {
+  if (propiedad.estado !== 'alquilado' || !propiedad.contratoInicio) return false
+  const inicio = new Date(`${propiedad.contratoInicio}T00:00:00`)
+  const desde = propiedad.rentaRevisadaDesde ? new Date(propiedad.rentaRevisadaDesde) : inicio
+  let aniversario = new Date(desde.getFullYear(), inicio.getMonth(), inicio.getDate())
+  if (aniversario <= desde) aniversario = new Date(desde.getFullYear() + 1, inicio.getMonth(), inicio.getDate())
+  return hoy >= aniversario
+}
+
+export interface AvisoPropiedad {
+  propiedad: Propiedad
+  tipo: 'contrato_vence' | 'revision_renta'
+  mensaje: string
+}
+
+// Avisos operativos por propiedad (contrato por vencer, revisión de renta
+// pendiente) para mostrar de un vistazo en el Dashboard, sin tener que
+// entrar en cada ficha uno a uno.
+export function avisosPropiedades(propiedades: Propiedad[], hoy: Date = new Date()): AvisoPropiedad[] {
+  const avisos: AvisoPropiedad[] = []
+  for (const p of propiedades) {
+    if (p.estado !== 'alquilado') continue
+    const estadoContrato = contratoEstado(p.contratoFin, hoy)
+    if (estadoContrato?.alerta) {
+      avisos.push({
+        propiedad: p,
+        tipo: 'contrato_vence',
+        mensaje: estadoContrato.vencido
+          ? 'Contrato en tácita reconducción'
+          : `Contrato vence en ${estadoContrato.dias} días`,
+      })
+    }
+    if (tocaRevisarRenta(p, hoy)) {
+      avisos.push({ propiedad: p, tipo: 'revision_renta', mensaje: 'Toca revisar la renta (actualización anual)' })
+    }
+  }
+  return avisos
+}
+
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────
 // Para propiedades en alquiler: quién corre con el gasto de agua, luz,
 // basuras e IBI — íntegro en el precio del alquiler, a cargo del inquilino,
@@ -653,6 +736,7 @@ export interface EstimacionPropiedad {
   propiedad: Propiedad
   ingresos: number
   gastos: number
+  amortizacion: number
   rendimientoNeto: number
   reducible: boolean
   rendimientoComputable: number
@@ -660,6 +744,7 @@ export interface EstimacionPropiedad {
 
 export interface EstimacionRenta {
   porPropiedad: EstimacionPropiedad[]
+  amortizacionTotal: number
   rendimientoInmobiliarioTotal: number
   otrosIngresosTotal: number
   baseImponibleTotal: number
@@ -706,16 +791,18 @@ export function estimarAhorroRenta(
       .filter((t) => t.tipo === 'gasto')
       .reduce((s, t) => s + miParte(t.importe, p), 0)
 
-    const rendimientoNeto = ingresos - gastos
+    const amortizacion = amortizacionAnual(p)
+    const rendimientoNeto = ingresos - gastos - amortizacion
     const reducible = p.tipo === 'piso' || p.tipo === 'casa'
     const rendimientoComputable =
       reducible && rendimientoNeto > 0
         ? rendimientoNeto * (1 - reduccionViviendaPct / 100)
         : rendimientoNeto
 
-    return { propiedad: p, ingresos, gastos, rendimientoNeto, reducible, rendimientoComputable }
+    return { propiedad: p, ingresos, gastos, amortizacion, rendimientoNeto, reducible, rendimientoComputable }
   })
 
+  const amortizacionTotal = porPropiedad.reduce((s, f) => s + f.amortizacion, 0)
   const rendimientoInmobiliarioTotal = porPropiedad.reduce((s, f) => s + f.rendimientoComputable, 0)
 
   const retencionLocales = propiedades
@@ -749,6 +836,7 @@ export function estimarAhorroRenta(
 
   return {
     porPropiedad,
+    amortizacionTotal,
     rendimientoInmobiliarioTotal,
     otrosIngresosTotal,
     baseImponibleTotal,

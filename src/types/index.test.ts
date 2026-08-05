@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  amortizacionAnual,
+  avisosPropiedades,
   baseDesdeRentaNeta,
   calcularReparto,
   calcularRentaLocal,
+  contratoEstado,
   cuotaIRPF,
   datosFacturacionCompletos,
   deudaInquilino,
@@ -22,6 +25,7 @@ import {
   tareaVencida,
   tipoDocumentoAlquiler,
   tipoMarginalIRPF,
+  tocaRevisarRenta,
   type IngresoExterno,
   type Propiedad,
   type Tarea,
@@ -293,6 +297,110 @@ describe('estimarAhorroRenta', () => {
     const ingresosExternos = [ingresoExterno({ importeAnual: 10000, porcentajeRetencion: 99 })]
     const e = estimarAhorroRenta([], [], ingresosExternos, '2026', 0)
     expect(e.aGuardar).toBe(0)
+  })
+
+  it('la amortización deducible (3% del valor de construcción) reduce el rendimiento inmobiliario', () => {
+    const p = propiedad({ id: 'p1', tipo: 'piso', valorConstruccion: 50000, porcentajePropiedad: 100 })
+    const txs: Transaccion[] = [
+      transaccion({ propiedadId: 'p1', tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 10000 }),
+    ]
+    const sinAmortizar = estimarAhorroRenta(
+      [propiedad({ id: 'p1', tipo: 'piso', porcentajePropiedad: 100 })],
+      txs,
+      [],
+      '2026',
+      0,
+    )
+    const conAmortizacion = estimarAhorroRenta([p], txs, [], '2026', 0)
+    expect(conAmortizacion.amortizacionTotal).toBeCloseTo(1500, 6) // 3% de 50.000
+    expect(conAmortizacion.rendimientoInmobiliarioTotal).toBeCloseTo(
+      sinAmortizar.rendimientoInmobiliarioTotal - 1500,
+      6,
+    )
+  })
+})
+
+describe('amortizacionAnual', () => {
+  it('es el 3% del valor de construcción, escalado por el % de propiedad', () => {
+    expect(amortizacionAnual(propiedad({ valorConstruccion: 50000, porcentajePropiedad: 100 }))).toBeCloseTo(
+      1500,
+      6,
+    )
+    expect(amortizacionAnual(propiedad({ valorConstruccion: 50000, porcentajePropiedad: 50 }))).toBeCloseTo(
+      750,
+      6,
+    )
+  })
+
+  it('sin valor de construcción, devuelve 0', () => {
+    expect(amortizacionAnual(propiedad({}))).toBe(0)
+  })
+})
+
+describe('contratoEstado', () => {
+  it('sin fecha de fin, devuelve null', () => {
+    expect(contratoEstado(undefined)).toBeNull()
+  })
+
+  it('alerta a partir de 60 días antes del fin', () => {
+    const hoy = new Date('2026-01-01T00:00:00')
+    expect(contratoEstado('2026-03-02', hoy)?.dias).toBe(60)
+    expect(contratoEstado('2026-03-02', hoy)?.alerta).toBe(true) // exactamente 60 días
+    expect(contratoEstado('2026-03-03', hoy)?.alerta).toBe(false) // 61 días
+    expect(contratoEstado('2026-06-01', hoy)?.alerta).toBe(false)
+  })
+
+  it('vencido pero no null cuando ya pasó la fecha (tácita reconducción)', () => {
+    const hoy = new Date('2026-06-01T00:00:00')
+    const r = contratoEstado('2026-01-01', hoy)
+    expect(r?.vencido).toBe(true)
+    expect(r?.alerta).toBe(true)
+    expect(r?.dias).toBeLessThan(0)
+  })
+})
+
+describe('tocaRevisarRenta', () => {
+  it('no toca si no está alquilado o no tiene fecha de inicio', () => {
+    expect(tocaRevisarRenta(propiedad({ estado: 'vacio', contratoInicio: '2020-01-01' }))).toBe(false)
+    expect(tocaRevisarRenta(propiedad({ estado: 'alquilado' }))).toBe(false)
+  })
+
+  it('no toca antes de cumplirse el primer aniversario del contrato', () => {
+    const p = propiedad({ estado: 'alquilado', contratoInicio: '2026-01-01' })
+    expect(tocaRevisarRenta(p, new Date('2026-06-01T00:00:00'))).toBe(false)
+    expect(tocaRevisarRenta(p, new Date('2026-12-31T00:00:00'))).toBe(false)
+  })
+
+  it('toca en cuanto se cumple el aniversario, nunca antes marcada', () => {
+    const p = propiedad({ estado: 'alquilado', contratoInicio: '2026-01-01' })
+    expect(tocaRevisarRenta(p, new Date('2027-01-01T00:00:00'))).toBe(true)
+    expect(tocaRevisarRenta(p, new Date('2027-06-01T00:00:00'))).toBe(true)
+  })
+
+  it('tras marcarla revisada, no vuelve a tocar hasta el siguiente aniversario del contrato', () => {
+    const p = propiedad({
+      estado: 'alquilado',
+      contratoInicio: '2026-01-01',
+      rentaRevisadaDesde: '2027-03-15T00:00:00',
+    })
+    expect(tocaRevisarRenta(p, new Date('2027-12-01T00:00:00'))).toBe(false)
+    expect(tocaRevisarRenta(p, new Date('2028-01-01T00:00:00'))).toBe(true)
+  })
+})
+
+describe('avisosPropiedades', () => {
+  it('junta avisos de contrato por vencer y revisión de renta pendiente', () => {
+    const hoy = new Date('2027-06-01T00:00:00')
+    const props = [
+      propiedad({ id: 'p1', estado: 'alquilado', contratoFin: '2027-07-01' }), // vence en 30 días
+      propiedad({ id: 'p2', estado: 'alquilado', contratoInicio: '2026-01-01' }), // toca revisar
+      propiedad({ id: 'p3', estado: 'alquilado', contratoFin: '2028-01-01', contratoInicio: '2027-05-01' }), // sin avisos
+      propiedad({ id: 'p4', estado: 'vacio' }), // no cuenta, no alquilada
+    ]
+    const avisos = avisosPropiedades(props, hoy)
+    expect(avisos.map((a) => a.propiedad.id).sort()).toEqual(['p1', 'p2'])
+    expect(avisos.find((a) => a.propiedad.id === 'p1')?.tipo).toBe('contrato_vence')
+    expect(avisos.find((a) => a.propiedad.id === 'p2')?.tipo).toBe('revision_renta')
   })
 })
 

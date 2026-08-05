@@ -227,6 +227,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [valorMercado, setValorMercado] = useState(
     initial?.valorMercado != null ? initial.valorMercado.toString() : '',
   )
+  const [valorConstruccion, setValorConstruccion] = useState(
+    initial?.valorConstruccion != null ? initial.valorConstruccion.toString() : '',
+  )
   const [propietarioNombre, setPropietarioNombre] = useState(initial?.propietarioNombre ?? '')
   const [tipo, setTipo] = useState<PropiedadTipo>(initial?.tipo ?? 'piso')
   const [estado, setEstado] = useState<PropiedadEstado>(initial?.estado ?? 'alquilado')
@@ -264,6 +267,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
     const valorMercadoNum = valorMercado ? parseImporte(valorMercado) : undefined
     if (valorMercado && Number.isNaN(valorMercadoNum)) e.valorMercado = 'Valor inválido'
 
+    const valorConstruccionNum = valorConstruccion ? parseImporte(valorConstruccion) : undefined
+    if (valorConstruccion && Number.isNaN(valorConstruccionNum)) e.valorConstruccion = 'Valor inválido'
+
     const alquilerMensualNum = alquilerMensual ? parseImporte(alquilerMensual) : undefined
     if (alquilerMensual && Number.isNaN(alquilerMensualNum)) e.alquilerMensual = 'Importe inválido'
 
@@ -294,6 +300,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       referenciaCatastral: referenciaCatastral.trim() || undefined,
       valorReferencia: valorReferencia ? parseImporte(valorReferencia) : undefined,
       valorMercado: valorMercado ? parseImporte(valorMercado) : undefined,
+      valorConstruccion: valorConstruccion ? parseImporte(valorConstruccion) : undefined,
       propietarioNombre: propietarioNombre.trim() || undefined,
       tipo,
       estado,
@@ -319,6 +326,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       contratoArchivoNombre: initial?.contratoArchivoNombre,
       alDiaDesde: initial?.alDiaDesde,
       deudaDesde: initial?.deudaDesde,
+      rentaRevisadaDesde: initial?.rentaRevisadaDesde,
     }
 
     try {
@@ -410,6 +418,19 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             />
           </div>
         </div>
+        <Input
+          label="Valor catastral de la construcción (€, opcional)"
+          type="text"
+          inputMode="decimal"
+          placeholder="45000"
+          value={valorConstruccion}
+          onChange={(e) => setValorConstruccion(e.target.value)}
+          error={errors.valorConstruccion}
+        />
+        <p className="text-xs text-outline-variant -mt-3">
+          Del recibo del IBI (valor de la construcción, sin el suelo) — para estimar la amortización
+          deducible en el Estimador de Renta
+        </p>
       </div>
 
       <div className="flex flex-col gap-4 bg-surface-low rounded-xl p-4">

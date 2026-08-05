@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { EstimadorRenta } from '../components/EstimadorRenta'
 import {
+  amortizacionAnual,
   baseDesdeRentaNeta,
   calcularRentaLocal,
   esDeAlquiler,
@@ -57,10 +58,12 @@ export function FiscalView() {
     const gastos = txs
       .filter((t) => t.tipo === 'gasto')
       .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p), 0)
-    return { propiedad: p, ingresos, gastos, neto: ingresos - gastos }
+    const amortizacion = amortizacionAnual(p)
+    return { propiedad: p, ingresos, gastos, amortizacion, neto: ingresos - gastos }
   })
   const totalIngresos = filasRenta.reduce((s, f) => s + f.ingresos, 0)
   const totalGastos = filasRenta.reduce((s, f) => s + f.gastos, 0)
+  const totalAmortizacion = filasRenta.reduce((s, f) => s + f.amortizacion, 0)
 
   // ── Modelo 420 (IGIC trimestral): solo locales, solo renta de alquiler ────
   // El importe guardado en cada transacción es la renta NETA (lo que
@@ -122,7 +125,7 @@ export function FiscalView() {
           <p className="text-sm text-outline-variant text-center py-8">Aún no tienes propiedades.</p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasRenta.map(({ propiedad, ingresos, gastos, neto }) => (
+            {filasRenta.map(({ propiedad, ingresos, gastos, amortizacion, neto }) => (
               <div key={propiedad.id} className="p-4">
                 <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
                 <div className="flex items-center gap-3 text-xs">
@@ -138,19 +141,32 @@ export function FiscalView() {
                     {fmt(neto)} €
                   </span>
                 </div>
+                {amortizacion > 0 && (
+                  <p className="text-xs text-outline-variant mt-1">
+                    Amortización deducible aparte (3% valor construcción): {fmt(amortizacion)} €/año
+                  </p>
+                )}
               </div>
             ))}
           </div>
         )}
 
         {filasRenta.length > 0 && (
-          <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 mt-2">
-            <span className="text-xs text-outline-variant">
-              Total ingresos / gastos {anio}
-            </span>
-            <span className="text-sm font-bold tabular-nums text-on-surface">
-              +{fmt(totalIngresos)} € · -{fmt(totalGastos)} €
-            </span>
+          <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 mt-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-outline-variant">
+                Total ingresos / gastos {anio}
+              </span>
+              <span className="text-sm font-bold tabular-nums text-on-surface">
+                +{fmt(totalIngresos)} € · -{fmt(totalGastos)} €
+              </span>
+            </div>
+            {totalAmortizacion > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-outline-variant">Total amortización deducible/año</span>
+                <span className="tabular-nums text-outline-variant">-{fmt(totalAmortizacion)} €</span>
+              </div>
+            )}
           </div>
         )}
       </div>
