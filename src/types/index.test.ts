@@ -17,6 +17,7 @@ import {
   inicioPeriodoAlDia,
   miParte,
   ordenarTareas,
+  parseFilasImportadas,
   parseImporte,
   rangoAnio,
   rangoMes,
@@ -388,6 +389,60 @@ describe('tocaRevisarRenta', () => {
   })
 })
 
+describe('parseFilasImportadas', () => {
+  it('parsea líneas separadas por tabulador (pegado desde Excel/Sheets)', () => {
+    const filas = parseFilasImportadas('2026-01-05\tingreso\tAlquiler mensual\t800\tEnero')
+    expect(filas).toHaveLength(1)
+    expect(filas[0]).toMatchObject({
+      ok: true,
+      fecha: '2026-01-05',
+      tipo: 'ingreso',
+      categoria: 'Alquiler mensual',
+      importe: 800,
+      descripcion: 'Enero',
+    })
+  })
+
+  it('parsea líneas separadas por punto y coma (CSV), sin descripción', () => {
+    const filas = parseFilasImportadas('2026-01-10;gasto;Comunidad de propietarios;45,50')
+    expect(filas[0]).toMatchObject({
+      ok: true,
+      fecha: '2026-01-10',
+      tipo: 'gasto',
+      categoria: 'Comunidad de propietarios',
+      importe: 45.5,
+      descripcion: '',
+    })
+  })
+
+  it('convierte fechas DD/MM/AAAA a AAAA-MM-DD', () => {
+    const filas = parseFilasImportadas('05/01/2026;ingreso;Alquiler mensual;800')
+    expect(filas[0]).toMatchObject({ ok: true, fecha: '2026-01-05' })
+  })
+
+  it('marca cada línea con error por separado, sin bloquear las demás', () => {
+    const texto = [
+      '2026-01-05;ingreso;Alquiler mensual;800',
+      'fecha-mala;ingreso;Alquiler mensual;800',
+      '2026-01-05;otro;Alquiler mensual;800',
+      '2026-01-05;ingreso;;800',
+      '2026-01-05;ingreso;Alquiler mensual;abc',
+    ].join('\n')
+    const filas = parseFilasImportadas(texto)
+    expect(filas).toHaveLength(5)
+    expect(filas[0].ok).toBe(true)
+    expect(filas[1]).toMatchObject({ ok: false, linea: 2 })
+    expect(filas[2]).toMatchObject({ ok: false, linea: 3 })
+    expect(filas[3]).toMatchObject({ ok: false, linea: 4 })
+    expect(filas[4]).toMatchObject({ ok: false, linea: 5 })
+  })
+
+  it('ignora líneas en blanco', () => {
+    const filas = parseFilasImportadas('\n2026-01-05;ingreso;Alquiler mensual;800\n\n')
+    expect(filas).toHaveLength(1)
+  })
+})
+
 describe('avisosPropiedades', () => {
   it('junta avisos de contrato por vencer y revisión de renta pendiente', () => {
     const hoy = new Date('2027-06-01T00:00:00')
@@ -401,6 +456,38 @@ describe('avisosPropiedades', () => {
     expect(avisos.map((a) => a.propiedad.id).sort()).toEqual(['p1', 'p2'])
     expect(avisos.find((a) => a.propiedad.id === 'p1')?.tipo).toBe('contrato_vence')
     expect(avisos.find((a) => a.propiedad.id === 'p2')?.tipo).toBe('revision_renta')
+  })
+
+  it('avisa de certificado energético por caducar incluso con la propiedad vacía', () => {
+    const hoy = new Date('2027-06-01T00:00:00')
+    const p = propiedad({ id: 'p1', estado: 'vacio', certificadoEnergeticoVencimiento: '2027-07-01' })
+    const avisos = avisosPropiedades([p], hoy)
+    expect(avisos).toHaveLength(1)
+    expect(avisos[0].tipo).toBe('certificado_energetico')
+  })
+
+  it('no avisa de certificado energético para uso propio/vivienda habitual', () => {
+    const hoy = new Date('2027-06-01T00:00:00')
+    const p = propiedad({
+      id: 'p1',
+      estado: 'vivienda_habitual',
+      certificadoEnergeticoVencimiento: '2027-07-01',
+    })
+    expect(avisosPropiedades([p], hoy)).toHaveLength(0)
+  })
+
+  it('avisa de fianza sin depositar solo si hay importe y no está marcada como depositada', () => {
+    const p1 = propiedad({ id: 'p1', estado: 'alquilado', fianzaImporte: 800 })
+    const p2 = propiedad({
+      id: 'p2',
+      estado: 'alquilado',
+      fianzaImporte: 800,
+      fianzaDepositadaDesde: '2026-01-01T00:00:00.000Z',
+    })
+    const p3 = propiedad({ id: 'p3', estado: 'alquilado' })
+    const avisos = avisosPropiedades([p1, p2, p3])
+    expect(avisos.map((a) => a.propiedad.id)).toEqual(['p1'])
+    expect(avisos[0].tipo).toBe('fianza_sin_depositar')
   })
 })
 

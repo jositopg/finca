@@ -49,6 +49,9 @@ interface PropiedadRow {
   deuda_desde: string | null
   renta_revisada_desde: string | null
   valor_construccion: number | string | null
+  certificado_energetico_vencimiento: string | null
+  fianza_importe: number | string | null
+  fianza_depositada_desde: string | null
 }
 
 interface TransaccionRow {
@@ -103,6 +106,9 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     deudaDesde: row.deuda_desde ?? undefined,
     rentaRevisadaDesde: row.renta_revisada_desde ?? undefined,
     valorConstruccion: row.valor_construccion != null ? Number(row.valor_construccion) : undefined,
+    certificadoEnergeticoVencimiento: row.certificado_energetico_vencimiento ?? undefined,
+    fianzaImporte: row.fianza_importe != null ? Number(row.fianza_importe) : undefined,
+    fianzaDepositadaDesde: row.fianza_depositada_desde ?? undefined,
   }
 }
 
@@ -142,6 +148,9 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     deuda_desde: p.deudaDesde ?? null,
     renta_revisada_desde: p.rentaRevisadaDesde ?? null,
     valor_construccion: p.valorConstruccion ?? null,
+    certificado_energetico_vencimiento: p.certificadoEnergeticoVencimiento ?? null,
+    fianza_importe: p.fianzaImporte ?? null,
+    fianza_depositada_desde: p.fianzaDepositadaDesde ?? null,
   }
 }
 

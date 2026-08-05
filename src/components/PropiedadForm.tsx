@@ -230,6 +230,12 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [valorConstruccion, setValorConstruccion] = useState(
     initial?.valorConstruccion != null ? initial.valorConstruccion.toString() : '',
   )
+  const [certificadoEnergeticoVencimiento, setCertificadoEnergeticoVencimiento] = useState(
+    initial?.certificadoEnergeticoVencimiento ?? '',
+  )
+  const [fianzaImporte, setFianzaImporte] = useState(
+    initial?.fianzaImporte != null ? initial.fianzaImporte.toString() : '',
+  )
   const [propietarioNombre, setPropietarioNombre] = useState(initial?.propietarioNombre ?? '')
   const [tipo, setTipo] = useState<PropiedadTipo>(initial?.tipo ?? 'piso')
   const [estado, setEstado] = useState<PropiedadEstado>(initial?.estado ?? 'alquilado')
@@ -270,6 +276,9 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
     const valorConstruccionNum = valorConstruccion ? parseImporte(valorConstruccion) : undefined
     if (valorConstruccion && Number.isNaN(valorConstruccionNum)) e.valorConstruccion = 'Valor inválido'
 
+    const fianzaImporteNum = fianzaImporte ? parseImporte(fianzaImporte) : undefined
+    if (fianzaImporte && Number.isNaN(fianzaImporteNum)) e.fianzaImporte = 'Importe inválido'
+
     const alquilerMensualNum = alquilerMensual ? parseImporte(alquilerMensual) : undefined
     if (alquilerMensual && Number.isNaN(alquilerMensualNum)) e.alquilerMensual = 'Importe inválido'
 
@@ -301,6 +310,8 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       valorReferencia: valorReferencia ? parseImporte(valorReferencia) : undefined,
       valorMercado: valorMercado ? parseImporte(valorMercado) : undefined,
       valorConstruccion: valorConstruccion ? parseImporte(valorConstruccion) : undefined,
+      certificadoEnergeticoVencimiento: certificadoEnergeticoVencimiento || undefined,
+      fianzaImporte: fianzaImporte ? parseImporte(fianzaImporte) : undefined,
       propietarioNombre: propietarioNombre.trim() || undefined,
       tipo,
       estado,
@@ -327,6 +338,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       alDiaDesde: initial?.alDiaDesde,
       deudaDesde: initial?.deudaDesde,
       rentaRevisadaDesde: initial?.rentaRevisadaDesde,
+      fianzaDepositadaDesde: initial?.fianzaDepositadaDesde,
     }
 
     try {
@@ -430,6 +442,15 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         <p className="text-xs text-outline-variant -mt-3">
           Del recibo del IBI (valor de la construcción, sin el suelo) — para estimar la amortización
           deducible en el Estimador de Renta
+        </p>
+        <Input
+          label="Vencimiento del certificado energético (opcional)"
+          type="date"
+          value={certificadoEnergeticoVencimiento}
+          onChange={(e) => setCertificadoEnergeticoVencimiento(e.target.value)}
+        />
+        <p className="text-xs text-outline-variant -mt-3">
+          Caduca a los 10 años — te avisamos cuando esté por caducar
         </p>
       </div>
 
@@ -570,6 +591,15 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             value={alquilerMensual}
             onChange={(e) => setAlquilerMensual(e.target.value)}
             error={errors.alquilerMensual}
+          />
+          <Input
+            label="Importe de la fianza € (opcional)"
+            type="text"
+            inputMode="decimal"
+            placeholder="800"
+            value={fianzaImporte}
+            onChange={(e) => setFianzaImporte(e.target.value)}
+            error={errors.fianzaImporte}
           />
           <div className="flex gap-3">
             <div className="flex-1">

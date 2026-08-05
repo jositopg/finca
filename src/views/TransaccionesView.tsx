@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { ClipboardPaste, Plus, Search } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
@@ -8,6 +8,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { FacturaAlquiler } from '../components/FacturaAlquiler'
 import { FacturasSuministros } from '../components/FacturasSuministros'
+import { ImportarTransacciones } from '../components/ImportarTransacciones'
 import { TransactionForm } from '../components/TransactionForm'
 import { Button } from '../components/Button'
 import type { Transaccion, TransaccionTipo } from '../types'
@@ -78,6 +79,20 @@ export function TransaccionesView() {
           <h1 className="font-display text-2xl font-bold text-on-surface">Movimientos</h1>
           <div className="flex gap-2">
             {propiedades.length > 0 && <FacturasSuministros propiedades={propiedades} />}
+            {propiedades.length > 0 && (
+              <ImportarTransacciones
+                propiedades={propiedades}
+                trigger={(open) => (
+                  <button
+                    onClick={open}
+                    title="Importar varios movimientos"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary-container text-primary hover:brightness-95 transition-all"
+                  >
+                    <ClipboardPaste size={14} />
+                  </button>
+                )}
+              />
+            )}
             <Button onClick={() => setShowAdd(true)} size="sm" disabled={propiedades.length === 0}>
               <Plus size={14} />
               Nuevo

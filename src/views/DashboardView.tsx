@@ -21,6 +21,7 @@ import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
 import { EvolucionAnual } from '../components/EvolucionAnual'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { GastosPorCategoria } from '../components/GastosPorCategoria'
+import { RankingRentabilidad } from '../components/RankingRentabilidad'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TareasDashboard } from '../components/TareasDashboard'
 import { TransactionForm } from '../components/TransactionForm'
@@ -316,6 +317,15 @@ export function DashboardView({ onNavigate }: Props) {
       {/* Year over year trend */}
       <div className="px-5 mb-5">
         <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
+      </div>
+
+      {/* Ranking de rentabilidad entre propiedades */}
+      <div className="px-5 mb-5">
+        <RankingRentabilidad
+          propiedades={propiedadesJose}
+          transacciones={transacciones}
+          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
+        />
       </div>
 
       {/* Properties */}

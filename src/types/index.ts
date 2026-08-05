@@ -72,6 +72,9 @@ export interface Propiedad {
   deudaDesde?: string // YYYY-MM: mes desde el que se cuenta la deuda de renta (ver deudaInquilino) — "dar la deuda por saldada" lo adelanta al mes actual sin tocar el contrato
   rentaRevisadaDesde?: string // ISO datetime: última vez que se marcó la renta como revisada (cláusula de actualización anual, ver tocaRevisarRenta)
   valorConstruccion?: number // valor catastral de la construcción (sin suelo), del recibo del IBI — base de la amortización deducible en IRPF
+  certificadoEnergeticoVencimiento?: string // YYYY-MM-DD — el certificado de eficiencia energética caduca a los 10 años
+  fianzaImporte?: number // fianza legal a depositar en el organismo correspondiente (normalmente 1 mes de renta, 2 en locales)
+  fianzaDepositadaDesde?: string // ISO datetime: cuándo se marcó como depositada — undefined = pendiente de depositar
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -319,6 +322,7 @@ export interface ContratoHistorico {
   fechaFin: string // YYYY-MM-DD — fecha real en que terminó
   contratoArchivoId?: string
   contratoArchivoNombre?: string
+  fianzaImporte?: number
 }
 
 export interface Transaccion {
@@ -335,6 +339,77 @@ export interface Transaccion {
   numeroFactura?: string // número correlativo asignado al generar la factura/recibo de alquiler — se pone una vez y no cambia
   periodoInicio?: string // YYYY-MM-DD — periodo facturado (agua/luz: el cobro suele ir por detrás del periodo real)
   periodoFin?: string // YYYY-MM-DD
+}
+
+// ─── Alta masiva de transacciones (pegar varias líneas) ────────────────────────
+export type FilaImportada =
+  | {
+      linea: number
+      ok: true
+      fecha: string
+      tipo: TransaccionTipo
+      categoria: string
+      importe: number
+      descripcion: string
+    }
+  | { linea: number; ok: false; error: string; raw: string }
+
+function normalizarFechaImportada(raw: string | undefined): string | undefined {
+  const s = (raw ?? '').trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s)
+  if (!m) return undefined
+  const [, d, mes, y] = m
+  return `${y}-${mes.padStart(2, '0')}-${d.padStart(2, '0')}`
+}
+
+// Parsea texto pegado (una transacción por línea) para el alta masiva de
+// movimientos — pensado para meter de golpe varios meses atrasados de una
+// propiedad, pegando desde Excel/Sheets (columnas separadas por tabulador)
+// o desde un CSV (separadas por punto y coma; deliberadamente no se admite
+// la coma como separador de columnas porque parseImporte ya la usa como
+// separador decimal). Columnas por línea: fecha, tipo, categoría, importe,
+// descripción (opcional). Cada línea se valida por separado y una línea con
+// error no bloquea el resto — así se puede corregir solo lo que falla antes
+// de importar, sin perder el resto del pegado.
+export function parseFilasImportadas(texto: string): FilaImportada[] {
+  return texto
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .map((raw, i) => {
+      const linea = i + 1
+      const delim = raw.includes('\t') ? '\t' : ';'
+      const [fechaRaw, tipoRaw, categoriaRaw, importeRaw, descripcionRaw] = raw.split(delim)
+
+      const fecha = normalizarFechaImportada(fechaRaw)
+      if (!fecha) {
+        return { linea, ok: false, error: 'Fecha inválida (usa AAAA-MM-DD o DD/MM/AAAA)', raw } as const
+      }
+
+      const tipoNorm = (tipoRaw ?? '').trim().toLowerCase()
+      if (tipoNorm !== 'ingreso' && tipoNorm !== 'gasto') {
+        return { linea, ok: false, error: 'El tipo debe ser "ingreso" o "gasto"', raw } as const
+      }
+
+      const categoria = (categoriaRaw ?? '').trim()
+      if (!categoria) return { linea, ok: false, error: 'Falta la categoría', raw } as const
+
+      const importe = parseImporte(importeRaw ?? '')
+      if (Number.isNaN(importe) || importe <= 0) {
+        return { linea, ok: false, error: 'Importe inválido', raw } as const
+      }
+
+      return {
+        linea,
+        ok: true,
+        fecha,
+        tipo: tipoNorm as TransaccionTipo,
+        categoria,
+        importe,
+        descripcion: (descripcionRaw ?? '').trim(),
+      } as const
+    })
 }
 
 function diasEntreFechas(desde: string, hasta: string): number {
@@ -484,17 +559,35 @@ export function tocaRevisarRenta(
 
 export interface AvisoPropiedad {
   propiedad: Propiedad
-  tipo: 'contrato_vence' | 'revision_renta'
+  tipo: 'contrato_vence' | 'revision_renta' | 'certificado_energetico' | 'fianza_sin_depositar'
   mensaje: string
 }
 
 // Avisos operativos por propiedad (contrato por vencer, revisión de renta
-// pendiente) para mostrar de un vistazo en el Dashboard, sin tener que
-// entrar en cada ficha uno a uno.
+// pendiente, certificado energético por caducar, fianza sin depositar) para
+// mostrar de un vistazo en el Dashboard, sin tener que entrar en cada ficha
+// uno a uno.
 export function avisosPropiedades(propiedades: Propiedad[], hoy: Date = new Date()): AvisoPropiedad[] {
   const avisos: AvisoPropiedad[] = []
   for (const p of propiedades) {
+    // El certificado energético hace falta para alquilar, tanto si ya está
+    // alquilada como si está vacía buscando inquilino — no se gatea por
+    // estado === 'alquilado' como el resto de avisos de este bucle.
+    if (esDeAlquiler(p)) {
+      const estadoCertificado = contratoEstado(p.certificadoEnergeticoVencimiento, hoy)
+      if (estadoCertificado?.alerta) {
+        avisos.push({
+          propiedad: p,
+          tipo: 'certificado_energetico',
+          mensaje: estadoCertificado.vencido
+            ? 'Certificado energético caducado'
+            : `Certificado energético caduca en ${estadoCertificado.dias} días`,
+        })
+      }
+    }
+
     if (p.estado !== 'alquilado') continue
+
     const estadoContrato = contratoEstado(p.contratoFin, hoy)
     if (estadoContrato?.alerta) {
       avisos.push({
@@ -507,6 +600,9 @@ export function avisosPropiedades(propiedades: Propiedad[], hoy: Date = new Date
     }
     if (tocaRevisarRenta(p, hoy)) {
       avisos.push({ propiedad: p, tipo: 'revision_renta', mensaje: 'Toca revisar la renta (actualización anual)' })
+    }
+    if (p.fianzaImporte && !p.fianzaDepositadaDesde) {
+      avisos.push({ propiedad: p, tipo: 'fianza_sin_depositar', mensaje: 'Fianza sin depositar' })
     }
   }
   return avisos

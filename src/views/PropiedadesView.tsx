@@ -29,6 +29,7 @@ import { PropiedadForm } from '../components/PropiedadForm'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransactionItem } from '../components/TransactionItem'
 import { AlDiaToggle } from '../components/AlDiaToggle'
+import { FianzaToggle } from '../components/FianzaToggle'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
@@ -101,6 +102,8 @@ function PropiedadCard({
   const alertaContrato = estadoContratoP?.alerta ?? false
   const rentaSinCobrar = rentaPendiente(p, transacciones)
   const revisionPendienteP = tocaRevisarRenta(p)
+  const certificadoAlertaP = contratoEstado(p.certificadoEnergeticoVencimiento)?.alerta ?? false
+  const fianzaSinDepositarP = !!p.fianzaImporte && !p.fianzaDepositadaDesde
   const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
 
   return (
@@ -164,6 +167,18 @@ function PropiedadCard({
         <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
           <AlertTriangle size={11} />
           Toca revisar la renta
+        </div>
+      )}
+      {certificadoAlertaP && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+          <AlertTriangle size={11} />
+          Certificado energético por caducar
+        </div>
+      )}
+      {fianzaSinDepositarP && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
+          <AlertTriangle size={11} />
+          Fianza sin depositar
         </div>
       )}
       {tareasVencidasP > 0 && (
@@ -492,6 +507,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     const estadoContrato = contratoEstado(propiedad.contratoFin)
     const contratoAlerta = estadoContrato?.alerta ?? false
     const revisionRentaPendiente = tocaRevisarRenta(propiedad)
+    const estadoCertificado = contratoEstado(propiedad.certificadoEnergeticoVencimiento)
+    const certificadoAlerta = estadoCertificado?.alerta ?? false
 
     return (
       <div className="flex flex-col pb-24">
@@ -536,6 +553,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
           </div>
           <div className="flex gap-2 mt-3 flex-wrap items-center">
             <AlDiaToggle propiedad={propiedad} />
+            <FianzaToggle propiedad={propiedad} />
             <Badge
               label={ESTADO_LABELS[propiedad.estado]}
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
@@ -553,6 +571,16 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
               <Badge label="Renta sin cobrar este mes" variant="warning" />
             )}
             {revisionRentaPendiente && <Badge label="Toca revisar la renta" variant="warning" />}
+            {certificadoAlerta && (
+              <Badge
+                label={
+                  estadoCertificado?.vencido
+                    ? 'Certificado energético caducado'
+                    : `Certificado energético caduca en ${estadoCertificado?.dias}d`
+                }
+                variant="warning"
+              />
+            )}
             {tareasVencidas > 0 && (
               <Badge
                 label={`${tareasVencidas} tarea${tareasVencidas === 1 ? '' : 's'} vencida${tareasVencidas === 1 ? '' : 's'}`}
