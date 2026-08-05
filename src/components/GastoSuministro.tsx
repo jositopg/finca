@@ -26,20 +26,27 @@ export function GastoSuministro({ propiedad }: Props) {
   const [categoria, setCategoria] = useState<CategoriaSuministro | null>(null)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [importeStr, setImporteStr] = useState('')
+  const [mostrarPeriodo, setMostrarPeriodo] = useState(false)
+  const [periodoInicio, setPeriodoInicio] = useState('')
+  const [periodoFin, setPeriodoFin] = useState('')
   const [saving, setSaving] = useState(false)
 
   const importeParseado = parseImporte(importeStr)
   const importe = Number.isNaN(importeParseado) ? 0 : importeParseado
   const reparto = categoria ? calcularReparto(categoria, importe, propiedad.reparto) : null
+  const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
 
   function abrir(cat: CategoriaSuministro) {
     setCategoria(cat)
     setFecha(format(new Date(), 'yyyy-MM-dd'))
     setImporteStr('')
+    setMostrarPeriodo(false)
+    setPeriodoInicio('')
+    setPeriodoFin('')
   }
 
   async function handleConfirm() {
-    if (saving || !categoria || importe <= 0) return
+    if (saving || !categoria || importe <= 0 || !periodoValido) return
     setSaving(true)
     try {
       const tx: Transaccion = {
@@ -52,6 +59,8 @@ export function GastoSuministro({ propiedad }: Props) {
         descripcion: '',
         archivos: [],
         creadoEn: new Date().toISOString(),
+        periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
+        periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
       }
       await addTx(tx)
       setCategoria(null)
@@ -95,11 +104,57 @@ export function GastoSuministro({ propiedad }: Props) {
             autoFocus
           />
           <Input
-            label="Fecha"
+            label="Fecha de pago"
             type="date"
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
           />
+
+          {mostrarPeriodo ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+                  Periodo facturado
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarPeriodo(false)
+                    setPeriodoInicio('')
+                    setPeriodoFin('')
+                  }}
+                  className="text-xs text-outline-variant underline"
+                >
+                  Quitar
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  label="Desde"
+                  type="date"
+                  value={periodoInicio}
+                  onChange={(e) => setPeriodoInicio(e.target.value)}
+                />
+                <Input
+                  label="Hasta"
+                  type="date"
+                  value={periodoFin}
+                  onChange={(e) => setPeriodoFin(e.target.value)}
+                />
+              </div>
+              {periodoInicio && periodoFin && periodoInicio > periodoFin && (
+                <p className="text-xs text-error">El fin del periodo no puede ser anterior al inicio.</p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMostrarPeriodo(true)}
+              className="text-xs text-primary font-medium text-left"
+            >
+              + Periodo facturado (si es distinto de la fecha de pago)
+            </button>
+          )}
 
           {reparto && reparto.modo !== 'incluido' && (
             <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 text-xs">
@@ -114,7 +169,7 @@ export function GastoSuministro({ propiedad }: Props) {
             <Button variant="secondary" fullWidth onClick={() => setCategoria(null)}>
               Cancelar
             </Button>
-            <Button fullWidth onClick={handleConfirm} disabled={saving || importe <= 0}>
+            <Button fullWidth onClick={handleConfirm} disabled={saving || importe <= 0 || !periodoValido}>
               {saving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>

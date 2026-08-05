@@ -35,11 +35,19 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
   const [open, setOpen] = useState(false)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [importes, setImportes] = useState<Record<string, Importes>>({})
+  const [mostrarPeriodo, setMostrarPeriodo] = useState(false)
+  const [periodoInicio, setPeriodoInicio] = useState('')
+  const [periodoFin, setPeriodoFin] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
 
   function abrir() {
     setFecha(format(new Date(), 'yyyy-MM-dd'))
     setImportes({})
+    setMostrarPeriodo(false)
+    setPeriodoInicio('')
+    setPeriodoFin('')
     setOpen(true)
   }
 
@@ -62,7 +70,11 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
   const totalFacturas = filas.filter((f) => importeOCero(f.agua) > 0).length + filas.filter((f) => importeOCero(f.luz) > 0).length
 
   async function handleGuardar() {
-    if (saving) return
+    if (saving || !periodoValido) return
+    const periodo =
+      mostrarPeriodo && periodoInicio && periodoFin
+        ? { periodoInicio, periodoFin }
+        : { periodoInicio: undefined, periodoFin: undefined }
     const nuevas: Transaccion[] = []
     for (const p of propiedades) {
       const v = importes[p.id]
@@ -80,6 +92,7 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           descripcion: '',
           archivos: [],
           creadoEn: new Date().toISOString(),
+          ...periodo,
         })
       }
       if (luz > 0) {
@@ -93,6 +106,7 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           descripcion: '',
           archivos: [],
           creadoEn: new Date().toISOString(),
+          ...periodo,
         })
       }
     }
@@ -120,11 +134,57 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
       <BottomSheet open={open} onClose={() => setOpen(false)} title="Facturas de agua y luz">
         <div className="flex flex-col gap-5 pb-4">
           <Input
-            label="Fecha (para todas las facturas)"
+            label="Fecha de pago (para todas las facturas)"
             type="date"
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
           />
+
+          {mostrarPeriodo ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+                  Periodo facturado (para todas)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarPeriodo(false)
+                    setPeriodoInicio('')
+                    setPeriodoFin('')
+                  }}
+                  className="text-xs text-outline-variant underline"
+                >
+                  Quitar
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  label="Desde"
+                  type="date"
+                  value={periodoInicio}
+                  onChange={(e) => setPeriodoInicio(e.target.value)}
+                />
+                <Input
+                  label="Hasta"
+                  type="date"
+                  value={periodoFin}
+                  onChange={(e) => setPeriodoFin(e.target.value)}
+                />
+              </div>
+              {periodoInicio && periodoFin && periodoInicio > periodoFin && (
+                <p className="text-xs text-error">El fin del periodo no puede ser anterior al inicio.</p>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMostrarPeriodo(true)}
+              className="text-xs text-primary font-medium text-left"
+            >
+              + Periodo facturado (si es distinto de la fecha de pago)
+            </button>
+          )}
 
           <div className="flex flex-col gap-3">
             {filas.map(({ propiedad, agua, luz, repartoAgua, repartoLuz }) => (
@@ -172,7 +232,7 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
             <Button variant="secondary" fullWidth onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button fullWidth onClick={handleGuardar} disabled={saving || totalFacturas === 0}>
+            <Button fullWidth onClick={handleGuardar} disabled={saving || totalFacturas === 0 || !periodoValido}>
               {saving
                 ? 'Guardando...'
                 : totalFacturas === 0

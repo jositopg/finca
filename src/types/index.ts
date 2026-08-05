@@ -149,10 +149,13 @@ export function valorarPropiedad(
   if (!valor || valor <= 0) return null
 
   const ventana = ultimosNMeses(hoy, 12)
-  const txsVentana = transacciones.filter(
-    (t) => t.propiedadId === propiedad.id && ventana.includes(t.fecha.slice(0, 7)),
-  )
-  const mesesConDatos = new Set(txsVentana.map((t) => t.fecha.slice(0, 7))).size
+  const [desdeVentana] = rangoMes(ventana[0])
+  const [, hastaVentana] = rangoMes(ventana[ventana.length - 1])
+  const txsPropiedad = transacciones.filter((t) => t.propiedadId === propiedad.id)
+  const mesesConDatos = ventana.filter((mes) => {
+    const [desdeMes, hastaMes] = rangoMes(mes)
+    return txsPropiedad.some((t) => importeEnRango(t, desdeMes, hastaMes) !== 0)
+  }).length
 
   if (mesesConDatos === 0) {
     return {
@@ -167,12 +170,12 @@ export function valorarPropiedad(
     }
   }
 
-  const ingresos = txsVentana
+  const ingresos = txsPropiedad
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
-  const gastos = txsVentana
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad), 0)
+  const gastos = txsPropiedad
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad), 0)
 
   const esEstimacion = mesesConDatos < 12
   const factor = esEstimacion ? 12 / mesesConDatos : 1
@@ -312,6 +315,48 @@ export interface Transaccion {
   creadoEn: string
   referencia?: string // nº factura / referencia
   numeroFactura?: string // número correlativo asignado al generar la factura/recibo de alquiler — se pone una vez y no cambia
+  periodoInicio?: string // YYYY-MM-DD — periodo facturado (agua/luz: el cobro suele ir por detrás del periodo real)
+  periodoFin?: string // YYYY-MM-DD
+}
+
+function diasEntreFechas(desde: string, hasta: string): number {
+  const d1 = new Date(`${desde}T00:00:00`)
+  const d2 = new Date(`${hasta}T00:00:00`)
+  return Math.round((d2.getTime() - d1.getTime()) / 86400000)
+}
+
+// Importe de una transacción que corresponde al rango [desde, hasta] (YYYY-MM-DD,
+// ambos inclusive) — usado por todos los totales mensuales/anuales de la app. Sin
+// periodo facturado (periodoInicio/periodoFin), cuenta el importe entero si la
+// fecha de pago cae dentro del rango, igual que siempre. Con periodo facturado
+// (agua/luz, ver GastoSuministro/FacturasSuministros), reparte el importe
+// proporcionalmente por días de solape entre el periodo y el rango — así una
+// factura que cruza meses o años cuenta fiscalmente donde corresponde, no en el
+// mes en que se pagó.
+export function importeEnRango(
+  tx: Pick<Transaccion, 'fecha' | 'importe' | 'periodoInicio' | 'periodoFin'>,
+  desde: string,
+  hasta: string,
+): number {
+  if (!tx.periodoInicio || !tx.periodoFin) {
+    return tx.fecha >= desde && tx.fecha <= hasta ? tx.importe : 0
+  }
+  const inicioSolape = tx.periodoInicio > desde ? tx.periodoInicio : desde
+  const finSolape = tx.periodoFin < hasta ? tx.periodoFin : hasta
+  if (inicioSolape > finSolape) return 0
+  const diasSolape = diasEntreFechas(inicioSolape, finSolape) + 1
+  const diasTotales = diasEntreFechas(tx.periodoInicio, tx.periodoFin) + 1
+  return Math.round(tx.importe * (diasSolape / diasTotales) * 100) / 100
+}
+
+export function rangoAnio(anio: string): [string, string] {
+  return [`${anio}-01-01`, `${anio}-12-31`]
+}
+
+export function rangoMes(mesYYYYMM: string): [string, string] {
+  const [y, m] = mesYYYYMM.split('-').map(Number)
+  const ultimoDia = new Date(y, m, 0).getDate()
+  return [`${mesYYYYMM}-01`, `${mesYYYYMM}-${String(ultimoDia).padStart(2, '0')}`]
 }
 
 // A partir del día 5 del mes, si una propiedad alquilada (con alquiler

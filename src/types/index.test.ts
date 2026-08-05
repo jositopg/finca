@@ -10,10 +10,13 @@ import {
   estaAlDia,
   estimarAhorroRenta,
   generarGastosPendientes,
+  importeEnRango,
   inicioPeriodoAlDia,
   miParte,
   ordenarTareas,
   parseImporte,
+  rangoAnio,
+  rangoMes,
   rentaPendiente,
   siguienteNumeroFactura,
   tareaVencida,
@@ -94,6 +97,65 @@ describe('miParte', () => {
 
   it('sin porcentaje definido, asume el 100%', () => {
     expect(miParte(1000, {})).toBe(1000)
+  })
+})
+
+describe('importeEnRango', () => {
+  it('sin periodo facturado, cuenta el importe entero si la fecha de pago cae en el rango', () => {
+    const tx = transaccion({ fecha: '2026-03-15', importe: 100 })
+    expect(importeEnRango(tx, ...rangoMes('2026-03'))).toBe(100)
+    expect(importeEnRango(tx, ...rangoMes('2026-04'))).toBe(0)
+  })
+
+  it('con periodo facturado dentro de un único mes, cuenta el importe entero en ese mes', () => {
+    const tx = transaccion({
+      fecha: '2026-04-10', // pagado el mes siguiente
+      importe: 90,
+      periodoInicio: '2026-03-01',
+      periodoFin: '2026-03-31',
+    })
+    expect(importeEnRango(tx, ...rangoMes('2026-03'))).toBe(90)
+    expect(importeEnRango(tx, ...rangoMes('2026-04'))).toBe(0)
+  })
+
+  it('con periodo que cruza dos meses, reparte el importe proporcionalmente por días', () => {
+    // Periodo de 30 días: 20 en enero, 10 en febrero
+    const tx = transaccion({
+      fecha: '2026-02-20',
+      importe: 300,
+      periodoInicio: '2026-01-12',
+      periodoFin: '2026-02-10',
+    })
+    const enEnero = importeEnRango(tx, ...rangoMes('2026-01'))
+    const enFebrero = importeEnRango(tx, ...rangoMes('2026-02'))
+    expect(enEnero).toBeCloseTo(200, 2) // 20/30 * 300
+    expect(enFebrero).toBeCloseTo(100, 2) // 10/30 * 300
+    expect(enEnero + enFebrero).toBeCloseTo(300, 2)
+  })
+
+  it('con periodo que cruza el año, reparte fiscalmente entre los dos años', () => {
+    // Periodo de 62 días: 17 en 2025 (15-31 dic), 45 en 2026 (1 ene - 14 feb)
+    const tx = transaccion({
+      fecha: '2026-03-01',
+      importe: 620,
+      periodoInicio: '2025-12-15',
+      periodoFin: '2026-02-14',
+    })
+    const en2025 = importeEnRango(tx, ...rangoAnio('2025'))
+    const en2026 = importeEnRango(tx, ...rangoAnio('2026'))
+    expect(en2025).toBeCloseTo(170, 0) // 17/62 * 620
+    expect(en2026).toBeCloseTo(450, 0) // 45/62 * 620
+    expect(en2025 + en2026).toBeCloseTo(620, 2)
+  })
+
+  it('periodo de un solo día cuenta el importe entero ese día', () => {
+    const tx = transaccion({
+      fecha: '2026-05-01',
+      importe: 50,
+      periodoInicio: '2026-01-31',
+      periodoFin: '2026-01-31',
+    })
+    expect(importeEnRango(tx, ...rangoMes('2026-01'))).toBe(50)
   })
 })
 

@@ -61,6 +61,8 @@ interface TransaccionRow {
   creado_en: string
   referencia: string | null
   numero_factura: string | null
+  periodo_inicio: string | null
+  periodo_fin: string | null
 }
 
 function rowToPropiedad(row: PropiedadRow): Propiedad {
@@ -150,6 +152,8 @@ function rowToTransaccion(row: TransaccionRow): Transaccion {
     creadoEn: row.creado_en,
     referencia: row.referencia ?? undefined,
     numeroFactura: row.numero_factura ?? undefined,
+    periodoInicio: row.periodo_inicio ?? undefined,
+    periodoFin: row.periodo_fin ?? undefined,
   }
 }
 
@@ -166,6 +170,8 @@ function transaccionToRow(t: Transaccion): TransaccionRow {
     creado_en: t.creadoEn,
     referencia: t.referencia ?? null,
     numero_factura: t.numeroFactura ?? null,
+    periodo_inicio: t.periodoInicio ?? null,
+    periodo_fin: t.periodoFin ?? null,
   }
 }
 

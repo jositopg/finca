@@ -1,4 +1,4 @@
-import { miParte, type Propiedad, type Transaccion } from '../types'
+import { importeEnRango, miParte, rangoAnio, type Propiedad, type Transaccion } from '../types'
 
 const CHART_HEIGHT = 140
 
@@ -12,13 +12,28 @@ interface Props {
 }
 
 export function EvolucionAnual({ propiedades, transacciones }: Props) {
-  const porAnio = new Map<string, number>()
+  // Los años a mostrar salen tanto de la fecha de pago como del periodo
+  // facturado (agua/luz), para no perder un año que solo aparece por un
+  // periodo prorrateado (p.ej. una factura de dic-ene pagada en enero).
+  const aniosSet = new Set<string>()
   for (const t of transacciones) {
-    const anio = t.fecha.slice(0, 4)
-    const p = propiedades.find((pr) => pr.id === t.propiedadId)
-    const importe = p ? miParte(t.importe, p) : t.importe
-    const delta = t.tipo === 'ingreso' ? importe : -importe
-    porAnio.set(anio, (porAnio.get(anio) ?? 0) + delta)
+    aniosSet.add(t.fecha.slice(0, 4))
+    if (t.periodoInicio) aniosSet.add(t.periodoInicio.slice(0, 4))
+    if (t.periodoFin) aniosSet.add(t.periodoFin.slice(0, 4))
+  }
+
+  const porAnio = new Map<string, number>()
+  for (const anio of aniosSet) {
+    const [desde, hasta] = rangoAnio(anio)
+    let total = 0
+    for (const t of transacciones) {
+      const importeAnio = importeEnRango(t, desde, hasta)
+      if (importeAnio === 0) continue
+      const p = propiedades.find((pr) => pr.id === t.propiedadId)
+      const importe = p ? miParte(importeAnio, p) : importeAnio
+      total += t.tipo === 'ingreso' ? importe : -importe
+    }
+    porAnio.set(anio, total)
   }
 
   const anios = [...porAnio.keys()].sort()

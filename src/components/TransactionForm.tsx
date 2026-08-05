@@ -111,6 +111,9 @@ export function TransactionForm({
       archivos: [...existingArchivos, ...archivoIds],
       creadoEn: isEditing && initial?.creadoEn ? initial.creadoEn : new Date().toISOString(),
       referencia: referencia.trim() || undefined,
+      numeroFactura: initial?.numeroFactura,
+      periodoInicio: initial?.periodoInicio,
+      periodoFin: initial?.periodoFin,
     }
   }
 

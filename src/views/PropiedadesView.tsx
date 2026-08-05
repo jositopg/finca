@@ -38,8 +38,10 @@ import {
   esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
+  importeEnRango,
   miParte,
   parseImporte,
+  rangoAnio,
   rentaPendiente,
   tareaVencida,
   TIPO_LABELS,
@@ -92,13 +94,14 @@ function PropiedadCard({
   currentAnio: string
   onSelect: () => void
 }) {
-  const txsAnio = transacciones.filter((t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio))
-  const ingresos = txsAnio
+  const [desdeAnioCard, hastaAnioCard] = rangoAnio(currentAnio)
+  const txsProp = transacciones.filter((t) => t.propiedadId === p.id)
+  const ingresos = txsProp
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(t.importe, p), 0)
-  const gastos = txsAnio
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p), 0)
+  const gastos = txsProp
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(t.importe, p), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p), 0)
   const estadoContratoP = contratoEstado(p.contratoFin)
   const alertaContrato = estadoContratoP?.alerta ?? false
   const rentaSinCobrar = rentaPendiente(p, transacciones)
@@ -174,27 +177,37 @@ function PropiedadCard({
 // ── Fiscal summary component ───────────────────────────────────────────────────
 function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Propiedad }) {
   const years = useMemo(() => {
-    const set = new Set(txs.map((t) => t.fecha.slice(0, 4)))
+    const set = new Set<string>()
+    for (const t of txs) {
+      set.add(t.fecha.slice(0, 4))
+      if (t.periodoInicio) set.add(t.periodoInicio.slice(0, 4))
+      if (t.periodoFin) set.add(t.periodoFin.slice(0, 4))
+    }
     const cur = new Date().getFullYear().toString()
     set.add(cur)
     return [...set].sort().reverse()
   }, [txs])
 
   const [anio, setAnio] = useState(years[0])
+  const [desdeAnio, hastaAnio] = rangoAnio(anio)
 
-  const txsAnio = txs.filter((t) => t.fecha.startsWith(anio))
+  // Gastos con periodo facturado (agua/luz) se prorratean por días dentro del
+  // año en curso — de ahí que se parta de `txs` completo (todas las
+  // transacciones de la propiedad) y no de un filtro por fecha de pago.
+  const txsAnio = txs.filter((t) => importeEnRango(t, desdeAnio, hastaAnio) !== 0)
   const ingresos = txsAnio
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad), 0)
   const gastos = txsAnio
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad), 0)
 
-  // Group gastos by category (ya en tu parte)
+  // Group gastos by category (ya en tu parte, ya prorrateado)
   const porCategoria = txsAnio
     .filter((t) => t.tipo === 'gasto')
     .reduce<Record<string, number>>((acc, t) => {
-      acc[t.categoria] = (acc[t.categoria] ?? 0) + miParte(t.importe, propiedad)
+      acc[t.categoria] =
+        (acc[t.categoria] ?? 0) + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad)
       return acc
     }, {})
 
@@ -204,7 +217,8 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
     .filter((t) => t.tipo === 'gasto')
     .reduce((s, t) => {
       const r = calcularReparto(t.categoria, t.importe, propiedad.reparto)
-      return s + miParte(r?.inquilino ?? 0, propiedad)
+      const fraccion = t.importe !== 0 ? importeEnRango(t, desdeAnio, hastaAnio) / t.importe : 0
+      return s + miParte((r?.inquilino ?? 0) * fraccion, propiedad)
     }, 0)
 
   return (
@@ -415,13 +429,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     const tareasVencidas = tareas.filter((t) => t.propiedadId === propiedad.id && tareaVencida(t)).length
 
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
-    const txsAnioActual = txs.filter((t) => t.fecha.startsWith(currentYearStr))
-    const ingresosAnioActual = txsAnioActual
+    // Prorrateada por periodo facturado (agua/luz), no por fecha de pago.
+    const [desdeAnioActual, hastaAnioActual] = rangoAnio(currentYearStr)
+    const ingresosAnioActual = txs
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
-    const gastosAnioActual = txsAnioActual
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad), 0)
+    const gastosAnioActual = txs
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad), 0)
     const rentabilidadMercado = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
@@ -1004,13 +1019,14 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
   // ── Properties list ────────────────────────────────────────────────────────
   const currentAnio = new Date().getFullYear().toString()
+  const [desdeAnioPropias, hastaAnioPropias] = rangoAnio(currentAnio)
 
   const propiedadesAlquiler = propiedades.filter(esDeAlquiler)
   const propiedadesPropias = propiedades.filter((p) => !esDeAlquiler(p))
   const gastosAnioPropias = propiedadesPropias.filter(esDeJose).reduce((total, p) => {
     const gastos = transacciones
-      .filter((t) => t.propiedadId === p.id && t.fecha.startsWith(currentAnio) && t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, p), 0)
+      .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioPropias, hastaAnioPropias), p), 0)
     return total + gastos
   }, 0)
 

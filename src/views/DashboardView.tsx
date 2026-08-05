@@ -29,10 +29,14 @@ import {
   esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
+  importeEnRango,
   miParte,
+  rangoAnio,
+  rangoMes,
   rentaPendiente,
   TIPO_LABELS,
   type Propiedad,
+  type Transaccion,
 } from '../types'
 import type { View } from '../components/Nav'
 
@@ -67,32 +71,35 @@ export function DashboardView({ onNavigate }: Props) {
   const now = new Date()
   const currentMonth = format(now, 'yyyy-MM')
   const currentYear = format(now, 'yyyy')
+  const [desdeMes, hastaMes] = rangoMes(currentMonth)
+  const [desdeAnio, hastaAnio] = rangoAnio(currentYear)
 
   // Totales personales de rendimiento de alquiler: solo propiedades que son
   // de Jose (no las que gestiona por cuenta de otros) y que no sean de uso
   // propio/vivienda habitual (esas se llevan aparte, no son alquiler).
   const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
   const propiedadPorId = new Map(propiedadesJose.map((p) => [p.id, p]))
-  function miImporte(t: { propiedadId: string; importe: number }): number | null {
+
+  function miImporteEnRango(t: Transaccion, desde: string, hasta: string): number | null {
     const p = propiedadPorId.get(t.propiedadId)
-    return p ? miParte(t.importe, p) : null
+    return p ? miParte(importeEnRango(t, desde, hasta), p) : null
   }
 
   const ingresosMes = transacciones
-    .filter((t) => t.tipo === 'ingreso' && t.fecha.startsWith(currentMonth))
-    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
+    .filter((t) => t.tipo === 'ingreso')
+    .reduce((s, t) => s + (miImporteEnRango(t, desdeMes, hastaMes) ?? 0), 0)
 
   const gastosMes = transacciones
-    .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentMonth))
-    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => s + (miImporteEnRango(t, desdeMes, hastaMes) ?? 0), 0)
 
   const ingresosAnio = transacciones
-    .filter((t) => t.tipo === 'ingreso' && t.fecha.startsWith(currentYear))
-    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
+    .filter((t) => t.tipo === 'ingreso')
+    .reduce((s, t) => s + (miImporteEnRango(t, desdeAnio, hastaAnio) ?? 0), 0)
 
   const gastosAnio = transacciones
-    .filter((t) => t.tipo === 'gasto' && t.fecha.startsWith(currentYear))
-    .reduce((s, t) => s + (miImporte(t) ?? 0), 0)
+    .filter((t) => t.tipo === 'gasto')
+    .reduce((s, t) => s + (miImporteEnRango(t, desdeAnio, hastaAnio) ?? 0), 0)
 
   // Quick stats
   const alquiladas = propiedades.filter((p) => p.estado === 'alquilado').length
@@ -327,21 +334,11 @@ export function DashboardView({ onNavigate }: Props) {
                 key={p.id}
                 propiedad={p}
                 ingresosMes={transacciones
-                  .filter(
-                    (t) =>
-                      t.propiedadId === p.id &&
-                      t.tipo === 'ingreso' &&
-                      t.fecha.startsWith(currentMonth),
-                  )
-                  .reduce((s, t) => s + miParte(t.importe, p), 0)}
+                  .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso')
+                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p), 0)}
                 gastosMes={transacciones
-                  .filter(
-                    (t) =>
-                      t.propiedadId === p.id &&
-                      t.tipo === 'gasto' &&
-                      t.fecha.startsWith(currentMonth),
-                  )
-                  .reduce((s, t) => s + miParte(t.importe, p), 0)}
+                  .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
+                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p), 0)}
                 rentaPendiente={rentaPendiente(p, transacciones)}
                 onClick={() => onNavigate('propiedades', p.id)}
               />

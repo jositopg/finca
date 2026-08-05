@@ -65,6 +65,13 @@ export function TransactionItem({
               <span className="text-xs text-outline-variant">
                 {format(new Date(tx.fecha + 'T00:00:00'), 'd MMM yyyy', { locale: es })}
               </span>
+              {tx.periodoInicio && tx.periodoFin && (
+                <span className="text-xs text-outline-variant/70">
+                  · periodo{' '}
+                  {format(new Date(tx.periodoInicio + 'T00:00:00'), 'd MMM', { locale: es })}–
+                  {format(new Date(tx.periodoFin + 'T00:00:00'), 'd MMM yyyy', { locale: es })}
+                </span>
+              )}
               {propiedadNombre && (
                 <>
                   <span className="text-outline-variant/40">·</span>

@@ -1,7 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { EstimadorRenta } from '../components/EstimadorRenta'
-import { baseDesdeRentaNeta, calcularRentaLocal, esDeAlquiler, esDeJose, miParte } from '../types'
+import {
+  baseDesdeRentaNeta,
+  calcularRentaLocal,
+  esDeAlquiler,
+  esDeJose,
+  importeEnRango,
+  miParte,
+  rangoAnio,
+} from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -20,7 +28,12 @@ export function FiscalView() {
   const propiedades = todasLasPropiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
 
   const years = useMemo(() => {
-    const set = new Set(transacciones.map((t) => t.fecha.slice(0, 4)))
+    const set = new Set<string>()
+    for (const t of transacciones) {
+      set.add(t.fecha.slice(0, 4))
+      if (t.periodoInicio) set.add(t.periodoInicio.slice(0, 4))
+      if (t.periodoFin) set.add(t.periodoFin.slice(0, 4))
+    }
     set.add(new Date().getFullYear().toString())
     return [...set].sort().reverse()
   }, [transacciones])
@@ -29,16 +42,21 @@ export function FiscalView() {
   const [trimestre, setTrimestre] = useState(Math.ceil((new Date().getMonth() + 1) / 3))
 
   const txsAnio = transacciones.filter((t) => t.fecha.startsWith(anio))
+  const [desdeAnio, hastaAnio] = rangoAnio(anio)
 
   // ── Para la Renta: por propiedad, ya en tu parte ──────────────────────────
+  // Gastos con periodo facturado (agua/luz) se prorratean por días dentro del
+  // año — un gasto que cruza el 31 de diciembre no cuenta entero en el año en
+  // que se pagó. Por eso se parte de todas las transacciones de la propiedad,
+  // no solo las de txsAnio (que filtra por fecha de pago).
   const filasRenta = propiedades.map((p) => {
-    const txs = txsAnio.filter((t) => t.propiedadId === p.id)
+    const txs = transacciones.filter((t) => t.propiedadId === p.id)
     const ingresos = txs
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(t.importe, p), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p), 0)
     const gastos = txs
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, p), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p), 0)
     return { propiedad: p, ingresos, gastos, neto: ingresos - gastos }
   })
   const totalIngresos = filasRenta.reduce((s, f) => s + f.ingresos, 0)
