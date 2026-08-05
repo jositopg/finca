@@ -7,6 +7,7 @@ import {
   FileText,
   Plus,
   BarChart2,
+  Receipt,
   Trash2,
   User,
   UserPlus,
@@ -317,7 +318,15 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
 }
 
 // ── Facturas / recibos de alquiler (acceso directo por propiedad) ─────────────
-function FacturasPropiedad({ propiedad, txs }: { propiedad: Propiedad; txs: Transaccion[] }) {
+function FacturasPropiedad({
+  propiedad,
+  txs,
+  onGenerar,
+}: {
+  propiedad: Propiedad
+  txs: Transaccion[]
+  onGenerar: (tx: Transaccion) => void
+}) {
   const { ensureIngresosFolder } = useApp()
   const { showToast } = useToast()
   const [abriendo, setAbriendo] = useState(false)
@@ -327,7 +336,9 @@ function FacturasPropiedad({ propiedad, txs }: { propiedad: Propiedad; txs: Tran
   const facturas = txs.filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
   if (facturas.length === 0) return null
 
-  const pendientes = facturas.filter((t) => !t.numeroFactura).length
+  const pendientes = facturas
+    .filter((t) => !t.numeroFactura)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   async function handleVerEnDrive() {
     setAbriendo(true)
@@ -344,26 +355,50 @@ function FacturasPropiedad({ propiedad, txs }: { propiedad: Propiedad; txs: Tran
 
   return (
     <div className="px-5 mb-4">
-      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <FileText size={14} className="text-outline-variant flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Facturas</p>
-            <p className="text-xs text-outline-variant mt-0.5">
-              {facturas.length} generada{facturas.length === 1 ? '' : 's'}
-              {pendientes > 0 && ` · ${pendientes} pendiente${pendientes === 1 ? '' : 's'}`}
-            </p>
+      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText size={14} className="text-outline-variant flex-shrink-0" />
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Facturas</p>
+              <p className="text-xs text-outline-variant mt-0.5">
+                {facturas.length - pendientes.length} generada
+                {facturas.length - pendientes.length === 1 ? '' : 's'}
+                {pendientes.length > 0 &&
+                  ` · ${pendientes.length} pendiente${pendientes.length === 1 ? '' : 's'}`}
+              </p>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={handleVerEnDrive}
+            disabled={abriendo}
+            className="flex items-center gap-1.5 text-xs font-medium text-primary flex-shrink-0 disabled:opacity-50"
+          >
+            <ExternalLink size={14} />
+            {abriendo ? 'Abriendo...' : 'Ver en Drive'}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={handleVerEnDrive}
-          disabled={abriendo}
-          className="flex items-center gap-1.5 text-xs font-medium text-primary flex-shrink-0 disabled:opacity-50"
-        >
-          <ExternalLink size={14} />
-          {abriendo ? 'Abriendo...' : 'Ver en Drive'}
-        </button>
+
+        {pendientes.length > 0 && (
+          <div className="flex flex-col gap-1.5 pt-2 border-t border-surface-high">
+            {pendientes.map((t) => (
+              <div key={t.id} className="flex items-center justify-between gap-2">
+                <span className="text-xs text-outline-variant truncate">
+                  {format(parseISO(t.fecha), 'd MMM yyyy', { locale: es })} · {fmt(t.importe)} €
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onGenerar(t)}
+                  className="flex items-center gap-1 text-xs font-medium text-primary flex-shrink-0"
+                >
+                  <Receipt size={12} />
+                  Generar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -610,8 +645,8 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
         )}
 
         {/* Facturas/recibos de alquiler — acceso directo a la carpeta de
-            Drive en vez de listarlas una a una */}
-        <FacturasPropiedad propiedad={propiedad} txs={txs} />
+            Drive, y a generar las que estén pendientes */}
+        <FacturasPropiedad propiedad={propiedad} txs={txs} onGenerar={(t) => setFacturaTxId(t.id)} />
 
         {/* Iniciar nuevo alquiler — propiedades vacías que ya tuvieron
             inquilino este año */}
