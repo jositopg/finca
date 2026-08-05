@@ -557,57 +557,6 @@ export function tocaRevisarRenta(
   return hoy >= aniversario
 }
 
-export interface AvisoPropiedad {
-  propiedad: Propiedad
-  tipo: 'contrato_vence' | 'revision_renta' | 'certificado_energetico' | 'fianza_sin_depositar'
-  mensaje: string
-}
-
-// Avisos operativos por propiedad (contrato por vencer, revisión de renta
-// pendiente, certificado energético por caducar, fianza sin depositar) para
-// mostrar de un vistazo en el Dashboard, sin tener que entrar en cada ficha
-// uno a uno.
-export function avisosPropiedades(propiedades: Propiedad[], hoy: Date = new Date()): AvisoPropiedad[] {
-  const avisos: AvisoPropiedad[] = []
-  for (const p of propiedades) {
-    // El certificado energético hace falta para alquilar, tanto si ya está
-    // alquilada como si está vacía buscando inquilino — no se gatea por
-    // estado === 'alquilado' como el resto de avisos de este bucle.
-    if (esDeAlquiler(p)) {
-      const estadoCertificado = contratoEstado(p.certificadoEnergeticoVencimiento, hoy)
-      if (estadoCertificado?.alerta) {
-        avisos.push({
-          propiedad: p,
-          tipo: 'certificado_energetico',
-          mensaje: estadoCertificado.vencido
-            ? 'Certificado energético caducado'
-            : `Certificado energético caduca en ${estadoCertificado.dias} días`,
-        })
-      }
-    }
-
-    if (p.estado !== 'alquilado') continue
-
-    const estadoContrato = contratoEstado(p.contratoFin, hoy)
-    if (estadoContrato?.alerta) {
-      avisos.push({
-        propiedad: p,
-        tipo: 'contrato_vence',
-        mensaje: estadoContrato.vencido
-          ? 'Contrato en tácita reconducción'
-          : `Contrato vence en ${estadoContrato.dias} días`,
-      })
-    }
-    if (tocaRevisarRenta(p, hoy)) {
-      avisos.push({ propiedad: p, tipo: 'revision_renta', mensaje: 'Toca revisar la renta (actualización anual)' })
-    }
-    if (p.fianzaImporte && !p.fianzaDepositadaDesde) {
-      avisos.push({ propiedad: p, tipo: 'fianza_sin_depositar', mensaje: 'Fianza sin depositar' })
-    }
-  }
-  return avisos
-}
-
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────
 // Para propiedades en alquiler: quién corre con el gasto de agua, luz,
 // basuras e IBI — íntegro en el precio del alquiler, a cargo del inquilino,

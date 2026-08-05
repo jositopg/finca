@@ -15,13 +15,10 @@ import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { exportarASheets } from '../api/setup'
-import { AvisosDashboard } from '../components/AvisosDashboard'
 import { BottomSheet } from '../components/BottomSheet'
 import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
 import { EvolucionAnual } from '../components/EvolucionAnual'
 import { FacturasSuministros } from '../components/FacturasSuministros'
-import { GastosPorCategoria } from '../components/GastosPorCategoria'
-import { RankingRentabilidad } from '../components/RankingRentabilidad'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TareasDashboard } from '../components/TareasDashboard'
 import { TransactionForm } from '../components/TransactionForm'
@@ -247,11 +244,6 @@ export function DashboardView({ onNavigate }: Props) {
         </div>
       </div>
 
-      {/* Avisos: contratos por vencer, revisión anual de renta pendiente */}
-      <div className="px-5 mb-5">
-        <AvisosDashboard propiedades={propiedades} onSelectPropiedad={(id) => onNavigate('propiedades', id)} />
-      </div>
-
       {/* Tareas pendientes de todas las propiedades */}
       <div className="px-5 mb-5">
         <TareasDashboard
@@ -303,29 +295,9 @@ export function DashboardView({ onNavigate }: Props) {
         </div>
       )}
 
-      {/* Gastos por categoría, año en curso */}
-      <div className="px-5 mb-5">
-        <GastosPorCategoria
-          propiedades={propiedadesJose}
-          transacciones={transacciones}
-          desde={desdeAnio}
-          hasta={hastaAnio}
-          anioLabel={currentYear}
-        />
-      </div>
-
       {/* Year over year trend */}
       <div className="px-5 mb-5">
         <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
-      </div>
-
-      {/* Ranking de rentabilidad entre propiedades */}
-      <div className="px-5 mb-5">
-        <RankingRentabilidad
-          propiedades={propiedadesJose}
-          transacciones={transacciones}
-          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
-        />
       </div>
 
       {/* Properties */}

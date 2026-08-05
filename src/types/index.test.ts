@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   amortizacionAnual,
-  avisosPropiedades,
   baseDesdeRentaNeta,
   calcularReparto,
   calcularRentaLocal,
@@ -440,54 +439,6 @@ describe('parseFilasImportadas', () => {
   it('ignora líneas en blanco', () => {
     const filas = parseFilasImportadas('\n2026-01-05;ingreso;Alquiler mensual;800\n\n')
     expect(filas).toHaveLength(1)
-  })
-})
-
-describe('avisosPropiedades', () => {
-  it('junta avisos de contrato por vencer y revisión de renta pendiente', () => {
-    const hoy = new Date('2027-06-01T00:00:00')
-    const props = [
-      propiedad({ id: 'p1', estado: 'alquilado', contratoFin: '2027-07-01' }), // vence en 30 días
-      propiedad({ id: 'p2', estado: 'alquilado', contratoInicio: '2026-01-01' }), // toca revisar
-      propiedad({ id: 'p3', estado: 'alquilado', contratoFin: '2028-01-01', contratoInicio: '2027-05-01' }), // sin avisos
-      propiedad({ id: 'p4', estado: 'vacio' }), // no cuenta, no alquilada
-    ]
-    const avisos = avisosPropiedades(props, hoy)
-    expect(avisos.map((a) => a.propiedad.id).sort()).toEqual(['p1', 'p2'])
-    expect(avisos.find((a) => a.propiedad.id === 'p1')?.tipo).toBe('contrato_vence')
-    expect(avisos.find((a) => a.propiedad.id === 'p2')?.tipo).toBe('revision_renta')
-  })
-
-  it('avisa de certificado energético por caducar incluso con la propiedad vacía', () => {
-    const hoy = new Date('2027-06-01T00:00:00')
-    const p = propiedad({ id: 'p1', estado: 'vacio', certificadoEnergeticoVencimiento: '2027-07-01' })
-    const avisos = avisosPropiedades([p], hoy)
-    expect(avisos).toHaveLength(1)
-    expect(avisos[0].tipo).toBe('certificado_energetico')
-  })
-
-  it('no avisa de certificado energético para uso propio/vivienda habitual', () => {
-    const hoy = new Date('2027-06-01T00:00:00')
-    const p = propiedad({
-      id: 'p1',
-      estado: 'vivienda_habitual',
-      certificadoEnergeticoVencimiento: '2027-07-01',
-    })
-    expect(avisosPropiedades([p], hoy)).toHaveLength(0)
-  })
-
-  it('avisa de fianza sin depositar solo si hay importe y no está marcada como depositada', () => {
-    const p1 = propiedad({ id: 'p1', estado: 'alquilado', fianzaImporte: 800 })
-    const p2 = propiedad({
-      id: 'p2',
-      estado: 'alquilado',
-      fianzaImporte: 800,
-      fianzaDepositadaDesde: '2026-01-01T00:00:00.000Z',
-    })
-    const p3 = propiedad({ id: 'p3', estado: 'alquilado' })
-    const avisos = avisosPropiedades([p1, p2, p3])
-    expect(avisos.map((a) => a.propiedad.id)).toEqual(['p1'])
-    expect(avisos[0].tipo).toBe('fianza_sin_depositar')
   })
 })
 

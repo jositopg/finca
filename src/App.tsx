@@ -5,6 +5,7 @@ import { LoginView } from './views/LoginView'
 import { DashboardView } from './views/DashboardView'
 import { PropiedadesView } from './views/PropiedadesView'
 import { TransaccionesView } from './views/TransaccionesView'
+import { EstadisticasView } from './views/EstadisticasView'
 import { FiscalView } from './views/FiscalView'
 import { Nav, type View } from './components/Nav'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -32,7 +33,10 @@ function Shell() {
     return <LoginView />
   }
 
-  if (isLoadingData && !['dashboard', 'propiedades', 'transacciones', 'fiscal'].includes(view)) {
+  if (
+    isLoadingData &&
+    !['dashboard', 'propiedades', 'transacciones', 'estadisticas', 'fiscal'].includes(view)
+  ) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm text-outline-variant">Cargando datos...</p>
@@ -65,6 +69,14 @@ function Shell() {
           />
         )}
         {view === 'transacciones' && <TransaccionesView />}
+        {view === 'estadisticas' && (
+          <EstadisticasView
+            onNavigate={(v, propId) => {
+              setView(v)
+              if (propId) setSelectedPropId(propId)
+            }}
+          />
+        )}
         {view === 'fiscal' && <FiscalView />}
       </ErrorBoundary>
 
