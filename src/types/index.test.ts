@@ -364,12 +364,18 @@ describe('deudaInquilino', () => {
     expect(deudaInquilino(p, [], new Date('2026-06-01'))).toBeNull()
   })
 
-  it('acumula lo esperado desde el inicio del contrato menos lo ya cobrado', () => {
+  it('acumula lo esperado desde el inicio del contrato menos lo ya cobrado, sin contar el mes en curso', () => {
     const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
-    // Enero, febrero, marzo esperados (500 x 3 = 1500); solo se cobró enero.
+    // Enero y febrero esperados (500 x 2 = 1000); marzo es el mes en curso y
+    // no cuenta todavía. Solo se cobró enero.
     const txs = [transaccion({ importe: 500, fecha: '2026-01-05' })]
     const deuda = deudaInquilino(p, txs, new Date('2026-03-15'))
-    expect(deuda).toEqual({ importe: 1000, meses: 2 })
+    expect(deuda).toEqual({ importe: 500, meses: 1 })
+  })
+
+  it('el mes en curso nunca cuenta como deuda, aunque aún no se haya cobrado', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-03-01' })
+    expect(deudaInquilino(p, [], new Date('2026-03-15'))).toBeNull()
   })
 
   it('un pago que cubre varios meses de golpe reduce la deuda sin "casarlo" a ningún mes', () => {
@@ -386,7 +392,8 @@ describe('deudaInquilino', () => {
 
   it('deudaDesde adelanta el punto de partida sin tocar el contrato', () => {
     const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01', deudaDesde: '2026-03' })
-    const deuda = deudaInquilino(p, [], new Date('2026-03-31'))
+    // Marzo ya es un mes cerrado visto desde abril — cuenta como deuda.
+    const deuda = deudaInquilino(p, [], new Date('2026-04-15'))
     expect(deuda).toEqual({ importe: 500, meses: 1 })
   })
 

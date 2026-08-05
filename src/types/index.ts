@@ -390,6 +390,8 @@ export function rentaPendiente(
 // contra meses concretos. `deudaDesde` (YYYY-MM) permite dar la deuda por
 // saldada sin tocar el contrato: la cuenta empieza a contar desde ahí en vez
 // de desde el inicio real, para no arrastrar meses antiguos mal registrados.
+// El mes en curso nunca cuenta como deuda todavía (puede que aún no haya
+// vencido) — solo se considera deuda lo que corresponde a meses ya cerrados.
 export function deudaInquilino(
   propiedad: Pick<Propiedad, 'id' | 'estado' | 'alquilerMensual' | 'contratoInicio' | 'deudaDesde'>,
   transacciones: Transaccion[],
@@ -399,16 +401,17 @@ export function deudaInquilino(
   if (!propiedad.alquilerMensual || propiedad.alquilerMensual <= 0) return null
   if (!propiedad.contratoInicio) return null
 
-  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const mesAnteriorDate = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
+  const mesLimite = `${mesAnteriorDate.getFullYear()}-${String(mesAnteriorDate.getMonth() + 1).padStart(2, '0')}`
   const mesInicioContrato = propiedad.contratoInicio.slice(0, 7)
   const mesInicio =
     propiedad.deudaDesde && propiedad.deudaDesde > mesInicioContrato
       ? propiedad.deudaDesde
       : mesInicioContrato
 
-  if (mesInicio > mesActual) return null
+  if (mesInicio > mesLimite) return null
 
-  const esperado = propiedad.alquilerMensual * mesesEntre(mesInicio, mesActual).length
+  const esperado = propiedad.alquilerMensual * mesesEntre(mesInicio, mesLimite).length
 
   const pagado = transacciones
     .filter(
