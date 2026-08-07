@@ -17,7 +17,6 @@ import { useToast } from '../context/ToastContext'
 import { exportarASheets } from '../api/setup'
 import { BottomSheet } from '../components/BottomSheet'
 import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
-import { EvolucionAnual } from '../components/EvolucionAnual'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { TareasDashboard } from '../components/TareasDashboard'
@@ -294,11 +293,6 @@ export function DashboardView({ onNavigate }: Props) {
           </div>
         </div>
       )}
-
-      {/* Year over year trend */}
-      <div className="px-5 mb-5">
-        <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
-      </div>
 
       {/* Properties */}
       <div className="px-5">

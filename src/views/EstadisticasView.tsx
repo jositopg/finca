@@ -1,5 +1,6 @@
 import { format } from 'date-fns'
 import { useApp } from '../context/AppContext'
+import { EvolucionAnual } from '../components/EvolucionAnual'
 import { GastosPorCategoria } from '../components/GastosPorCategoria'
 import { RankingRentabilidad } from '../components/RankingRentabilidad'
 import { esDeAlquiler, esDeJose, rangoAnio } from '../types'
@@ -33,6 +34,10 @@ export function EstadisticasView({ onNavigate }: Props) {
         </p>
       ) : (
         <>
+          <div className="px-5 mb-7">
+            <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
+          </div>
+
           <div className="px-5 mb-7">
             <GastosPorCategoria
               propiedades={propiedadesJose}

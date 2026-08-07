@@ -45,8 +45,8 @@ La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07
 
 Inicio (Dashboard) · Propiedades · Movimientos (Transacciones) · Estadísticas · Fiscal.
 
-- **Dashboard**: operativo del día a día — resumen del mes/año, tareas pendientes, acceso rápido a facturas de agua/luz, evolución anual, listado de propiedades. **Los avisos (contrato por vencer, revisión de renta, certificado energético, fianza) NO van agregados aquí** — viven dentro de la ficha y tarjeta de cada propiedad.
-- **Estadísticas**: gráficos agregados (gastos por categoría, ranking de rentabilidad entre propiedades). Cualquier gráfico/estadística agregada nueva va aquí, no en el Dashboard.
+- **Dashboard**: operativo del día a día — resumen del mes/año, tareas pendientes, acceso rápido a facturas de agua/luz, listado de propiedades. **Los avisos (contrato por vencer, revisión de renta, certificado energético, fianza) NO van agregados aquí** — viven dentro de la ficha y tarjeta de cada propiedad.
+- **Estadísticas**: gráficos agregados (evolución del rendimiento neto por año, gastos por categoría, ranking de rentabilidad entre propiedades). Cualquier gráfico/estadística agregada nueva va aquí, no en el Dashboard. La app solo empieza a acumular histórico útil desde 2026, así que la evolución anual (`EvolucionAnual`, requiere ≥2 años con datos) no se mostrará hasta que haya suficiente histórico.
 - **Fiscal**: datos consolidados para la Renta y el Modelo 420 (IGIC canario) — deliberadamente no calcula el impuesto final, solo consolida cifras. Terminología fiscal en español, Canarias usa IGIC no IVA.
 
 ## Limitaciones conocidas
