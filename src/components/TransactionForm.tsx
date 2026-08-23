@@ -50,6 +50,9 @@ export function TransactionForm({
   )
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? '')
   const [referencia, setReferencia] = useState(initial?.referencia ?? '')
+  const [mostrarPeriodo, setMostrarPeriodo] = useState(!!(initial?.periodoInicio || initial?.periodoFin))
+  const [periodoInicio, setPeriodoInicio] = useState(initial?.periodoInicio ?? '')
+  const [periodoFin, setPeriodoFin] = useState(initial?.periodoFin ?? '')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [existingArchivos, setExistingArchivos] = useState<string[]>(
     isEditing ? (initial?.archivos ?? []) : [],
@@ -69,11 +72,14 @@ export function TransactionForm({
       ? calcularReparto(categoria, Number.isNaN(importeParseado) ? 0 : importeParseado, propiedadSeleccionada.reparto)
       : null
 
+  const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
+
   function validate(): boolean {
     const e: Record<string, string> = {}
     if (!propiedadId) e.propiedad = 'Selecciona una propiedad'
     if (!importe || Number.isNaN(importeParseado) || importeParseado <= 0) e.importe = 'Importe inválido'
     if (!categoria) e.categoria = 'Selecciona una categoría'
+    if (!periodoValido) e.periodo = 'Revisa las fechas del periodo facturado'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -112,8 +118,8 @@ export function TransactionForm({
       creadoEn: isEditing && initial?.creadoEn ? initial.creadoEn : new Date().toISOString(),
       referencia: referencia.trim() || undefined,
       numeroFactura: initial?.numeroFactura,
-      periodoInicio: initial?.periodoInicio,
-      periodoFin: initial?.periodoFin,
+      periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
+      periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
     }
   }
 
@@ -139,6 +145,9 @@ export function TransactionForm({
       setImporte('')
       setDescripcion('')
       setReferencia('')
+      setMostrarPeriodo(false)
+      setPeriodoInicio('')
+      setPeriodoFin('')
       setPendingFiles([])
       setJustSaved(true)
       setTimeout(() => setJustSaved(false), 1500)
@@ -236,6 +245,50 @@ export function TransactionForm({
           </option>
         ))}
       </Select>
+
+      {mostrarPeriodo ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+              Periodo facturado
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setMostrarPeriodo(false)
+                setPeriodoInicio('')
+                setPeriodoFin('')
+              }}
+              className="text-xs text-outline-variant underline"
+            >
+              Quitar
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              label="Desde"
+              type="date"
+              value={periodoInicio}
+              onChange={(e) => setPeriodoInicio(e.target.value)}
+            />
+            <Input
+              label="Hasta"
+              type="date"
+              value={periodoFin}
+              onChange={(e) => setPeriodoFin(e.target.value)}
+            />
+          </div>
+          {errors.periodo && <p className="text-xs text-error">{errors.periodo}</p>}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setMostrarPeriodo(true)}
+          className="text-xs text-primary font-medium text-left"
+        >
+          + Periodo facturado (si es distinto de la fecha de pago)
+        </button>
+      )}
 
       {reparto && reparto.modo !== 'incluido' && (
         <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 text-xs">
