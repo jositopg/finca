@@ -20,7 +20,7 @@ Antes de dar cualquier cambio por bueno: `build` + `lint` + `test` limpios.
 ## Backend: Supabase (Postgres), no Google Sheets
 
 La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07-07 tras un bug grave de corrupción de datos (direccionamiento por posición de fila). **No reintroducir lógica de direccionamiento por posición.** Sheets/Drive son ahora secundarios:
-- **Drive**: solo para archivos (contratos, facturas, adjuntos de gastos). Carpetas organizadas por propiedad → tipo de documento (`Contrato`, `Ingresos/Gastos/{año}/{MM - Mes}`).
+- **Drive**: solo para archivos (contratos, facturas, adjuntos de gastos). Carpetas organizadas por propiedad → tipo de documento (`Contrato`, `Ingresos/Gastos/{año}/{MM - Mes}`). Si al editar una transacción cambia la propiedad/tipo/mes, `AppContext.updateTx` mueve los archivos ya subidos a la carpeta nueva (`moveFileToFolder` en `src/api/drive.ts`) — no se quedan huérfanos en la carpeta antigua.
 - **Sheets**: solo exportación bajo demanda ("Exportar a Sheets" en el Dashboard), con fórmulas reales (SUMIFS/VLOOKUP), no snapshot de valores. No hay sync en vivo ni de vuelta.
 - CRUD de propiedades/transacciones: `src/api/db.ts`, habla con Supabase vía `@supabase/supabase-js`. RLS activo, solo el email de Jose puede leer/escribir.
 - Login: Supabase Auth con Google (`src/api/auth.ts`).

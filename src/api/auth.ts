@@ -204,6 +204,30 @@ export async function apiPut<T>(url: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export async function apiPatch<T>(url: string, body: unknown): Promise<T> {
+  const token = getAccessToken()
+  if (!token) throw new Error('Sin token de acceso')
+
+  const res = await fetchConTimeout(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      accessToken = null
+      tokenExpiry = null
+    }
+    throw new Error(`API error ${res.status}: ${await res.text()}`)
+  }
+
+  return res.json() as Promise<T>
+}
+
 export async function apiDelete(url: string): Promise<void> {
   const token = getAccessToken()
   if (!token) throw new Error('Sin token de acceso')

@@ -37,9 +37,9 @@ import {
   updateTarea,
   updateTransaccion,
 } from '../api/db'
-import { format } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { getOrCreateFolder } from '../api/drive'
+import { getOrCreateFolder, moveFileToFolder } from '../api/drive'
 import { useToast } from './ToastContext'
 import {
   generarGastosPendientes,
@@ -349,6 +349,68 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const ensurePropFolder = useCallback(
+    async (propiedadId: string, nombre: string): Promise<string> => {
+      const propiedad = propiedades.find((p) => p.id === propiedadId)
+
+      // Aunque la carpeta ya exista, el llamante (adjuntar un archivo) va a
+      // necesitar un token de Drive válido justo después — pedirlo aquí
+      // también en este camino evita un fallo críptico "Sin token de
+      // acceso" si el token caducó desde la última vez que se usó Drive.
+      if (propiedad?.folderId) {
+        try {
+          await ensureDriveAccess()
+        } catch (err) {
+          showToast('No se pudo acceder a Google Drive')
+          throw err
+        }
+        return propiedad.folderId
+      }
+
+      try {
+        await ensureDriveAccess()
+        if (!rootFolderId.current) {
+          const root = await getOrCreateFolder(ROOT_FOLDER_NAME)
+          rootFolderId.current = root.id
+        }
+        const folder = await getOrCreateFolder(nombre, rootFolderId.current)
+        const updated = { ...propiedad!, folderId: folder.id }
+        await updatePropiedad(updated)
+        setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
+        return folder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
+      }
+    },
+    [propiedades, ensureDriveAccess, showToast],
+  )
+
+  const nombreCarpetaMes = (fecha: Date): string => {
+    const mesTexto = format(fecha, 'MMMM', { locale: es })
+    return `${format(fecha, 'MM')} - ${mesTexto.charAt(0).toUpperCase()}${mesTexto.slice(1)}`
+  }
+
+  // Dentro de la carpeta de cada propiedad, los documentos se organizan por
+  // qué son (Contrato / Ingresos / Gastos) y, para ingresos y gastos, por
+  // año y mes de la transacción a la que pertenecen — así el seguimiento
+  // mes a mes no obliga a rebuscar entre archivos de tipos distintos.
+  const ensureTxFolder = useCallback(
+    async (propiedadId: string, nombre: string, tipo: TransaccionTipo, fecha: Date): Promise<string> => {
+      try {
+        const propFolderId = await ensurePropFolder(propiedadId, nombre)
+        const tipoFolder = await getOrCreateFolder(tipo === 'ingreso' ? 'Ingresos' : 'Gastos', propFolderId)
+        const anioFolder = await getOrCreateFolder(format(fecha, 'yyyy'), tipoFolder.id)
+        const mesFolder = await getOrCreateFolder(nombreCarpetaMes(fecha), anioFolder.id)
+        return mesFolder.id
+      } catch (err) {
+        showToast('No se pudo acceder a Google Drive')
+        throw err
+      }
+    },
+    [ensurePropFolder, showToast],
+  )
+
   const addProp = useCallback(
     async (p: Propiedad) => {
       try {
@@ -418,6 +480,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateTx = useCallback(
     async (t: Transaccion) => {
+      const anterior = transacciones.find((x) => x.id === t.id)
       try {
         await updateTransaccion(t)
         setTransacciones((prev) => prev.map((x) => (x.id === t.id ? t : x)))
@@ -425,8 +488,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast('No se pudieron guardar los cambios')
         throw err
       }
+
+      // Los archivos ya subidos (adjuntos, factura/recibo) se organizan en
+      // Drive por propiedad/tipo/año/mes de la transacción — si se corrige
+      // uno de esos campos después de subirlos, se quedaban huérfanos en la
+      // carpeta antigua sin que nada avise. Solo se toca si de verdad
+      // cambia la carpeta que le corresponde, para no llamar a Drive en
+      // cada edición (importe, descripción, etc.).
+      const cambiaCarpeta =
+        anterior &&
+        (anterior.propiedadId !== t.propiedadId ||
+          anterior.tipo !== t.tipo ||
+          anterior.fecha.slice(0, 7) !== t.fecha.slice(0, 7))
+      if (cambiaCarpeta && t.archivos.length > 0) {
+        const propiedad = propiedades.find((p) => p.id === t.propiedadId)
+        if (propiedad) {
+          try {
+            const folderId = await ensureTxFolder(t.propiedadId, propiedad.nombre, t.tipo, parseISO(t.fecha))
+            await Promise.all(t.archivos.map((id) => moveFileToFolder(id, folderId)))
+          } catch (err) {
+            console.error('Mover adjuntos en Drive error', err)
+            showToast('El movimiento se guardó, pero no se pudieron mover sus archivos adjuntos en Drive')
+          }
+        }
+      }
     },
-    [showToast],
+    [showToast, transacciones, propiedades, ensureTxFolder],
   )
 
   const deleteTx = useCallback(
@@ -531,68 +618,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [showToast],
-  )
-
-  const ensurePropFolder = useCallback(
-    async (propiedadId: string, nombre: string): Promise<string> => {
-      const propiedad = propiedades.find((p) => p.id === propiedadId)
-
-      // Aunque la carpeta ya exista, el llamante (adjuntar un archivo) va a
-      // necesitar un token de Drive válido justo después — pedirlo aquí
-      // también en este camino evita un fallo críptico "Sin token de
-      // acceso" si el token caducó desde la última vez que se usó Drive.
-      if (propiedad?.folderId) {
-        try {
-          await ensureDriveAccess()
-        } catch (err) {
-          showToast('No se pudo acceder a Google Drive')
-          throw err
-        }
-        return propiedad.folderId
-      }
-
-      try {
-        await ensureDriveAccess()
-        if (!rootFolderId.current) {
-          const root = await getOrCreateFolder(ROOT_FOLDER_NAME)
-          rootFolderId.current = root.id
-        }
-        const folder = await getOrCreateFolder(nombre, rootFolderId.current)
-        const updated = { ...propiedad!, folderId: folder.id }
-        await updatePropiedad(updated)
-        setPropiedades((prev) => prev.map((p) => (p.id === propiedadId ? updated : p)))
-        return folder.id
-      } catch (err) {
-        showToast('No se pudo acceder a Google Drive')
-        throw err
-      }
-    },
-    [propiedades, ensureDriveAccess, showToast],
-  )
-
-  const nombreCarpetaMes = (fecha: Date): string => {
-    const mesTexto = format(fecha, 'MMMM', { locale: es })
-    return `${format(fecha, 'MM')} - ${mesTexto.charAt(0).toUpperCase()}${mesTexto.slice(1)}`
-  }
-
-  // Dentro de la carpeta de cada propiedad, los documentos se organizan por
-  // qué son (Contrato / Ingresos / Gastos) y, para ingresos y gastos, por
-  // año y mes de la transacción a la que pertenecen — así el seguimiento
-  // mes a mes no obliga a rebuscar entre archivos de tipos distintos.
-  const ensureTxFolder = useCallback(
-    async (propiedadId: string, nombre: string, tipo: TransaccionTipo, fecha: Date): Promise<string> => {
-      try {
-        const propFolderId = await ensurePropFolder(propiedadId, nombre)
-        const tipoFolder = await getOrCreateFolder(tipo === 'ingreso' ? 'Ingresos' : 'Gastos', propFolderId)
-        const anioFolder = await getOrCreateFolder(format(fecha, 'yyyy'), tipoFolder.id)
-        const mesFolder = await getOrCreateFolder(nombreCarpetaMes(fecha), anioFolder.id)
-        return mesFolder.id
-      } catch (err) {
-        showToast('No se pudo acceder a Google Drive')
-        throw err
-      }
-    },
-    [ensurePropFolder, showToast],
   )
 
   const ensureContratoFolder = useCallback(

@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, fetchConTimeout, getAccessToken } from './auth'
+import { apiDelete, apiGet, apiPatch, apiPost, fetchConTimeout, getAccessToken } from './auth'
 
 const BASE = 'https://www.googleapis.com/drive/v3'
 const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3'
@@ -210,6 +210,20 @@ export async function listFiles(folderId: string): Promise<DriveFile[]> {
 
 export async function deleteFile(fileId: string): Promise<void> {
   return apiDelete(`${BASE}/files/${fileId}`)
+}
+
+// Drive no tiene "mover": es quitar el padre actual y añadir el nuevo
+// (`files.update` con addParents/removeParents). Se lee el padre actual en
+// vivo en vez de que el llamante lo calcule — más robusto (cubre el caso de
+// un archivo con más de un padre) y evita que un cálculo desincronizado dé
+// un removeParents equivocado.
+export async function moveFileToFolder(fileId: string, newParentId: string): Promise<void> {
+  const file = await apiGet<{ parents?: string[] }>(`${BASE}/files/${fileId}?fields=parents`)
+  const oldParents = file.parents ?? []
+  if (oldParents.length === 1 && oldParents[0] === newParentId) return
+  const params = new URLSearchParams({ addParents: newParentId })
+  if (oldParents.length > 0) params.set('removeParents', oldParents.join(','))
+  await apiPatch(`${BASE}/files/${fileId}?${params.toString()}`, {})
 }
 
 export function getFileIconUrl(mimeType: string): string {
