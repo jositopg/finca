@@ -24,7 +24,7 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-on-surface/20 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-[480px] bg-surface-lowest rounded-t-2xl shadow-card px-5 pt-5 pb-10">
+      <div className="relative w-full max-w-app bg-surface-lowest rounded-t-2xl shadow-card px-5 pt-5 pb-10">
         <p className="font-display font-bold text-on-surface text-base mb-1">{title}</p>
         {message && <p className="text-sm text-outline-variant mb-5">{message}</p>}
         {!message && <div className="mb-5" />}

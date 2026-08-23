@@ -29,6 +29,12 @@ export default {
         soft: '0 4px 40px rgba(44,52,53,0.06)',
         card: '0 2px 16px rgba(44,52,53,0.08)',
       },
+      maxWidth: {
+        // Ancho único de la app — todo lo que se centra en pantalla (root,
+        // Nav, hojas/diálogos, toasts) referencia esta misma constante en
+        // vez de repetir "480px" a mano en cada componente.
+        app: '480px',
+      },
     },
   },
   plugins: [],

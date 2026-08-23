@@ -41,7 +41,7 @@ export function BottomSheet({ open, onClose, title, children }: Props) {
       }}
     >
       <div className="absolute inset-0 bg-on-surface/20 backdrop-blur-sm" />
-      <div className="relative w-full max-w-[480px] bg-surface-lowest rounded-t-2xl shadow-card max-h-[90svh] flex flex-col">
+      <div className="relative w-full max-w-app bg-surface-lowest rounded-t-2xl shadow-card max-h-[90svh] flex flex-col">
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <h2 className="font-display text-lg font-bold text-on-surface">{title}</h2>
           <button

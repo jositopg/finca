@@ -17,7 +17,7 @@ const items: { id: View; label: string; Icon: typeof LayoutDashboard }[] = [
 
 export function Nav({ current, onChange }: Props) {
   return (
-    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] bg-surface-lowest border-t border-surface-high px-2 pb-safe z-40">
+    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-app bg-surface-lowest border-t border-surface-high px-2 pb-safe z-40">
       <div className="flex">
         {items.map(({ id, label, Icon }) => {
           const active = current === id
