@@ -68,6 +68,8 @@ interface TransaccionRow {
   numero_factura: string | null
   periodo_inicio: string | null
   periodo_fin: string | null
+  solo_mio: boolean | null
+  igic_soportado: number | string | null
 }
 
 function rowToPropiedad(row: PropiedadRow): Propiedad {
@@ -169,6 +171,8 @@ function rowToTransaccion(row: TransaccionRow): Transaccion {
     numeroFactura: row.numero_factura ?? undefined,
     periodoInicio: row.periodo_inicio ?? undefined,
     periodoFin: row.periodo_fin ?? undefined,
+    soloMio: row.solo_mio ?? undefined,
+    igicSoportado: row.igic_soportado != null ? Number(row.igic_soportado) : undefined,
   }
 }
 
@@ -187,6 +191,8 @@ function transaccionToRow(t: Transaccion): TransaccionRow {
     numero_factura: t.numeroFactura ?? null,
     periodo_inicio: t.periodoInicio ?? null,
     periodo_fin: t.periodoFin ?? null,
+    solo_mio: t.soloMio ?? null,
+    igic_soportado: t.igicSoportado ?? null,
   }
 }
 

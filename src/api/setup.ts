@@ -378,7 +378,7 @@ function buildModelo420(locales: Propiedad[], transacciones: Transaccion[]) {
       for (let trimestre = 1; trimestre <= 4; trimestre++) {
         const netaTotal = txsAlquiler
           .filter((t) => t.fecha.startsWith(anio) && trimestreDe(t.fecha) === trimestre)
-          .reduce((s, t) => s + miParte(t.importe, p), 0)
+          .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
         if (netaTotal <= 0) continue
         rows.push([anio, `T${trimestre}`, p.nombre, '', '', '', ''])
       }

@@ -24,7 +24,7 @@ export function GastosPorCategoria({ propiedades, transacciones, desde, hasta, a
     if (t.tipo !== 'gasto') continue
     const p = propiedadPorId.get(t.propiedadId)
     if (!p) continue
-    const importe = miParte(importeEnRango(t, desde, hasta), p)
+    const importe = miParte(importeEnRango(t, desde, hasta), p, t.soloMio)
     if (importe === 0) continue
     porCategoria.set(t.categoria, (porCategoria.get(t.categoria) ?? 0) + importe)
   }

@@ -94,10 +94,10 @@ function PropiedadCard({
   const txsProp = transacciones.filter((t) => t.propiedadId === p.id)
   const ingresos = txsProp
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p, t.soloMio), 0)
   const gastos = txsProp
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p, t.soloMio), 0)
   const estadoContratoP = contratoEstado(p.contratoFin)
   const alertaContrato = estadoContratoP?.alerta ?? false
   const rentaSinCobrar = rentaPendiente(p, transacciones)
@@ -214,17 +214,17 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
   const txsAnio = txs.filter((t) => importeEnRango(t, desdeAnio, hastaAnio) !== 0)
   const ingresos = txsAnio
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio), 0)
   const gastos = txsAnio
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio), 0)
 
   // Group gastos by category (ya en tu parte, ya prorrateado)
   const porCategoria = txsAnio
     .filter((t) => t.tipo === 'gasto')
     .reduce<Record<string, number>>((acc, t) => {
       acc[t.categoria] =
-        (acc[t.categoria] ?? 0) + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad)
+        (acc[t.categoria] ?? 0) + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio)
       return acc
     }, {})
 
@@ -235,7 +235,7 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
     .reduce((s, t) => {
       const r = calcularReparto(t.categoria, t.importe, propiedad.reparto)
       const fraccion = t.importe !== 0 ? importeEnRango(t, desdeAnio, hastaAnio) / t.importe : 0
-      return s + miParte((r?.inquilino ?? 0) * fraccion, propiedad)
+      return s + miParte((r?.inquilino ?? 0) * fraccion, propiedad, t.soloMio)
     }, 0)
 
   return (
@@ -465,10 +465,10 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
 
     const ingresos = txsFiltradas
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+      .reduce((s, t) => s + miParte(t.importe, propiedad, t.soloMio), 0)
     const gastos = txsFiltradas
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, propiedad), 0)
+      .reduce((s, t) => s + miParte(t.importe, propiedad, t.soloMio), 0)
 
     const meses = [...new Set(txs.map((t) => t.fecha.slice(0, 7)))].sort().reverse()
     const currentMonth = format(new Date(), 'yyyy-MM')
@@ -485,10 +485,10 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     const [desdeAnioActual, hastaAnioActual] = rangoAnio(currentYearStr)
     const ingresosAnioActual = txs
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad, t.soloMio), 0)
     const gastosAnioActual = txs
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad, t.soloMio), 0)
     const rentabilidadMercado = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
@@ -1127,7 +1127,7 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   const gastosAnioPropias = propiedadesPropias.filter(esDeJose).reduce((total, p) => {
     const gastos = transacciones
       .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioPropias, hastaAnioPropias), p), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioPropias, hastaAnioPropias), p, t.soloMio), 0)
     return total + gastos
   }, 0)
 

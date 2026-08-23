@@ -81,7 +81,7 @@ export function DashboardView({ onNavigate }: Props) {
 
   function miImporteEnRango(t: Transaccion, desde: string, hasta: string): number | null {
     const p = propiedadPorId.get(t.propiedadId)
-    return p ? miParte(importeEnRango(t, desde, hasta), p) : null
+    return p ? miParte(importeEnRango(t, desde, hasta), p, t.soloMio) : null
   }
 
   const ingresosMes = transacciones
@@ -329,10 +329,10 @@ export function DashboardView({ onNavigate }: Props) {
                 propiedad={p}
                 ingresosMes={transacciones
                   .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso')
-                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p), 0)}
+                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p, t.soloMio), 0)}
                 gastosMes={transacciones
                   .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
-                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p), 0)}
+                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p, t.soloMio), 0)}
                 rentaPendiente={rentaPendiente(p, transacciones)}
                 onClick={() => onNavigate('propiedades', p.id)}
               />

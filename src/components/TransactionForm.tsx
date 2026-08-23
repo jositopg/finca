@@ -53,6 +53,8 @@ export function TransactionForm({
   const [mostrarPeriodo, setMostrarPeriodo] = useState(!!(initial?.periodoInicio || initial?.periodoFin))
   const [periodoInicio, setPeriodoInicio] = useState(initial?.periodoInicio ?? '')
   const [periodoFin, setPeriodoFin] = useState(initial?.periodoFin ?? '')
+  const [soloMio, setSoloMio] = useState(!!initial?.soloMio)
+  const [igicStr, setIgicStr] = useState(initial?.igicSoportado != null ? initial.igicSoportado.toString() : '')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [existingArchivos, setExistingArchivos] = useState<string[]>(
     isEditing ? (initial?.archivos ?? []) : [],
@@ -74,12 +76,23 @@ export function TransactionForm({
 
   const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
 
+  // Solo tiene sentido en propiedades a medias — en el resto, "tu parte" ya
+  // es el 100%, así que el checkbox no aportaría nada y se oculta.
+  const mostrarSoloMio =
+    propiedadSeleccionada?.porcentajePropiedad != null && propiedadSeleccionada.porcentajePropiedad < 100
+
+  // El IGIC solo existe en locales (únicas propiedades sujetas a IGIC en la
+  // app) — deducible del IGIC repercutido en el Modelo 420.
+  const mostrarIgic = tipo === 'gasto' && propiedadSeleccionada?.tipo === 'local'
+  const igicParseado = parseImporte(igicStr)
+
   function validate(): boolean {
     const e: Record<string, string> = {}
     if (!propiedadId) e.propiedad = 'Selecciona una propiedad'
     if (!importe || Number.isNaN(importeParseado) || importeParseado <= 0) e.importe = 'Importe inválido'
     if (!categoria) e.categoria = 'Selecciona una categoría'
     if (!periodoValido) e.periodo = 'Revisa las fechas del periodo facturado'
+    if (mostrarIgic && igicStr.trim() && Number.isNaN(igicParseado)) e.igic = 'IGIC inválido'
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -120,6 +133,8 @@ export function TransactionForm({
       numeroFactura: initial?.numeroFactura,
       periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
       periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
+      soloMio: mostrarSoloMio && soloMio ? true : undefined,
+      igicSoportado: mostrarIgic && igicStr.trim() && !Number.isNaN(igicParseado) ? igicParseado : undefined,
     }
   }
 
@@ -148,6 +163,8 @@ export function TransactionForm({
       setMostrarPeriodo(false)
       setPeriodoInicio('')
       setPeriodoFin('')
+      setSoloMio(false)
+      setIgicStr('')
       setPendingFiles([])
       setJustSaved(true)
       setTimeout(() => setJustSaved(false), 1500)
@@ -288,6 +305,41 @@ export function TransactionForm({
         >
           + Periodo facturado (si es distinto de la fecha de pago)
         </button>
+      )}
+
+      {mostrarSoloMio && (
+        <label className="flex items-start gap-2 bg-surface-low rounded-xl px-4 py-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={soloMio}
+            onChange={(e) => setSoloMio(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="text-xs text-on-surface">
+            Este movimiento es 100% mío, no a medias
+            <span className="block text-outline-variant mt-0.5">
+              Para facturas a tu nombre personal en esta propiedad — no se reparte al{' '}
+              {propiedadSeleccionada?.porcentajePropiedad}% configurado.
+            </span>
+          </span>
+        </label>
+      )}
+
+      {mostrarIgic && (
+        <div className="flex flex-col gap-1">
+          <Input
+            label="IGIC incluido (€, opcional)"
+            type="text"
+            inputMode="decimal"
+            placeholder="0,00"
+            value={igicStr}
+            onChange={(e) => setIgicStr(e.target.value)}
+            error={errors.igic}
+          />
+          <p className="text-xs text-outline-variant">
+            Se resta del IGIC repercutido en el Modelo 420 de este local.
+          </p>
+        </div>
       )}
 
       {reparto && reparto.modo !== 'incluido' && (

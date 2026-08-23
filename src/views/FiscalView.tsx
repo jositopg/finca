@@ -54,10 +54,10 @@ export function FiscalView() {
     const txs = transacciones.filter((t) => t.propiedadId === p.id)
     const ingresos = txs
       .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p, t.soloMio), 0)
     const gastos = txs
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p), 0)
+      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p, t.soloMio), 0)
     const amortizacion = amortizacionAnual(p)
     return { propiedad: p, ingresos, gastos, amortizacion, neto: ingresos - gastos }
   })
@@ -79,14 +79,27 @@ export function FiscalView() {
           t.categoria === 'Alquiler mensual' &&
           trimestreDe(t.fecha) === trimestre,
       )
-      .reduce((s, t) => s + miParte(t.importe, p), 0)
+      .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
     const base = baseDesdeRentaNeta(netaTotal)
     const { igic, irpf } = calcularRentaLocal(base)
-    return { propiedad: p, base, igic, irpf, neta: netaTotal }
+
+    // IGIC soportado en gastos del local (deducible del repercutido) — solo
+    // se declara si el local computa este trimestre (tiene renta cobrada);
+    // si está vacío ese trimestre no hay actividad contra la que deducirlo.
+    const igicSoportado =
+      netaTotal > 0
+        ? txsAnio
+            .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto' && trimestreDe(t.fecha) === trimestre)
+            .reduce((s, t) => s + miParte(t.igicSoportado ?? 0, p, t.soloMio), 0)
+        : 0
+
+    return { propiedad: p, base, igic, irpf, neta: netaTotal, igicSoportado, igicResultado: igic - igicSoportado }
   })
   const totalBaseTrimestre = filasLocales.reduce((s, f) => s + f.base, 0)
   const totalIgicTrimestre = filasLocales.reduce((s, f) => s + f.igic, 0)
   const totalIrpfTrimestre = filasLocales.reduce((s, f) => s + f.irpf, 0)
+  const totalIgicSoportadoTrimestre = filasLocales.reduce((s, f) => s + f.igicSoportado, 0)
+  const totalIgicResultado = totalIgicTrimestre - totalIgicSoportadoTrimestre
 
   return (
     <div className="flex flex-col pb-24">
@@ -183,7 +196,9 @@ export function FiscalView() {
         </p>
         <p className="text-xs text-outline-variant mb-3">
           Base imponible, IGIC (7%) e IRPF (19%) de la renta de alquiler de locales del trimestre,
-          ya a tu parte — reconstruidos a partir de la renta neta registrada en cada cobro.
+          ya a tu parte — reconstruidos a partir de la renta neta registrada en cada cobro. El IGIC
+          que marques en los gastos de un local (solo si tiene renta cobrada ese trimestre) se
+          descuenta del repercutido.
         </p>
 
         <div className="flex gap-2 mb-3">
@@ -206,10 +221,10 @@ export function FiscalView() {
           </p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasLocales.map(({ propiedad, base, igic, irpf }) => (
+            {filasLocales.map(({ propiedad, base, igic, irpf, igicSoportado, igicResultado }) => (
               <div key={propiedad.id} className="p-4">
                 <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
-                <div className="flex items-center gap-3 text-xs">
+                <div className="flex items-center gap-3 text-xs flex-wrap">
                   <span className="text-outline-variant">
                     Base <span className="text-on-surface font-medium">{fmt(base)} €</span>
                   </span>
@@ -218,6 +233,12 @@ export function FiscalView() {
                   <span className="text-outline-variant/40">·</span>
                   <span className="text-error">IRPF -{fmt(irpf)} €</span>
                 </div>
+                {igicSoportado > 0 && (
+                  <p className="text-xs text-outline-variant mt-1">
+                    IGIC soportado en gastos -{fmt(igicSoportado)} € → IGIC a ingresar{' '}
+                    <span className="font-medium text-on-surface">{fmt(igicResultado)} €</span>
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -235,6 +256,20 @@ export function FiscalView() {
               <span className="text-outline-variant">IGIC repercutido</span>
               <span className="tabular-nums text-success">+{fmt(totalIgicTrimestre)} €</span>
             </div>
+            {totalIgicSoportadoTrimestre > 0 && (
+              <>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-outline-variant">IGIC soportado (gastos)</span>
+                  <span className="tabular-nums text-error">-{fmt(totalIgicSoportadoTrimestre)} €</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-outline-variant">IGIC a ingresar</span>
+                  <span className="font-medium tabular-nums text-on-surface">
+                    {fmt(totalIgicResultado)} €
+                  </span>
+                </div>
+              </>
+            )}
             <div className="flex items-center justify-between text-xs">
               <span className="text-outline-variant">IRPF retenido</span>
               <span className="tabular-nums text-error">-{fmt(totalIrpfTrimestre)} €</span>

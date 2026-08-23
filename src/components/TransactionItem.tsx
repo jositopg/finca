@@ -72,6 +72,9 @@ export function TransactionItem({
                   {format(new Date(tx.periodoFin + 'T00:00:00'), 'd MMM yyyy', { locale: es })}
                 </span>
               )}
+              {tx.soloMio && (
+                <span className="text-xs text-primary/70">· 100% tuyo</span>
+              )}
               {propiedadNombre && (
                 <>
                   <span className="text-outline-variant/40">·</span>

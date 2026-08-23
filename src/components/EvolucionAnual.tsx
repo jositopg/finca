@@ -30,7 +30,7 @@ export function EvolucionAnual({ propiedades, transacciones }: Props) {
       const importeAnio = importeEnRango(t, desde, hasta)
       if (importeAnio === 0) continue
       const p = propiedades.find((pr) => pr.id === t.propiedadId)
-      const importe = p ? miParte(importeAnio, p) : importeAnio
+      const importe = p ? miParte(importeAnio, p, t.soloMio) : importeAnio
       total += t.tipo === 'ingreso' ? importe : -importe
     }
     porAnio.set(anio, total)

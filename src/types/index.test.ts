@@ -102,6 +102,15 @@ describe('miParte', () => {
   it('sin porcentaje definido, asume el 100%', () => {
     expect(miParte(1000, {})).toBe(1000)
   })
+
+  it('con soloMio, ignora el porcentaje de la propiedad y cuenta el 100%', () => {
+    expect(miParte(1000, { porcentajePropiedad: 50 }, true)).toBe(1000)
+  })
+
+  it('soloMio en false o sin definir no cambia el comportamiento normal', () => {
+    expect(miParte(1000, { porcentajePropiedad: 50 }, false)).toBe(500)
+    expect(miParte(1000, { porcentajePropiedad: 50 }, undefined)).toBe(500)
+  })
 })
 
 describe('importeEnRango', () => {

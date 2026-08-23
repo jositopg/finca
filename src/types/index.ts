@@ -193,10 +193,10 @@ export function valorarPropiedad(
 
   const ingresos = txsPropiedad
     .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad, t.soloMio), 0)
   const gastos = txsPropiedad
     .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad), 0)
+    .reduce((s, t) => s + miParte(importeEnRango(t, desdeVentana, hastaVentana), propiedad, t.soloMio), 0)
 
   const esEstimacion = mesesConDatos < 12
   const factor = esEstimacion ? 12 / mesesConDatos : 1
@@ -302,8 +302,15 @@ export function generarGastosPendientes(
 }
 
 // Aplica el % de propiedad de Jose a un importe — para propiedades a medias,
-// todos los resúmenes de la app muestran ya solo su parte.
-export function miParte(importe: number, propiedad: Pick<Propiedad, 'porcentajePropiedad'>): number {
+// todos los resúmenes de la app muestran ya solo su parte. `soloMio` (por
+// transacción, no por propiedad) salta ese reparto: facturas a su nombre
+// personal que no son a medias con el otro propietario cuentan al 100%.
+export function miParte(
+  importe: number,
+  propiedad: Pick<Propiedad, 'porcentajePropiedad'>,
+  soloMio?: boolean,
+): number {
+  if (soloMio) return importe
   const pct = propiedad.porcentajePropiedad ?? 100
   return importe * (pct / 100)
 }
@@ -339,6 +346,8 @@ export interface Transaccion {
   numeroFactura?: string // número correlativo asignado al generar la factura/recibo de alquiler — se pone una vez y no cambia
   periodoInicio?: string // YYYY-MM-DD — periodo facturado (agua/luz: el cobro suele ir por detrás del periodo real)
   periodoFin?: string // YYYY-MM-DD
+  soloMio?: boolean // true = ignora el % de copropiedad de la propiedad, cuenta 100% para Jose (facturas a su nombre personal en propiedades a medias)
+  igicSoportado?: number // IGIC incluido en un gasto de un local (deducible del IGIC repercutido en el Modelo 420) — solo aplica a locales, únicas propiedades sujetas a IGIC
 }
 
 // ─── Alta masiva de transacciones (pegar varias líneas) ────────────────────────
@@ -826,7 +835,7 @@ export function estimarAhorroRenta(
     const ingresos = txs
       .filter((t) => t.tipo === 'ingreso' && CATEGORIAS_RENDIMIENTO.includes(t.categoria))
       .reduce((s, t) => {
-        const importe = miParte(t.importe, p)
+        const importe = miParte(t.importe, p, t.soloMio)
         // El importe de alquiler de un local es la renta neta ya cobrada —
         // a efectos de IRPF cuenta la base imponible, no la neta.
         return s + (esLocal && t.categoria === 'Alquiler mensual' ? baseDesdeRentaNeta(importe) : importe)
@@ -834,7 +843,7 @@ export function estimarAhorroRenta(
 
     const gastos = txs
       .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, p), 0)
+      .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
 
     const amortizacion = amortizacionAnual(p)
     const rendimientoNeto = ingresos - gastos - amortizacion
@@ -855,7 +864,7 @@ export function estimarAhorroRenta(
     .reduce((sTotal, p) => {
       const netaTotal = txsAnio
         .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
-        .reduce((s, t) => s + miParte(t.importe, p), 0)
+        .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
       return sTotal + calcularRentaLocal(baseDesdeRentaNeta(netaTotal)).irpf
     }, 0)
 
