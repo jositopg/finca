@@ -16,6 +16,7 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
+import { useIsDesktop } from '../hooks/useMediaQuery'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CobroRenta } from '../components/CobroRenta'
@@ -60,6 +61,86 @@ interface Props {
   onSelectId: (id?: string) => void
 }
 
+/**
+ * En escritorio (≥lg) Propiedades es un master-detail: lista persistente a la
+ * izquierda + ficha a la derecha. En móvil/tablet es una sola columna que
+ * alterna entre lista y ficha según `selectedId` (comportamiento original).
+ */
+export function PropiedadesView({ selectedId, onSelectId }: Props) {
+  const isDesktop = useIsDesktop()
+
+  if (!isDesktop) {
+    return <PropiedadesPanel selectedId={selectedId} onSelectId={onSelectId} />
+  }
+
+  return (
+    <div className="flex gap-6 items-start pt-4">
+      <aside className="w-80 shrink-0 sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto scrollbar-none pb-4">
+        <PropiedadesSidebar selectedId={selectedId} onSelect={onSelectId} />
+      </aside>
+      <div className="flex-1 min-w-0">
+        <PropiedadesPanel selectedId={selectedId} onSelectId={onSelectId} embedded />
+      </div>
+    </div>
+  )
+}
+
+/** Lista compacta de propiedades para el panel lateral de escritorio. */
+function PropiedadesSidebar({
+  selectedId,
+  onSelect,
+}: {
+  selectedId?: string
+  onSelect: (id?: string) => void
+}) {
+  const { propiedades, transacciones, tareas, addProp } = useApp()
+  const [showAddProp, setShowAddProp] = useState(false)
+  const currentAnio = new Date().getFullYear().toString()
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+          Propiedades ({propiedades.length})
+        </p>
+        <button
+          onClick={() => setShowAddProp(true)}
+          className="flex items-center gap-1 text-xs text-primary font-medium"
+        >
+          <Plus size={14} />
+          Nueva
+        </button>
+      </div>
+
+      {propiedades.length === 0 ? (
+        <p className="text-sm text-outline-variant px-1 py-4">Aún no tienes propiedades.</p>
+      ) : (
+        propiedades.map((p) => (
+          <PropiedadCard
+            key={p.id}
+            propiedad={p}
+            transacciones={transacciones}
+            tareas={tareas}
+            currentAnio={currentAnio}
+            selected={p.id === selectedId}
+            onSelect={() => onSelect(p.id)}
+          />
+        ))
+      )}
+
+      <BottomSheet open={showAddProp} onClose={() => setShowAddProp(false)} title="Nueva propiedad">
+        <PropiedadForm
+          onSave={async (p) => {
+            await addProp(p)
+            setShowAddProp(false)
+          }}
+          onCancel={() => setShowAddProp(false)}
+        />
+      </BottomSheet>
+    </div>
+  )
+}
+
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -83,12 +164,14 @@ function PropiedadCard({
   tareas,
   currentAnio,
   onSelect,
+  selected = false,
 }: {
   propiedad: Propiedad
   transacciones: Transaccion[]
   tareas: Tarea[]
   currentAnio: string
   onSelect: () => void
+  selected?: boolean
 }) {
   const [desdeAnioCard, hastaAnioCard] = rangoAnio(currentAnio)
   const txsProp = transacciones.filter((t) => t.propiedadId === p.id)
@@ -109,7 +192,9 @@ function PropiedadCard({
   return (
     <button
       onClick={onSelect}
-      className="w-full text-left bg-surface-lowest rounded-2xl shadow-soft p-4 hover:shadow-card transition-shadow"
+      className={`w-full text-left bg-surface-lowest rounded-2xl shadow-soft p-4 hover:shadow-card transition-shadow ${
+        selected ? 'ring-2 ring-primary' : ''
+      }`}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
@@ -421,7 +506,11 @@ function FacturasPropiedad({
 }
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export function PropiedadesView({ selectedId, onSelectId }: Props) {
+function PropiedadesPanel({
+  selectedId,
+  onSelectId,
+  embedded = false,
+}: Props & { embedded?: boolean }) {
   const {
     propiedades,
     transacciones,
@@ -511,15 +600,17 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
     const certificadoAlerta = estadoCertificado?.alerta ?? false
 
     return (
-      <div className="flex flex-col pb-24">
-        <div className="px-5 pt-12 pb-4">
-          <button
-            onClick={() => onSelectId(undefined)}
-            className="flex items-center gap-1.5 text-sm text-outline-variant mb-4 -ml-1"
-          >
-            <ArrowLeft size={16} />
-            Propiedades
-          </button>
+      <div className={`flex flex-col ${embedded ? 'pb-10' : 'pb-24'}`}>
+        <div className={`px-5 pb-4 ${embedded ? 'pt-2' : 'pt-12'}`}>
+          {!embedded && (
+            <button
+              onClick={() => onSelectId(undefined)}
+              className="flex items-center gap-1.5 text-sm text-outline-variant mb-4 -ml-1"
+            >
+              <ArrowLeft size={16} />
+              Propiedades
+            </button>
+          )}
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h1 className="font-display text-xl font-bold text-on-surface leading-tight">
@@ -1119,6 +1210,16 @@ export function PropiedadesView({ selectedId, onSelectId }: Props) {
   }
 
   // ── Properties list ────────────────────────────────────────────────────────
+  // En escritorio (embedded) la lista vive en el panel lateral; aquí, sin
+  // propiedad seleccionada, solo mostramos un estado vacío.
+  if (embedded) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 py-24 text-center text-sm text-outline-variant">
+        <p>Selecciona una propiedad de la lista para ver su ficha.</p>
+      </div>
+    )
+  }
+
   const currentAnio = new Date().getFullYear().toString()
   const [desdeAnioPropias, hastaAnioPropias] = rangoAnio(currentAnio)
 

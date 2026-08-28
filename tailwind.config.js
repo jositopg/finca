@@ -30,10 +30,14 @@ export default {
         card: '0 2px 16px rgba(44,52,53,0.08)',
       },
       maxWidth: {
-        // Ancho único de la app — todo lo que se centra en pantalla (root,
-        // Nav, hojas/diálogos, toasts) referencia esta misma constante en
-        // vez de repetir "480px" a mano en cada componente.
+        // Ancho único de la app en móvil/tablet — todo lo que se centra en
+        // pantalla (root, Nav, hojas/diálogos, toasts) referencia esta misma
+        // constante en vez de repetir "480px" a mano en cada componente.
         app: '480px',
+        // Ancho máximo del contenido en escritorio (≥1024px): el Shell
+        // centra `<main>` a este ancho para no estirar las líneas en
+        // monitores grandes.
+        content: '1280px',
       },
     },
   },

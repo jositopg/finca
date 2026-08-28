@@ -6,7 +6,7 @@ export function LoginView() {
   const { login } = useApp()
 
   return (
-    <div className="flex flex-col items-center justify-center flex-1 px-8 gap-10">
+    <div className="flex flex-col items-center justify-center flex-1 px-8 gap-10 lg:max-w-md lg:mx-auto lg:w-full">
       <div className="flex flex-col items-center gap-4 text-center">
         <div className="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center">
           <Building2 size={32} className="text-primary" />

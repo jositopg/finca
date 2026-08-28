@@ -102,9 +102,9 @@ export function FiscalView() {
   const totalIgicResultado = totalIgicTrimestre - totalIgicSoportadoTrimestre
 
   return (
-    <div className="flex flex-col pb-24">
-      <div className="px-5 pt-12 pb-4">
-        <h1 className="font-display text-2xl font-bold text-on-surface mb-1">Fiscal</h1>
+    <div className="flex flex-col pb-24 lg:pb-10">
+      <div className="px-5 pt-12 pb-4 lg:px-0 lg:pt-6">
+        <h1 className="font-display text-2xl font-bold text-on-surface mb-1 lg:text-3xl">Fiscal</h1>
         <p className="text-sm text-outline-variant">
           Datos consolidados para ayudarte a rellenar la Renta y el Modelo 420 — no calcula el
           impuesto final, eso lo aplicas tú o tu gestoría.
@@ -112,8 +112,8 @@ export function FiscalView() {
       </div>
 
       {/* Year selector */}
-      <div className="px-5 mb-5">
-        <div className="flex gap-2">
+      <div className="px-5 mb-5 lg:px-0">
+        <div className="flex gap-2 flex-wrap">
           {years.map((y) => (
             <button
               key={y}
@@ -128,8 +128,10 @@ export function FiscalView() {
         </div>
       </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-8 lg:items-start">
+
       {/* Renta */}
-      <div className="px-5 mb-7">
+      <div className="px-5 mb-7 lg:px-0 lg:mb-0 lg:col-start-1 lg:row-start-1">
         <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
           Para la Renta {anio} (tu parte)
         </p>
@@ -185,12 +187,12 @@ export function FiscalView() {
       </div>
 
       {/* Estimador: cuánto guardar de los alquileres */}
-      <div className="px-5 mb-7">
+      <div className="px-5 mb-7 lg:px-0 lg:mb-0 lg:col-span-2 lg:row-start-2 lg:mt-8">
         <EstimadorRenta propiedades={propiedades} transacciones={transacciones} anio={anio} />
       </div>
 
       {/* Modelo 420 */}
-      <div className="px-5">
+      <div className="px-5 lg:px-0 lg:col-start-2 lg:row-start-1">
         <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-1">
           Modelo 420 — IGIC trimestral (locales)
         </p>
@@ -276,6 +278,8 @@ export function FiscalView() {
             </div>
           </div>
         )}
+      </div>
+
       </div>
     </div>
   )

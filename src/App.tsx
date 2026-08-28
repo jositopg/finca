@@ -8,6 +8,7 @@ import { TransaccionesView } from './views/TransaccionesView'
 import { EstadisticasView } from './views/EstadisticasView'
 import { FiscalView } from './views/FiscalView'
 import { Nav, type View } from './components/Nav'
+import { TopBar } from './components/TopBar'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Building2, WifiOff } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
@@ -46,6 +47,13 @@ function Shell() {
 
   return (
     <>
+      <TopBar
+        current={view}
+        onChange={(v) => {
+          setView(v)
+          if (v !== 'propiedades') setSelectedPropId(undefined)
+        }}
+      />
       {usingCache && (
         <div className="bg-warning-container text-warning text-xs font-medium px-4 py-2 flex items-center gap-2 justify-center">
           <WifiOff size={13} />
@@ -53,32 +61,34 @@ function Shell() {
           {cacheDate ? format(parseISO(cacheDate), "d MMM 'a las' HH:mm", { locale: es }) : 'antes'}
         </div>
       )}
-      <ErrorBoundary key={view}>
-        {view === 'dashboard' && (
-          <DashboardView
-            onNavigate={(v, propId) => {
-              setView(v)
-              if (propId) setSelectedPropId(propId)
-            }}
-          />
-        )}
-        {view === 'propiedades' && (
-          <PropiedadesView
-            selectedId={selectedPropId}
-            onSelectId={(id) => setSelectedPropId(id)}
-          />
-        )}
-        {view === 'transacciones' && <TransaccionesView />}
-        {view === 'estadisticas' && (
-          <EstadisticasView
-            onNavigate={(v, propId) => {
-              setView(v)
-              if (propId) setSelectedPropId(propId)
-            }}
-          />
-        )}
-        {view === 'fiscal' && <FiscalView />}
-      </ErrorBoundary>
+      <main className="flex-1 flex flex-col lg:w-full lg:max-w-content lg:mx-auto lg:px-8 lg:py-2">
+        <ErrorBoundary key={view}>
+          {view === 'dashboard' && (
+            <DashboardView
+              onNavigate={(v, propId) => {
+                setView(v)
+                if (propId) setSelectedPropId(propId)
+              }}
+            />
+          )}
+          {view === 'propiedades' && (
+            <PropiedadesView
+              selectedId={selectedPropId}
+              onSelectId={(id) => setSelectedPropId(id)}
+            />
+          )}
+          {view === 'transacciones' && <TransaccionesView />}
+          {view === 'estadisticas' && (
+            <EstadisticasView
+              onNavigate={(v, propId) => {
+                setView(v)
+                if (propId) setSelectedPropId(propId)
+              }}
+            />
+          )}
+          {view === 'fiscal' && <FiscalView />}
+        </ErrorBoundary>
+      </main>
 
       <Nav
         current={view}

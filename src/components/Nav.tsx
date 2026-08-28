@@ -7,7 +7,7 @@ interface Props {
   onChange: (v: View) => void
 }
 
-const items: { id: View; label: string; Icon: typeof LayoutDashboard }[] = [
+export const NAV_ITEMS: { id: View; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'dashboard', label: 'Inicio', Icon: LayoutDashboard },
   { id: 'propiedades', label: 'Propiedades', Icon: Building2 },
   { id: 'transacciones', label: 'Movimientos', Icon: Receipt },
@@ -15,11 +15,13 @@ const items: { id: View; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: 'fiscal', label: 'Fiscal', Icon: Landmark },
 ]
 
+/** Barra de navegación inferior — solo móvil/tablet. En escritorio (≥lg) la
+ *  navegación vive en `TopBar` y esta barra se oculta. */
 export function Nav({ current, onChange }: Props) {
   return (
-    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-app bg-surface-lowest border-t border-surface-high px-2 pb-safe z-40">
+    <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-app bg-surface-lowest border-t border-surface-high px-2 pb-safe z-40 lg:hidden">
       <div className="flex">
-        {items.map(({ id, label, Icon }) => {
+        {NAV_ITEMS.map(({ id, label, Icon }) => {
           const active = current === id
           return (
             <button

@@ -10,6 +10,7 @@ import { FacturaAlquiler } from '../components/FacturaAlquiler'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { ImportarTransacciones } from '../components/ImportarTransacciones'
 import { TransactionForm } from '../components/TransactionForm'
+import { TransaccionesTable } from '../components/TransaccionesTable'
 import { Button } from '../components/Button'
 import type { Transaccion, TransaccionTipo } from '../types'
 
@@ -73,10 +74,10 @@ export function TransaccionesView() {
   const grupos = groupByMonth(filtered)
 
   return (
-    <div className="flex flex-col pb-24">
-      <div className="px-5 pt-12 pb-4">
+    <div className="flex flex-col pb-24 lg:pb-10">
+      <div className="px-5 pt-12 pb-4 lg:px-0 lg:pt-6">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="font-display text-2xl font-bold text-on-surface">Movimientos</h1>
+          <h1 className="font-display text-2xl font-bold text-on-surface lg:text-3xl">Movimientos</h1>
           <div className="flex gap-2">
             {propiedades.length > 0 && <FacturasSuministros propiedades={propiedades} />}
             {propiedades.length > 0 && (
@@ -100,8 +101,9 @@ export function TransaccionesView() {
           </div>
         </div>
 
+        <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
         {/* Search */}
-        <div className="relative mb-3">
+        <div className="relative mb-3 order-1 lg:mb-0 lg:flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline-variant" />
           <input
             type="search"
@@ -112,8 +114,34 @@ export function TransaccionesView() {
           />
         </div>
 
+        {/* Filters */}
+        <div className="flex gap-2 mb-3 order-3 lg:order-2 lg:mb-0 lg:flex-shrink-0">
+          <select
+            value={filterTipo}
+            onChange={(e) => setFilterTipo(e.target.value as TransaccionTipo | 'todos')}
+            className="flex-1 lg:flex-none bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
+          >
+            <option value="todos">Todos</option>
+            <option value="ingreso">Solo ingresos</option>
+            <option value="gasto">Solo gastos</option>
+          </select>
+
+          {propiedades.length > 1 && (
+            <select
+              value={filterProp}
+              onChange={(e) => setFilterProp(e.target.value)}
+              className="flex-1 lg:flex-none lg:max-w-[200px] bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
+            >
+              <option value="todas">Todas</option>
+              {propiedades.map((p) => (
+                <option key={p.id} value={p.id}>{p.nombre}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
         {/* Month pills */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 mb-3">
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 mb-3 order-2 lg:order-3 lg:mb-0 lg:w-full lg:pt-1">
           <button
             onClick={() => setFilterMes('')}
             className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -134,37 +162,12 @@ export function TransaccionesView() {
             </button>
           ))}
         </div>
-
-        {/* Filters */}
-        <div className="flex gap-2">
-          <select
-            value={filterTipo}
-            onChange={(e) => setFilterTipo(e.target.value as TransaccionTipo | 'todos')}
-            className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
-          >
-            <option value="todos">Todos</option>
-            <option value="ingreso">Solo ingresos</option>
-            <option value="gasto">Solo gastos</option>
-          </select>
-
-          {propiedades.length > 1 && (
-            <select
-              value={filterProp}
-              onChange={(e) => setFilterProp(e.target.value)}
-              className="flex-1 bg-surface-low border-0 rounded-xl px-3 py-2 text-base text-on-surface focus:outline-none"
-            >
-              <option value="todas">Todas</option>
-              {propiedades.map((p) => (
-                <option key={p.id} value={p.id}>{p.nombre}</option>
-              ))}
-            </select>
-          )}
         </div>
       </div>
 
       {/* Summary bar */}
-      <div className="px-5 mb-4">
-        <div className="flex gap-3">
+      <div className="px-5 mb-4 lg:px-0">
+        <div className="flex gap-3 lg:max-w-lg">
           <div className="flex-1 bg-success-container/50 rounded-xl px-3 py-2.5">
             <p className="text-xs text-success mb-0.5">Ingresos</p>
             <p className="text-sm font-bold text-success tabular-nums">+{fmt(ingresos)} €</p>
@@ -187,7 +190,7 @@ export function TransaccionesView() {
       </div>
 
       {/* Grouped list */}
-      <div className="px-5">
+      <div className="px-5 lg:px-0">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-12 text-center">
             <p className="text-sm text-outline-variant">
@@ -203,7 +206,25 @@ export function TransaccionesView() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <>
+          <div className="hidden lg:block">
+            <TransaccionesTable
+              grupos={grupos}
+              propiedades={propiedades}
+              mostrarPropiedad={propiedades.length > 1}
+              onDelete={(id) => setConfirmId(id)}
+              onDuplicate={(t) => {
+                setDuplicateTx(t)
+                setShowAdd(true)
+              }}
+              onEdit={(t) => setEditTx(t)}
+              onOpenFile={(id) =>
+                window.open(`https://drive.google.com/file/d/${id}/view`, '_blank')
+              }
+              onFactura={(t) => setFacturaTxId(t.id)}
+            />
+          </div>
+          <div className="flex flex-col gap-4 lg:hidden">
             {grupos.map(({ mes, items }) => {
               const totalMes = items.reduce(
                 (s, t) => s + (t.tipo === 'ingreso' ? t.importe : -t.importe),
@@ -246,6 +267,7 @@ export function TransaccionesView() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 

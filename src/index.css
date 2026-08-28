@@ -30,24 +30,33 @@
     background: #f8f9f9;
   }
 
-  /* Por encima del ancho de la app (tablet/desktop) el layout sigue siendo
-     de una sola columna a propósito — es una app personal pensada para
-     móvil. Aquí solo evitamos que en pantallas grandes se vea como una
-     columna estrecha perdida: se marca el borde vertical con una sombra
-     para que se lea como una app centrada, no como un bug de maquetación.
+  /* Rango tablet (481–1023px): el layout móvil de una sola columna se
+     centra como una "card". Se marca el borde vertical con una sombra para
+     que se lea como una app centrada, no como un bug de maquetación.
      Deliberadamente sin margen/radio vertical: el Nav, los BottomSheet y
      los toasts son `position: fixed` contra el viewport real (para
      quedar pegados al borde inferior real en móvil, por encima del
      teclado), así que el borde inferior de #root tiene que seguir
      coincidiendo exactamente con el borde inferior del viewport o
      quedarían descolgados de la card. */
-  @media (min-width: 481px) {
+  @media (min-width: 481px) and (max-width: 1023px) {
     body {
       background: #e4e9e9;
     }
 
     #root {
       box-shadow: 0 0 0 1px rgba(44, 52, 53, 0.06), 0 0 40px rgba(44, 52, 53, 0.1);
+    }
+  }
+
+  /* Escritorio (≥1024px, el breakpoint `lg` de Tailwind): se libera el tope
+     de ancho móvil. El Shell (App.tsx) pinta su propia barra superior y
+     centra el contenido con `lg:max-w-content`. En este rango no hay barra
+     inferior fija, así que #root puede ocupar todo el viewport. */
+  @media (min-width: 1024px) {
+    #root {
+      max-width: none;
+      margin: 0;
     }
   }
 

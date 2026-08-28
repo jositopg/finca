@@ -35,13 +35,13 @@ export function BottomSheet({ open, onClose, title, children }: Props) {
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-end justify-center"
+      className="fixed inset-0 z-50 flex items-end justify-center lg:items-center lg:p-6"
       onClick={(e) => {
         if (e.target === overlayRef.current) onClose()
       }}
     >
       <div className="absolute inset-0 bg-on-surface/20 backdrop-blur-sm" />
-      <div className="relative w-full max-w-app bg-surface-lowest rounded-t-2xl shadow-card max-h-[90svh] flex flex-col">
+      <div className="relative w-full max-w-app bg-surface-lowest rounded-t-2xl shadow-card max-h-[90svh] flex flex-col lg:max-w-lg lg:rounded-2xl lg:max-h-[85vh]">
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <h2 className="font-display text-lg font-bold text-on-surface">{title}</h2>
           <button

@@ -41,6 +41,17 @@ La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07
 - Patrón "marcar hecho sin tocar el dato real" (`alDiaDesde`, `deudaDesde`, `rentaRevisadaDesde`, `fianzaDepositadaDesde`): campos ISO datetime que se guardan al pulsar un botón, sin abrir formulario ni cambiar ningún otro dato — mismo patrón para features similares futuras.
 - **Cualquier `fetch`/promesa de red sin timeout explícito es un bug latente** ("botón que se queda colgado para siempre" en redes móviles lentas). Ya se ha encontrado y arreglado en Drive (`apiGet/Post/Put/Delete`, subida resumable) y en el cliente de Supabase (`fetchConTimeout`). Si aparece de nuevo el síntoma "el botón no responde", mirar timeouts antes que otra causa.
 
+## Layout responsive: móvil vs escritorio
+
+La app es **mobile-first**. Hay un único breakpoint que separa los dos modos: **`lg` de Tailwind (≥1024px) = "escritorio"**. Por debajo, todo se renderiza como siempre (columna única, `#root` topado a 480px en `src/index.css`, barra inferior `Nav`). El rango 481–1023px (tablet) mantiene el tratamiento de "card centrada" (`src/index.css`).
+
+- **Regla de oro**: no tocar el render móvil. Los cambios de escritorio se hacen **solo** con variantes `lg:` en el JSX, o gated tras `useIsDesktop()` (`src/hooks/useMediaQuery.ts`). Si un cambio `lg:` altera el orden del DOM, compensarlo en móvil con clases `order-*` (ver `DashboardView`, `TransaccionesView`).
+- **`src/components/TopBar.tsx`** (`hidden lg:block`): barra superior horizontal de escritorio — wordmark + 5 secciones como pestañas + acciones globales (exportar Sheets/JSON, datos de facturación, refrescar). En móvil esas acciones siguen en la cabecera del Dashboard (`lg:hidden`). `NAV_ITEMS` se exporta desde `Nav.tsx` y lo comparten `Nav` y `TopBar`.
+- **`src/hooks/useAccionesGlobales.ts`**: lógica compartida de exportar a Sheets / backup JSON, consumida por Dashboard (móvil) y `TopBar` (escritorio) — no duplicar.
+- **`App.tsx`**: en escritorio, `<main>` centra el contenido a `lg:max-w-content` (1280px, en `tailwind.config.js`).
+- **`BottomSheet` / `ConfirmDialog`**: en `lg:` pasan de hoja inferior a modal centrado (`lg:items-center`, `lg:rounded-2xl`). Mismo componente y API.
+- **Vistas en escritorio**: Dashboard = 2 columnas (`flex flex-col lg:grid`, con wrappers `contents lg:flex` para que las columnas apilen independientes sin compartir alto de fila). Movimientos = `TransaccionesTable` (`hidden lg:block`) en vez de las tarjetas `TransactionItem` (`lg:hidden`). Propiedades = master-detail: `PropiedadesView` es un wrapper que en escritorio renderiza `PropiedadesSidebar` (lista) + `PropiedadesPanel embedded` (ficha); en móvil solo `PropiedadesPanel`. Fiscal/Estadísticas = rejillas `lg:grid`.
+
 ## Navegación (`src/components/Nav.tsx`)
 
 Inicio (Dashboard) · Propiedades · Movimientos (Transacciones) · Estadísticas · Fiscal.
@@ -52,5 +63,6 @@ Inicio (Dashboard) · Propiedades · Movimientos (Transacciones) · Estadística
 ## Limitaciones conocidas
 
 - **No se puede probar login OAuth de Google (Supabase Auth / Drive / Sheets) desde una sesión de agente** — requiere la sesión interactiva del navegador de Jose. Verificar siempre con `build`+`lint`+`test`, y comunicar explícitamente qué queda pendiente de que Jose confirme en la app real.
+- **No se puede probar el render móvil (<1024px) desde el Chrome de la sesión de agente** — la ventana no baja de ~1440px de viewport. El layout de escritorio (`lg:`) sí se puede verificar visualmente; el móvil se revisa por código (los cambios `lg:` son aditivos y el orden se preserva con `order-*`).
 - El histórico completo de decisiones de producto y sesiones anteriores vive en el sistema de memoria de Jose (fuera de este repo) — si trabajas desde una sesión nueva sin ese historial (p.ej. remote-control con `--spawn=worktree`, o un checkout distinto), este archivo es la referencia de arquitectura, pero puede no reflejar decisiones muy recientes que aún no se hayan volcado aquí.
 - **Exportación a Sheets (`setup.ts`) no refleja `soloMio` ni `igicSoportado`**: las hojas derivadas (Resumen, Movimientos, Modelo 420) usan fórmulas SUMIFS/VLOOKUP que aplican el `porcentajePropiedad` de forma uniforme por propiedad — no hay (todavía) una columna en "Movimientos" que las fórmulas puedan usar para saltarse ese reparto transacción a transacción, ni para restar el IGIC soportado del repercutido. Mismo tipo de límite ya conocido con el prorrateo por periodo facturado (ver más abajo). Si Jose usa alguno de los dos con locales/propiedades a medias, el Sheet exportado puede no cuadrar con la app hasta que se revisiten esas fórmulas.

@@ -13,8 +13,7 @@ import {
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
-import { useToast } from '../context/ToastContext'
-import { exportarASheets } from '../api/setup'
+import { useAccionesGlobales } from '../hooks/useAccionesGlobales'
 import { BottomSheet } from '../components/BottomSheet'
 import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
 import { FacturasSuministros } from '../components/FacturasSuministros'
@@ -51,7 +50,6 @@ export function DashboardView({ onNavigate }: Props) {
   const {
     propiedades,
     transacciones,
-    ingresosExternos,
     tareas,
     datosFacturacion,
     guardarDatosFacturacion,
@@ -59,13 +57,11 @@ export function DashboardView({ onNavigate }: Props) {
     refreshData,
     addProp,
     addTx,
-    ensureDriveAccess,
   } = useApp()
-  const { showToast } = useToast()
+  const { exportarSheets, exportarJSON, exporting } = useAccionesGlobales()
   const [showAddProp, setShowAddProp] = useState(false)
   const [showAddTx, setShowAddTx] = useState(false)
   const [showDatosFacturacion, setShowDatosFacturacion] = useState(false)
-  const [exporting, setExporting] = useState(false)
 
   const now = new Date()
   const currentMonth = format(now, 'yyyy-MM')
@@ -107,46 +103,15 @@ export function DashboardView({ onNavigate }: Props) {
     (p) => p.estado === 'uso_propio' || p.estado === 'vivienda_habitual',
   ).length
 
-  function handleExportJSON() {
-    const data = {
-      exportadoEn: new Date().toISOString(),
-      propiedades,
-      transacciones,
-    }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `finca-backup-${format(now, 'yyyy-MM-dd')}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    showToast('Copia de seguridad descargada', 'success')
-  }
-
-  async function handleExportSheets() {
-    setExporting(true)
-    try {
-      await ensureDriveAccess()
-      const { url } = await exportarASheets(propiedades, transacciones, ingresosExternos)
-      window.open(url, '_blank')
-      showToast('Exportado a Google Sheets', 'success')
-    } catch (err) {
-      console.error('Export to Sheets error', err)
-      showToast('No se pudo exportar a Google Sheets. Inténtalo de nuevo.')
-    } finally {
-      setExporting(false)
-    }
-  }
-
   return (
-    <div className="flex flex-col pb-24">
+    <div className="flex flex-col pb-24 lg:pb-10">
       {/* Header */}
-      <div className="px-5 pt-12 pb-5">
+      <div className="px-5 pt-12 pb-5 lg:px-0 lg:pt-6">
         <div className="flex items-center justify-between mb-1">
-          <h1 className="font-display text-2xl font-bold text-on-surface">Finca</h1>
-          <div className="flex items-center gap-1">
+          <h1 className="font-display text-2xl font-bold text-on-surface lg:text-3xl">Finca</h1>
+          <div className="flex items-center gap-1 lg:hidden">
             <button
-              onClick={handleExportSheets}
+              onClick={exportarSheets}
               disabled={exporting || propiedades.length === 0}
               title="Exportar a Google Sheets"
               className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors disabled:opacity-40"
@@ -154,7 +119,7 @@ export function DashboardView({ onNavigate }: Props) {
               <FileSpreadsheet size={18} className={exporting ? 'animate-pulse' : ''} />
             </button>
             <button
-              onClick={handleExportJSON}
+              onClick={exportarJSON}
               title="Exportar copia de seguridad (JSON)"
               className="w-9 h-9 flex items-center justify-center rounded-xl text-outline-variant hover:bg-surface-low transition-colors"
             >
@@ -180,39 +145,17 @@ export function DashboardView({ onNavigate }: Props) {
         </p>
       </div>
 
-      {/* Quick stats */}
-      {propiedades.length > 0 && (
-        <div className="px-5 mb-5">
-          <div className="flex gap-2">
-            <div className="flex-1 bg-surface-lowest rounded-xl shadow-soft px-3 py-2.5 text-center">
-              <p className="text-lg font-bold text-on-surface">{propiedades.length}</p>
-              <p className="text-xs text-outline-variant">Total</p>
-            </div>
-            {alquiladas > 0 && (
-              <div className="flex-1 bg-success-container/60 rounded-xl px-3 py-2.5 text-center">
-                <p className="text-lg font-bold text-success">{alquiladas}</p>
-                <p className="text-xs text-success/70">Alquiladas</p>
-              </div>
-            )}
-            {vacias > 0 && (
-              <div className="flex-1 bg-warning-container/60 rounded-xl px-3 py-2.5 text-center">
-                <p className="text-lg font-bold text-warning">{vacias}</p>
-                <p className="text-xs text-warning/70">Vacías</p>
-              </div>
-            )}
-            {propias > 0 && (
-              <div className="flex-1 bg-surface-low rounded-xl px-3 py-2.5 text-center">
-                <p className="text-lg font-bold text-on-surface">{propias}</p>
-                <p className="text-xs text-outline-variant">Propias</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Layout: móvil = una columna en el orden actual (via `order` sobre los
+          hijos promovidos por `contents`); escritorio = 2 columnas que apilan
+          de forma independiente (sin compartir alto de fila como haría grid). */}
+      <div className="flex flex-col lg:grid lg:grid-cols-[7fr_4fr] lg:gap-6 lg:items-start">
+
+      {/* Columna principal */}
+      <div className="contents lg:flex lg:flex-col lg:gap-5">
 
       {/* Monthly summary */}
-      <div className="px-5 mb-5">
-        <div className="bg-surface-lowest rounded-2xl shadow-soft p-5">
+      <div className="px-5 mb-5 order-2 lg:order-none lg:px-0 lg:mb-0">
+        <div className="bg-surface-lowest rounded-2xl shadow-soft p-5 lg:p-6">
           <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
             Este mes
           </p>
@@ -243,36 +186,9 @@ export function DashboardView({ onNavigate }: Props) {
         </div>
       </div>
 
-      {/* Tareas pendientes de todas las propiedades */}
-      <div className="px-5 mb-5">
-        <TareasDashboard
-          propiedades={propiedades}
-          tareas={tareas}
-          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
-        />
-      </div>
-
-      {/* Facturas de agua y luz — carga rápida para todas las propiedades */}
-      {propiedades.length > 0 && (
-        <div className="px-5 mb-5">
-          <FacturasSuministros
-            propiedades={propiedades}
-            trigger={(open) => (
-              <button
-                onClick={open}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary-container text-primary text-sm font-semibold hover:brightness-95 transition-all"
-              >
-                <Droplet size={16} />
-                Registrar facturas de agua y luz
-              </button>
-            )}
-          />
-        </div>
-      )}
-
       {/* Year summary */}
       {(ingresosAnio > 0 || gastosAnio > 0) && (
-        <div className="px-5 mb-5">
+        <div className="px-5 mb-5 order-5 lg:order-none lg:px-0 lg:mb-0">
           <div className="flex items-center gap-3 bg-surface-low rounded-xl px-4 py-3">
             <span className="text-xs text-outline-variant">Año {currentYear}</span>
             <span className="text-xs text-success font-medium tabular-nums">
@@ -295,7 +211,7 @@ export function DashboardView({ onNavigate }: Props) {
       )}
 
       {/* Properties */}
-      <div className="px-5">
+      <div className="px-5 order-6 lg:order-none lg:px-0">
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
             Propiedades ({propiedades.length})
@@ -322,7 +238,7 @@ export function DashboardView({ onNavigate }: Props) {
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 xl:grid xl:grid-cols-2">
             {propiedades.map((p) => (
               <PropiedadCard
                 key={p.id}
@@ -341,11 +257,77 @@ export function DashboardView({ onNavigate }: Props) {
         )}
       </div>
 
+      </div>
+
+      {/* Columna lateral */}
+      <div className="contents lg:flex lg:flex-col lg:gap-5">
+
+      {/* Quick stats */}
+      {propiedades.length > 0 && (
+        <div className="px-5 mb-5 order-1 lg:order-none lg:px-0 lg:mb-0">
+          <div className="flex gap-2 lg:grid lg:grid-cols-2">
+            <div className="flex-1 bg-surface-lowest rounded-xl shadow-soft px-3 py-2.5 text-center">
+              <p className="text-lg font-bold text-on-surface">{propiedades.length}</p>
+              <p className="text-xs text-outline-variant">Total</p>
+            </div>
+            {alquiladas > 0 && (
+              <div className="flex-1 bg-success-container/60 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-success">{alquiladas}</p>
+                <p className="text-xs text-success/70">Alquiladas</p>
+              </div>
+            )}
+            {vacias > 0 && (
+              <div className="flex-1 bg-warning-container/60 rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-warning">{vacias}</p>
+                <p className="text-xs text-warning/70">Vacías</p>
+              </div>
+            )}
+            {propias > 0 && (
+              <div className="flex-1 bg-surface-low rounded-xl px-3 py-2.5 text-center">
+                <p className="text-lg font-bold text-on-surface">{propias}</p>
+                <p className="text-xs text-outline-variant">Propias</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tareas pendientes de todas las propiedades */}
+      <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">
+        <TareasDashboard
+          propiedades={propiedades}
+          tareas={tareas}
+          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
+        />
+      </div>
+
+      {/* Facturas de agua y luz — carga rápida para todas las propiedades */}
+      {propiedades.length > 0 && (
+        <div className="px-5 mb-5 order-4 lg:order-none lg:px-0 lg:mb-0">
+          <FacturasSuministros
+            propiedades={propiedades}
+            trigger={(open) => (
+              <button
+                onClick={open}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-primary-container text-primary text-sm font-semibold hover:brightness-95 transition-all"
+              >
+                <Droplet size={16} />
+                Registrar facturas de agua y luz
+              </button>
+            )}
+          />
+        </div>
+      )}
+
+      </div>
+
+      </div>
+
       {/* FAB */}
       {propiedades.length > 0 && (
         <button
           onClick={() => setShowAddTx(true)}
-          className="fixed bottom-20 right-4 w-14 h-14 bg-primary text-on-primary rounded-2xl shadow-card flex items-center justify-center hover:bg-primary-dim transition-colors z-30"
+          className="fixed bottom-20 right-4 w-14 h-14 bg-primary text-on-primary rounded-2xl shadow-card flex items-center justify-center hover:bg-primary-dim transition-colors z-30 lg:bottom-8 lg:right-8"
         >
           <Plus size={24} />
         </button>
