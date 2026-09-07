@@ -6,6 +6,17 @@ App personal de Jose para gestionar y llevar la contabilidad de sus propiedades 
 
 Repo `jositopg/finca`, desplegado en Vercel: `https://lasfincas.vercel.app`.
 
+## Snapshot macro para Fuck You Money
+
+FYM es el balance consolidado (solo lectura del inmobiliario). Esta app **no** se acopla al CRUD de FYM.
+
+- Vistas: `v_patrimonio_propiedades`, `v_patrimonio_cashflow` (sin PII).
+- Función: `patrimonio_macro_snapshot()` → JSON. SQL en `scripts/sql/v_patrimonio_macro.sql`.
+- Universo: `propietario_nombre IS NULL` (`esDeJose`). Valor = `valor_mercado` o fallback catastro, × `% propiedad`.
+- **No hay principal de hipoteca** — el snapshot pone `mortgageOutstanding: null`.
+- REVOKE a `anon`/`authenticated`. Solo el rol postgres (DATABASE_URL) puede leerlo. FYM llama esto desde `/api/sync-finca` con `FINCA_DATABASE_URL`.
+- Tras cambiar este contrato, actualizar también `~/Proyectos/fuck-you-money/HANDOFF.md`.
+
 ## Stack
 
 React 19 + TypeScript + Vite + Tailwind CSS. PWA (manifest, service worker, iconos). Sin librería de gráficos — los gráficos se hacen a mano en SVG/divs.
