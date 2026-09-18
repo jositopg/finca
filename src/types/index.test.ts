@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alquilerVigente,
   amortizacionAnual,
+  aplicarCambioCondiciones,
   baseDesdeRentaNeta,
   calcularReparto,
   calcularRentaLocal,
   contratoEstado,
+  corregirTramoVigente,
   cuotaIRPF,
   datosFacturacionCompletos,
   deudaInquilino,
@@ -18,6 +21,8 @@ import {
   ordenarTareas,
   parseFilasImportadas,
   parseImporte,
+  periodoTramo,
+  quitarTramoContrato,
   rangoAnio,
   rangoMes,
   rentaPendiente,
@@ -26,6 +31,8 @@ import {
   tipoDocumentoAlquiler,
   tipoMarginalIRPF,
   tocaRevisarRenta,
+  tramoEnFecha,
+  tramosEfectivos,
   type IngresoExterno,
   type Propiedad,
   type Tarea,
@@ -567,6 +574,190 @@ describe('deudaInquilino', () => {
         new Date('2026-03-01'),
       ),
     ).toBeNull()
+  })
+
+  it('usa la renta de cada tramo, no la actual, para los meses anteriores a un cambio', () => {
+    const base = propiedad({
+      alquilerMensual: 500,
+      contratoInicio: '2026-01-01',
+      contratoFin: '2026-12-31',
+    })
+    const r = aplicarCambioCondiciones(
+      base,
+      { vigenteDesde: '2026-03-01', alquilerMensual: 600, contratoFin: '2027-12-31' },
+      new Date('2026-04-15'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // Enero y febrero a 500, marzo a 600; abril es el mes en curso y no cuenta.
+    const deuda = deudaInquilino(r.propiedad, [], new Date('2026-04-15'))
+    expect(deuda?.importe).toBe(1600)
+  })
+})
+
+describe('tramos de contrato', () => {
+  const alquilada = () =>
+    propiedad({
+      estado: 'alquilado',
+      alquilerMensual: 700,
+      contratoInicio: '2024-01-01',
+      contratoFin: '2026-09-30',
+      fianzaImporte: 700,
+    })
+
+  it('sin tramos persistidos, el tramo implícito sale de los campos sueltos', () => {
+    const p = alquilada()
+    const tramos = tramosEfectivos(p)
+    expect(tramos).toHaveLength(1)
+    expect(tramos[0]).toMatchObject({
+      vigenteDesde: '2024-01-01',
+      alquilerMensual: 700,
+      contratoFin: '2026-09-30',
+      fianzaImporte: 700,
+    })
+    expect(alquilerVigente(p, '2026-06-01')).toBe(700)
+  })
+
+  it('aplica un cambio futuro sin adelantar la renta de hoy', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.propiedad.alquilerMensual).toBe(700)
+    expect(r.propiedad.contratoFin).toBe('2027-09-30')
+    expect(alquilerVigente(r.propiedad, '2026-09-18', new Date('2026-09-18'))).toBe(700)
+    expect(alquilerVigente(r.propiedad, '2026-10-01', new Date('2026-09-18'))).toBe(750)
+    expect(tramoEnFecha(r.propiedad, '2026-10-01')?.contratoFin).toBe('2027-09-30')
+    expect(r.propiedad.tramosContrato).toHaveLength(2)
+  })
+
+  it('un cambio ya vigente actualiza la renta de la ficha y marca la revisión', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-09-01', alquilerMensual: 750 },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.propiedad.alquilerMensual).toBe(750)
+    expect(r.propiedad.rentaRevisadaDesde).toBe(new Date('2026-09-18').toISOString())
+  })
+
+  it('rechaza un cambio anterior al inicio, sin cambios, o sin contrato', () => {
+    expect(aplicarCambioCondiciones(alquilada(), { vigenteDesde: '2023-12-01', alquilerMensual: 800 }).ok).toBe(
+      false,
+    )
+    expect(
+      aplicarCambioCondiciones(alquilada(), {
+        vigenteDesde: '2026-10-01',
+        alquilerMensual: 700,
+        contratoFin: '2026-09-30',
+        fianzaImporte: 700,
+      }).ok,
+    ).toBe(false)
+    expect(
+      aplicarCambioCondiciones(
+        propiedad({ estado: 'alquilado', alquilerMensual: 700 }),
+        { vigenteDesde: '2026-10-01', alquilerMensual: 800 },
+      ).ok,
+    ).toBe(false)
+    expect(
+      aplicarCambioCondiciones(propiedad({ estado: 'vacio', contratoInicio: '2024-01-01' }), {
+        vigenteDesde: '2026-10-01',
+        alquilerMensual: 800,
+      }).ok,
+    ).toBe(false)
+  })
+
+  it('reemplaza un tramo del mismo día en vez de duplicarlo', () => {
+    const primero = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(primero.ok).toBe(true)
+    if (!primero.ok) return
+    const segundo = aplicarCambioCondiciones(
+      primero.propiedad,
+      { vigenteDesde: '2026-10-01', alquilerMensual: 780, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(segundo.ok).toBe(true)
+    if (!segundo.ok) return
+    expect(segundo.propiedad.tramosContrato).toHaveLength(2)
+    expect(alquilerVigente(segundo.propiedad, '2026-10-01')).toBe(780)
+  })
+
+  it('quitar el tramo extra vuelve a los campos sueltos del tramo que queda', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const extra = r.propiedad.tramosContrato?.find((t) => t.vigenteDesde === '2026-10-01')
+    expect(extra).toBeTruthy()
+    const limpio = quitarTramoContrato(r.propiedad, extra!.id, new Date('2026-09-18'))
+    expect(limpio.tramosContrato).toBeUndefined()
+    expect(limpio.alquilerMensual).toBe(700)
+    expect(limpio.contratoFin).toBe('2026-09-30')
+  })
+
+  it('editar la ficha corrige el tramo vigente, no crea uno nuevo', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const corregida = corregirTramoVigente(
+      r.propiedad,
+      { alquilerMensual: 710, contratoFin: r.propiedad.contratoFin, fianzaImporte: 700 },
+      new Date('2026-09-18'),
+    )
+    expect(corregida.tramosContrato).toHaveLength(2)
+    expect(alquilerVigente(corregida, '2026-09-18', new Date('2026-09-18'))).toBe(710)
+    expect(alquilerVigente(corregida, '2026-10-01', new Date('2026-09-18'))).toBe(750)
+    expect(corregida.alquilerMensual).toBe(710)
+  })
+
+  it('el periodo de un tramo cierra el día anterior al siguiente', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750, contratoFin: '2027-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const tramos = r.propiedad.tramosContrato ?? []
+    expect(periodoTramo(tramos, 0)).toEqual({ desde: '2024-01-01', hasta: '2026-09-30' })
+    expect(periodoTramo(tramos, 1)).toEqual({ desde: '2026-10-01', hasta: '2027-09-30' })
+  })
+
+  it('rentaPendiente usa la renta del mes, no un tramo futuro', () => {
+    const r = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750 },
+      new Date('2026-09-18'),
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(rentaPendiente(r.propiedad, [], new Date('2026-09-18'))).toBe(true)
+    const sinRentaEsteMes = propiedad({ estado: 'alquilado', contratoInicio: '2026-01-01' })
+    const futuro = aplicarCambioCondiciones(
+      { ...sinRentaEsteMes, alquilerMensual: undefined },
+      { vigenteDesde: '2026-10-01', alquilerMensual: 750 },
+      new Date('2026-09-18'),
+    )
+    // Sin renta pactada en el tramo de septiembre, no hay pendiente este mes.
+    expect(futuro.ok).toBe(true)
+    if (!futuro.ok) return
+    expect(rentaPendiente(futuro.propiedad, [], new Date('2026-09-18'))).toBe(false)
   })
 })
 

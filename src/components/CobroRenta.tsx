@@ -5,7 +5,14 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularRentaLocal, deudaInquilino, parseImporte, type Propiedad, type Transaccion } from '../types'
+import {
+  alquilerVigente,
+  calcularRentaLocal,
+  deudaInquilino,
+  parseImporte,
+  type Propiedad,
+  type Transaccion,
+} from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -26,22 +33,22 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [saving, setSaving] = useState(false)
   const esLocal = propiedad.tipo === 'local'
-  const [rentaBrutaStr, setRentaBrutaStr] = useState(
-    propiedad.alquilerMensual ? propiedad.alquilerMensual.toString() : '',
-  )
+  const [rentaBrutaStr, setRentaBrutaStr] = useState('')
 
-  if (!propiedad.alquilerMensual) return null
+  const alquilerDeLaFecha = alquilerVigente(propiedad, fecha)
+  if (alquilerDeLaFecha == null && alquilerVigente(propiedad) == null) return null
 
   const deuda = deudaInquilino(propiedad, transacciones)
+  const alquiler = alquilerDeLaFecha ?? alquilerVigente(propiedad) ?? 0
 
   const rentaBrutaParseada = parseImporte(rentaBrutaStr)
   const rentaBruta = esLocal
-    ? Number.isNaN(rentaBrutaParseada)
-      ? 0
+    ? Number.isNaN(rentaBrutaParseada) || !rentaBrutaStr.trim()
+      ? alquiler
       : rentaBrutaParseada
-    : propiedad.alquilerMensual
+    : alquiler
   const desglose = esLocal ? calcularRentaLocal(rentaBruta) : null
-  const importe = desglose ? desglose.neta : propiedad.alquilerMensual
+  const importe = desglose ? desglose.neta : alquiler
 
   async function handleConfirm() {
     if (saving) return
@@ -72,7 +79,10 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
     <>
       <button
         onClick={() => {
-          setFecha(format(new Date(), 'yyyy-MM-dd'))
+          const hoy = format(new Date(), 'yyyy-MM-dd')
+          setFecha(hoy)
+          const alquilerHoy = alquilerVigente(propiedad, hoy) ?? alquilerVigente(propiedad)
+          setRentaBrutaStr(alquilerHoy != null ? alquilerHoy.toString() : '')
           setOpen(true)
         }}
         className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-success-container text-success text-sm font-semibold hover:brightness-95 transition-all"
@@ -120,6 +130,16 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
               <span className="text-base font-bold text-success tabular-nums">{fmt(importe)} €</span>
             </div>
           )}
+          {propiedad.tramosContrato &&
+            propiedad.tramosContrato.length > 0 &&
+            alquilerDeLaFecha != null &&
+            alquilerVigente(propiedad) != null &&
+            alquilerDeLaFecha !== alquilerVigente(propiedad) && (
+              <p className="text-xs text-outline-variant -mt-2">
+                En esta fecha aplica {fmt(alquilerDeLaFecha)} €/mes (el contrato
+                tiene un cambio de condiciones).
+              </p>
+            )}
 
           {deuda && (
             <p className="text-xs text-warning bg-warning-container/40 rounded-xl px-4 py-2.5">

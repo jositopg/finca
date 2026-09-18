@@ -37,6 +37,7 @@ export function TerminarContrato({ propiedad }: Props) {
         contratoArchivoId: propiedad.contratoArchivoId,
         contratoArchivoNombre: propiedad.contratoArchivoNombre,
         fianzaImporte: propiedad.fianzaImporte,
+        tramos: propiedad.tramosContrato,
       }
       await updateProp({
         ...propiedad,
@@ -52,6 +53,7 @@ export function TerminarContrato({ propiedad }: Props) {
         contratoArchivoNombre: undefined,
         fianzaImporte: undefined,
         fianzaDepositadaDesde: undefined,
+        tramosContrato: undefined,
         historialContratos: [...(propiedad.historialContratos ?? []), historico],
       })
       setOpen(false)

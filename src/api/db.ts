@@ -9,6 +9,7 @@ import type {
   Tarea,
   TareaEstado,
   TareaPrioridad,
+  TramoContrato,
   Transaccion,
 } from '../types'
 
@@ -34,6 +35,7 @@ interface PropiedadRow {
   contrato_archivo_nombre: string | null
   reparto: Reparto | null
   historial_contratos: ContratoHistorico[] | null
+  tramos_contrato: TramoContrato[] | null
   porcentaje_propiedad: number | string | null
   gastos_recurrentes: GastoRecurrente[] | null
   referencia_catastral: string | null
@@ -93,6 +95,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     contratoArchivoNombre: row.contrato_archivo_nombre ?? undefined,
     reparto: row.reparto ?? undefined,
     historialContratos: row.historial_contratos ?? undefined,
+    tramosContrato: row.tramos_contrato ?? undefined,
     porcentajePropiedad: row.porcentaje_propiedad != null ? Number(row.porcentaje_propiedad) : undefined,
     gastosRecurrentes: row.gastos_recurrentes ?? undefined,
     referenciaCatastral: row.referencia_catastral ?? undefined,
@@ -135,6 +138,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     contrato_archivo_nombre: p.contratoArchivoNombre ?? null,
     reparto: p.reparto ?? null,
     historial_contratos: p.historialContratos ?? null,
+    tramos_contrato: p.tramosContrato ?? null,
     porcentaje_propiedad: p.porcentajePropiedad ?? null,
     gastos_recurrentes: p.gastosRecurrentes ?? null,
     referencia_catastral: p.referenciaCatastral ?? null,

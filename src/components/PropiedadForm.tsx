@@ -12,7 +12,14 @@ import type {
   RepartoConcepto,
   SuministroModo,
 } from '../types'
-import { CATEGORIAS_GASTO, CONCEPTO_LABELS, ESTADO_LABELS, parseImporte, TIPO_LABELS } from '../types'
+import {
+  CATEGORIAS_GASTO,
+  CONCEPTO_LABELS,
+  corregirTramoVigente,
+  ESTADO_LABELS,
+  parseImporte,
+  TIPO_LABELS,
+} from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -333,6 +340,7 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
       gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
       historialContratos: initial?.historialContratos,
+      tramosContrato: initial?.tramosContrato,
       contratoArchivoId: initial?.contratoArchivoId,
       contratoArchivoNombre: initial?.contratoArchivoNombre,
       alDiaDesde: initial?.alDiaDesde,
@@ -341,8 +349,16 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       fianzaDepositadaDesde: initial?.fianzaDepositadaDesde,
     }
 
+    const aGuardar = propiedad.tramosContrato?.length
+      ? corregirTramoVigente(propiedad, {
+          alquilerMensual: propiedad.alquilerMensual,
+          contratoFin: propiedad.contratoFin,
+          fianzaImporte: propiedad.fianzaImporte,
+        })
+      : propiedad
+
     try {
-      await onSave(propiedad)
+      await onSave(aGuardar)
     } catch (err) {
       // addProp/updateProp ya muestran un toast — aquí solo evitamos que
       // el botón se quede bloqueado si falla el guardado.
@@ -592,6 +608,13 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
             onChange={(e) => setAlquilerMensual(e.target.value)}
             error={errors.alquilerMensual}
           />
+          {initial?.tramosContrato && initial.tramosContrato.length > 0 && (
+            <p className="-mt-3 text-xs text-outline-variant">
+              Esto corrige la renta vigente hoy. Para cambiarla a partir de
+              una fecha sin terminar el contrato, usa «Cambiar condiciones»
+              en la ficha.
+            </p>
+          )}
           <Input
             label="Importe de la fianza € (opcional)"
             type="text"

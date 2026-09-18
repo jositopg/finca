@@ -22,8 +22,9 @@ import {
 // documento se recalcula solo si Jose edita un importe o añade un
 // movimiento directamente en Sheets. Solo las hojas puramente informativas/
 // de configuración (Propiedades, Reparto de suministros, Gastos fijos
-// mensuales, Historial, Ingresos externos, Tramos IRPF, y las columnas base
-// de Movimientos) son valores fijos, porque son la fuente, no algo derivado.
+// mensuales, Historial, Tramos de contrato, Ingresos externos, Tramos IRPF,
+// y las columnas base de Movimientos) son valores fijos, porque son la
+// fuente, no algo derivado.
 //
 // El locale del spreadsheet es es_ES, así que TODAS las fórmulas usan ";"
 // como separador de argumentos y "," como separador decimal en literales
@@ -246,6 +247,26 @@ function buildHistorial(propiedades: Propiedad[]) {
     }
   }
   return { headers, rows, moneyCols: [5] }
+}
+
+// ─── Tramos de condiciones del contrato en vigor (datos crudos) ────────────
+function buildTramosContrato(propiedades: Propiedad[]) {
+  const headers = ['Propiedad', 'Inquilino', 'Vigente desde', 'Alquiler mensual', 'Contrato hasta', 'Fianza', 'Nota']
+  const rows: (string | number)[][] = []
+  for (const p of propiedades) {
+    for (const t of p.tramosContrato ?? []) {
+      rows.push([
+        p.nombre,
+        p.inquilinoNombre ?? '',
+        fecha(t.vigenteDesde),
+        t.alquilerMensual != null ? round2(t.alquilerMensual) : '',
+        t.contratoFin ? fecha(t.contratoFin) : '',
+        t.fianzaImporte != null ? round2(t.fianzaImporte) : '',
+        t.notas ?? '',
+      ])
+    }
+  }
+  return { headers, rows, moneyCols: [3, 5] }
 }
 
 // ─── Ingresos externos configurados (datos crudos) ─────────────────────────
@@ -507,6 +528,7 @@ export async function exportarASheets(
     { title: 'Gastos fijos mensuales', spec: buildGastosRecurrentes(propiedades) },
     { title: 'Movimientos', spec: buildMovimientos(propiedades, transacciones) },
     { title: 'Historial de alquileres', spec: buildHistorial(propiedades) },
+    { title: 'Tramos de contrato', spec: buildTramosContrato(propiedades) },
     { title: 'Rentabilidad y valoración', spec: buildRentabilidad(propiedades, umbral) },
     { title: 'Evolución anual', spec: buildEvolucionAnual(propiedadesJose, transacciones) },
     { title: 'Modelo 420', spec: buildModelo420(locales, transacciones) },

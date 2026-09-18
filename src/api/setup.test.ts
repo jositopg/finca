@@ -74,6 +74,7 @@ const TODAS_LAS_HOJAS = [
   'Gastos fijos mensuales',
   'Movimientos',
   'Historial de alquileres',
+  'Tramos de contrato',
   'Rentabilidad y valoración',
   'Evolución anual',
   'Modelo 420',
@@ -95,7 +96,7 @@ describe('exportarASheets', () => {
     mockWriteFormattedSheets.mockClear()
   })
 
-  it('genera siempre las 13 hojas, incluso sin ningún dato', async () => {
+  it('genera siempre las 14 hojas, incluso sin ningún dato', async () => {
     const p1 = propiedad({ id: 'p1', nombre: 'Piso Solo', tipo: 'piso' })
     const byTitle = await exportar([p1], [], [])
     expect([...byTitle.keys()]).toEqual(TODAS_LAS_HOJAS)

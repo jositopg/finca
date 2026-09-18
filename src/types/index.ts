@@ -36,6 +36,21 @@ export type PropiedadEstado =
   | 'vivienda_habitual'
 export type TransaccionTipo = 'ingreso' | 'gasto'
 
+// Condiciones de un tramo del contrato actual (mismo inquilino). El contrato
+// no se termina: inquilino y contratoInicio se mantienen. Cada tramo cubre
+// desde vigenteDesde hasta el día anterior al siguiente tramo (el último
+// sigue abierto). Si tramosContrato está vacío, los campos sueltos de la
+// propiedad (alquilerMensual, contratoFin, fianzaImporte) son el único tramo,
+// implícito desde contratoInicio.
+export interface TramoContrato {
+  id: string
+  vigenteDesde: string // YYYY-MM-DD
+  alquilerMensual?: number
+  contratoFin?: string // YYYY-MM-DD
+  fianzaImporte?: number
+  notas?: string
+}
+
 export interface Propiedad {
   id: string
   nombre: string
@@ -57,6 +72,7 @@ export interface Propiedad {
   contratoArchivoNombre?: string
   reparto?: Reparto // quién paga agua/luz/basuras/IBI
   historialContratos?: ContratoHistorico[] // alquileres anteriores ya terminados
+  tramosContrato?: TramoContrato[] // cambios de condiciones del contrato en vigor, con fecha desde la que aplican
   porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
   gastosRecurrentes?: GastoRecurrente[] // gastos fijos que se repiten cada mes (comunidad, etc.)
   referenciaCatastral?: string
@@ -330,6 +346,225 @@ export interface ContratoHistorico {
   contratoArchivoId?: string
   contratoArchivoNombre?: string
   fianzaImporte?: number
+  tramos?: TramoContrato[] // si el contrato tuvo cambios de condiciones antes de terminar
+}
+
+// Fecha local YYYY-MM-DD — mismo criterio que contratoEstado/deudaInquilino
+// (getFullYear/getMonth/getDate, no UTC).
+export function fechaISO(hoy: Date = new Date()): string {
+  return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`
+}
+
+const TRAMO_INICIAL_ID = 'tramo-inicial'
+
+export type CambioCondicionesContrato = {
+  vigenteDesde: string
+  alquilerMensual?: number
+  contratoFin?: string
+  fianzaImporte?: number
+  notas?: string
+}
+
+export type ResultadoCambioCondiciones =
+  | { ok: true; propiedad: Propiedad }
+  | { ok: false; error: string }
+
+// Tramos persistidos, o uno implícito con los campos sueltos de la ficha
+// si todavía no se ha registrado ningún cambio de condiciones.
+export function tramosEfectivos(
+  propiedad: Pick<
+    Propiedad,
+    'tramosContrato' | 'contratoInicio' | 'alquilerMensual' | 'contratoFin' | 'fianzaImporte'
+  >,
+): TramoContrato[] {
+  if (propiedad.tramosContrato && propiedad.tramosContrato.length > 0) {
+    return [...propiedad.tramosContrato].sort((a, b) => a.vigenteDesde.localeCompare(b.vigenteDesde))
+  }
+  if (!propiedad.contratoInicio) return []
+  return [
+    {
+      id: TRAMO_INICIAL_ID,
+      vigenteDesde: propiedad.contratoInicio,
+      alquilerMensual: propiedad.alquilerMensual,
+      contratoFin: propiedad.contratoFin,
+      fianzaImporte: propiedad.fianzaImporte,
+    },
+  ]
+}
+
+export function tramoEnFecha(
+  propiedad: Pick<
+    Propiedad,
+    'tramosContrato' | 'contratoInicio' | 'alquilerMensual' | 'contratoFin' | 'fianzaImporte'
+  >,
+  fecha: string,
+): TramoContrato | undefined {
+  const tramos = tramosEfectivos(propiedad)
+  let vigente: TramoContrato | undefined
+  for (const t of tramos) {
+    if (t.vigenteDesde <= fecha) vigente = t
+    else break
+  }
+  return vigente
+}
+
+export function alquilerVigente(
+  propiedad: Pick<
+    Propiedad,
+    'tramosContrato' | 'contratoInicio' | 'alquilerMensual' | 'contratoFin' | 'fianzaImporte'
+  >,
+  fecha?: string,
+  hoy: Date = new Date(),
+): number | undefined {
+  const tramo = tramoEnFecha(propiedad, fecha ?? fechaISO(hoy))
+  if (tramo?.alquilerMensual != null) return tramo.alquilerMensual
+  // Sin tramos persistidos ni fecha de inicio, los campos sueltos de la
+  // ficha siguen siendo la renta pactada (el caso anterior a esta feature).
+  if (!propiedad.tramosContrato?.length) return propiedad.alquilerMensual
+  return undefined
+}
+
+export function periodoTramo(
+  tramos: TramoContrato[],
+  index: number,
+): { desde: string; hasta?: string } {
+  const t = tramos[index]
+  const siguiente = tramos[index + 1]
+  if (!t) return { desde: '' }
+  if (!siguiente) return { desde: t.vigenteDesde, hasta: t.contratoFin }
+  const d = new Date(`${siguiente.vigenteDesde}T00:00:00`)
+  d.setDate(d.getDate() - 1)
+  return { desde: t.vigenteDesde, hasta: fechaISO(d) }
+}
+
+function snapshotTramo(anterior: TramoContrato | undefined, cambio: CambioCondicionesContrato): TramoContrato {
+  return {
+    id: crypto.randomUUID(),
+    vigenteDesde: cambio.vigenteDesde,
+    alquilerMensual: cambio.alquilerMensual ?? anterior?.alquilerMensual,
+    contratoFin: cambio.contratoFin ?? anterior?.contratoFin,
+    fianzaImporte: cambio.fianzaImporte ?? anterior?.fianzaImporte,
+    notas: cambio.notas?.trim() ? cambio.notas.trim() : undefined,
+  }
+}
+
+function hayCambioRespecto(anterior: TramoContrato | undefined, nuevo: TramoContrato): boolean {
+  if (!anterior) return true
+  return (
+    anterior.alquilerMensual !== nuevo.alquilerMensual ||
+    anterior.contratoFin !== nuevo.contratoFin ||
+    anterior.fianzaImporte !== nuevo.fianzaImporte ||
+    (nuevo.notas ?? '') !== (anterior.notas ?? '')
+  )
+}
+
+// Recalcula los campos sueltos de la ficha (alquilerMensual, contratoFin,
+// fianzaImporte) a partir de los tramos: la renta y la fianza son las del
+// tramo vigente hoy; el vencimiento es el del último pacto, para que una
+// renovación futura quite ya el aviso de contrato por vencer.
+export function sincronizarCamposVigentes(propiedad: Propiedad, hoy: Date = new Date()): Propiedad {
+  const tramos = tramosEfectivos(propiedad)
+  if (tramos.length === 0) return propiedad
+  const vigente = tramoEnFecha(propiedad, fechaISO(hoy)) ?? tramos[0]
+  const ultimo = tramos[tramos.length - 1]
+  return {
+    ...propiedad,
+    alquilerMensual: vigente.alquilerMensual,
+    contratoFin: ultimo.contratoFin,
+    fianzaImporte: vigente.fianzaImporte,
+  }
+}
+
+export function aplicarCambioCondiciones(
+  propiedad: Propiedad,
+  cambio: CambioCondicionesContrato,
+  hoy: Date = new Date(),
+): ResultadoCambioCondiciones {
+  if (propiedad.estado !== 'alquilado') {
+    return { ok: false, error: 'Solo se pueden cambiar las condiciones de un contrato en vigor' }
+  }
+  if (!propiedad.contratoInicio) {
+    return { ok: false, error: 'Falta la fecha de inicio del contrato' }
+  }
+  if (!cambio.vigenteDesde) {
+    return { ok: false, error: 'Indica desde qué fecha aplican las nuevas condiciones' }
+  }
+  if (cambio.vigenteDesde < propiedad.contratoInicio) {
+    return { ok: false, error: 'La fecha no puede ser anterior al inicio del contrato' }
+  }
+
+  const existentes = tramosEfectivos(propiedad).map((t) =>
+    t.id === TRAMO_INICIAL_ID ? { ...t, id: crypto.randomUUID() } : t,
+  )
+  const anterior = [...existentes].reverse().find((t) => t.vigenteDesde < cambio.vigenteDesde)
+  const existenteMismoDia = existentes.find((t) => t.vigenteDesde === cambio.vigenteDesde)
+  const nuevo = snapshotTramo(anterior ?? existenteMismoDia, cambio)
+  const compararCon = existenteMismoDia ?? anterior
+  if (!hayCambioRespecto(compararCon, nuevo)) {
+    return { ok: false, error: 'No hay ningún cambio respecto a las condiciones anteriores' }
+  }
+
+  const tramos = [...existentes.filter((t) => t.vigenteDesde !== cambio.vigenteDesde), nuevo].sort((a, b) =>
+    a.vigenteDesde.localeCompare(b.vigenteDesde),
+  )
+  const alquilerCambio = (anterior ?? existenteMismoDia)?.alquilerMensual !== nuevo.alquilerMensual
+
+  return {
+    ok: true,
+    propiedad: sincronizarCamposVigentes(
+      {
+        ...propiedad,
+        tramosContrato: tramos,
+        rentaRevisadaDesde: alquilerCambio ? hoy.toISOString() : propiedad.rentaRevisadaDesde,
+      },
+      hoy,
+    ),
+  }
+}
+
+export function quitarTramoContrato(propiedad: Propiedad, tramoId: string, hoy: Date = new Date()): Propiedad {
+  const tramos = (propiedad.tramosContrato ?? []).filter((t) => t.id !== tramoId)
+  if (tramos.length <= 1) {
+    const unico = tramos[0]
+    return {
+      ...propiedad,
+      tramosContrato: undefined,
+      alquilerMensual: unico?.alquilerMensual ?? propiedad.alquilerMensual,
+      contratoFin: unico?.contratoFin ?? propiedad.contratoFin,
+      fianzaImporte: unico?.fianzaImporte ?? propiedad.fianzaImporte,
+    }
+  }
+  return sincronizarCamposVigentes({ ...propiedad, tramosContrato: tramos }, hoy)
+}
+
+// Corrige el tramo vigente hoy (editar la ficha no crea un tramo nuevo:
+// para un cambio a partir de una fecha hay que usar aplicarCambioCondiciones).
+export function corregirTramoVigente(
+  propiedad: Propiedad,
+  campos: Pick<TramoContrato, 'alquilerMensual' | 'contratoFin' | 'fianzaImporte'>,
+  hoy: Date = new Date(),
+): Propiedad {
+  if (!propiedad.tramosContrato?.length) {
+    return { ...propiedad, ...campos }
+  }
+  const hoyStr = fechaISO(hoy)
+  const tramos = tramosEfectivos(propiedad)
+  let idx = -1
+  for (let i = 0; i < tramos.length; i++) {
+    if (tramos[i].vigenteDesde <= hoyStr) idx = i
+  }
+  if (idx < 0) idx = 0
+  tramos[idx] = {
+    ...tramos[idx],
+    alquilerMensual: campos.alquilerMensual,
+    fianzaImporte: campos.fianzaImporte,
+  }
+  // El vencimiento de la ficha es el del contrato entero (último pacto),
+  // no el del tramo de hoy — si hay una renovación futura, editar "fin"
+  // en el formulario la corrige a ella.
+  const last = tramos.length - 1
+  tramos[last] = { ...tramos[last], contratoFin: campos.contratoFin }
+  return sincronizarCamposVigentes({ ...propiedad, tramosContrato: tramos }, hoy)
 }
 
 export interface Transaccion {
@@ -465,14 +700,18 @@ export function rangoMes(mesYYYYMM: string): [string, string] {
 // mensual pactado) no tiene registrado el ingreso de "Alquiler mensual" de
 // ese mes, se considera renta pendiente de cobro.
 export function rentaPendiente(
-  propiedad: Pick<Propiedad, 'estado' | 'alquilerMensual' | 'id'>,
+  propiedad: Pick<
+    Propiedad,
+    'estado' | 'alquilerMensual' | 'id' | 'tramosContrato' | 'contratoInicio' | 'contratoFin' | 'fianzaImporte'
+  >,
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): boolean {
   if (propiedad.estado !== 'alquilado') return false
-  if (!propiedad.alquilerMensual) return false
-  if (hoy.getDate() < 5) return false
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const alquiler = alquilerVigente(propiedad, `${mesActual}-01`, hoy)
+  if (!alquiler) return false
+  if (hoy.getDate() < 5) return false
   const pagado = transacciones.some(
     (t) =>
       t.propiedadId === propiedad.id &&
@@ -485,22 +724,33 @@ export function rentaPendiente(
 
 // Deuda de renta acumulada: no es un registro aparte que haya que llevar a
 // mano — se calcula sola comparando lo que debería haber entrado desde el
-// inicio del contrato (alquilerMensual × meses transcurridos) contra la suma
-// de todo lo que ya se ha registrado como "Alquiler mensual". Cualquier
-// ingreso nuevo de esa categoría (aunque sea parcial, o cubra varios meses
-// de golpe) reduce la deuda sola al añadirlo — no hace falta "casar" pagos
-// contra meses concretos. `deudaDesde` (YYYY-MM) permite dar la deuda por
-// saldada sin tocar el contrato: la cuenta empieza a contar desde ahí en vez
-// de desde el inicio real, para no arrastrar meses antiguos mal registrados.
-// El mes en curso nunca cuenta como deuda todavía (puede que aún no haya
-// vencido) — solo se considera deuda lo que corresponde a meses ya cerrados.
+// inicio del contrato (alquiler vigente de cada mes × meses transcurridos)
+// contra la suma de todo lo que ya se ha registrado como "Alquiler mensual".
+// Si el contrato tuvo cambios de condiciones, cada mes usa la renta de su
+// tramo, no la actual. Cualquier ingreso nuevo de esa categoría (aunque sea
+// parcial, o cubra varios meses de golpe) reduce la deuda sola al añadirlo
+// — no hace falta "casar" pagos contra meses concretos. `deudaDesde`
+// (YYYY-MM) permite dar la deuda por saldada sin tocar el contrato: la
+// cuenta empieza a contar desde ahí en vez de desde el inicio real, para no
+// arrastrar meses antiguos mal registrados. El mes en curso nunca cuenta
+// como deuda todavía (puede que aún no haya vencido) — solo se considera
+// deuda lo que corresponde a meses ya cerrados.
 export function deudaInquilino(
-  propiedad: Pick<Propiedad, 'id' | 'estado' | 'alquilerMensual' | 'contratoInicio' | 'deudaDesde'>,
+  propiedad: Pick<
+    Propiedad,
+    | 'id'
+    | 'estado'
+    | 'alquilerMensual'
+    | 'contratoInicio'
+    | 'deudaDesde'
+    | 'tramosContrato'
+    | 'contratoFin'
+    | 'fianzaImporte'
+  >,
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): { importe: number; meses: number } | null {
   if (propiedad.estado !== 'alquilado') return null
-  if (!propiedad.alquilerMensual || propiedad.alquilerMensual <= 0) return null
   if (!propiedad.contratoInicio) return null
 
   const mesAnteriorDate = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
@@ -513,7 +763,9 @@ export function deudaInquilino(
 
   if (mesInicio > mesLimite) return null
 
-  const esperado = propiedad.alquilerMensual * mesesEntre(mesInicio, mesLimite).length
+  const meses = mesesEntre(mesInicio, mesLimite)
+  const esperado = meses.reduce((s, mes) => s + (alquilerVigente(propiedad, `${mes}-01`, hoy) ?? 0), 0)
+  if (esperado <= 0) return null
 
   const pagado = transacciones
     .filter(
@@ -528,7 +780,9 @@ export function deudaInquilino(
   const importe = Math.round((esperado - pagado) * 100) / 100
   if (importe <= 0) return null
 
-  return { importe, meses: importe / propiedad.alquilerMensual }
+  const alquilerActual = alquilerVigente(propiedad, fechaISO(hoy), hoy)
+  const divisor = alquilerActual && alquilerActual > 0 ? alquilerActual : importe
+  return { importe, meses: importe / divisor }
 }
 
 // Días hasta el fin de contrato (negativo si ya pasó). Si ya pasó la fecha,

@@ -19,6 +19,7 @@ import { useToast } from '../context/ToastContext'
 import { useIsDesktop } from '../hooks/useMediaQuery'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { CambiarCondiciones, TramosContrato } from '../components/CambiarCondiciones'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { FacturaAlquiler } from '../components/FacturaAlquiler'
@@ -34,6 +35,7 @@ import { FianzaToggle } from '../components/FianzaToggle'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
+  alquilerVigente,
   calcularRentabilidad,
   calcularReparto,
   contratoEstado,
@@ -183,6 +185,7 @@ function PropiedadCard({
     .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p, t.soloMio), 0)
   const estadoContratoP = contratoEstado(p.contratoFin)
   const alertaContrato = estadoContratoP?.alerta ?? false
+  const alquilerHoy = alquilerVigente(p)
   const rentaSinCobrar = rentaPendiente(p, transacciones)
   const revisionPendienteP = tocaRevisarRenta(p)
   const certificadoAlertaP = contratoEstado(p.certificadoEnergeticoVencimiento)?.alerta ?? false
@@ -205,7 +208,7 @@ function PropiedadCard({
           {p.inquilinoNombre && (
             <p className="text-xs text-outline-variant/70 truncate mt-0.5">
               {p.inquilinoNombre}
-              {p.alquilerMensual ? ` · ${fmt(p.alquilerMensual)} €/mes` : ''}
+              {alquilerHoy ? ` · ${fmt(alquilerHoy)} €/mes` : ''}
             </p>
           )}
         </div>
@@ -567,6 +570,7 @@ function PropiedadesPanel({
     const grupos = groupByMonth(txsFiltradas)
     const rentaSinCobrarDetalle = rentaPendiente(propiedad, transacciones)
     const deuda = deudaInquilino(propiedad, txs)
+    const alquilerHoy = alquilerVigente(propiedad)
     const tareasVencidas = tareas.filter((t) => t.propiedadId === propiedad.id && tareaVencida(t)).length
 
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
@@ -694,9 +698,9 @@ function PropiedadesPanel({
                 <span className="text-sm font-medium text-on-surface">
                   {propiedad.inquilinoNombre}
                 </span>
-                {propiedad.alquilerMensual && (
+                {alquilerHoy != null && (
                   <span className="text-xs text-success font-medium ml-auto">
-                    {fmt(propiedad.alquilerMensual)} €/mes
+                    {fmt(alquilerHoy)} €/mes
                   </span>
                 )}
               </div>
@@ -777,15 +781,18 @@ function PropiedadesPanel({
 
         {/* Cobro de renta y fin de contrato — acceso rápido */}
         {propiedad.estado === 'alquilado' && (
-          <div className="px-5 mb-4 flex gap-2">
-            {propiedad.alquilerMensual && (
+          <div className="px-5 mb-4 flex flex-col gap-2">
+            <div className="flex gap-2">
+              {alquilerHoy != null && (
+                <div className="flex-1">
+                  <CobroRenta propiedad={propiedad} transacciones={txs} />
+                </div>
+              )}
               <div className="flex-1">
-                <CobroRenta propiedad={propiedad} transacciones={txs} />
+                <TerminarContrato propiedad={propiedad} />
               </div>
-            )}
-            <div className="flex-1">
-              <TerminarContrato propiedad={propiedad} />
             </div>
+            <CambiarCondiciones propiedad={propiedad} />
           </div>
         )}
 
@@ -810,6 +817,7 @@ function PropiedadesPanel({
                     alquilerMensual: undefined,
                     contratoInicio: undefined,
                     contratoFin: undefined,
+                    tramosContrato: undefined,
                   })
                 }
                 className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary-container text-primary text-sm font-semibold hover:brightness-95 transition-all"
@@ -829,6 +837,12 @@ function PropiedadesPanel({
         {propiedad.estado === 'alquilado' && (
           <div className="px-5 mb-4">
             <ContratoAlquiler propiedad={propiedad} />
+          </div>
+        )}
+
+        {propiedad.estado === 'alquilado' && propiedad.tramosContrato && propiedad.tramosContrato.length > 0 && (
+          <div className="px-5 mb-4">
+            <TramosContrato propiedad={propiedad} />
           </div>
         )}
 
