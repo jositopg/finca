@@ -18,13 +18,16 @@ export async function signOutSupabase(): Promise<void> {
 }
 
 export async function getCurrentEmail(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession()
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
   return data.session?.user?.email ?? null
 }
 
-export function onAuthStateChange(callback: (email: string | null) => void): () => void {
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session?.user?.email ?? null)
+export function onAuthStateChange(
+  callback: (email: string | null, event: string) => void,
+): () => void {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(session?.user?.email ?? null, event)
   })
   return () => data.subscription.unsubscribe()
 }

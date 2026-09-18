@@ -9,10 +9,10 @@ import {
 } from 'react'
 import {
   getAccessToken,
-  getCurrentEmail,
   initTokenClient,
   onAuthStateChange,
   requestToken,
+  revokeToken,
   signInWithGoogleSupabase,
   signOutSupabase,
 } from '../api/auth'
@@ -142,6 +142,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // solaparla.
   const loadingRef = useRef(false)
   const reloadQueuedRef = useRef(false)
+  const datosListosRef = useRef(false)
+  const [datosListos, setDatosListos] = useState(false)
 
   const initGIS = useCallback(() => {
     initTokenClient(
@@ -159,12 +161,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    let intentos = 0
     const checkGIS = () => {
       if (window.google?.accounts?.oauth2) {
         initGIS()
-      } else {
-        setTimeout(checkGIS, 100)
+        return
       }
+      intentos++
+      if (intentos > 50) return
+      window.setTimeout(checkGIS, 100)
     }
     checkGIS()
   }, [initGIS])
@@ -200,6 +205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch (genErr) {
         console.error('Generar gastos recurrentes error', genErr)
+        showToast('No se pudieron generar los gastos fijos de este mes')
       }
 
       setPropiedades(props)
@@ -209,6 +215,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDatosFacturacion(facturacion)
       setUsingCache(false)
       setCacheDate(null)
+      setDatosListos(true)
+      datosListosRef.current = true
       saveCache({
         propiedades: props,
         transacciones: txsFinal,
@@ -227,6 +235,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setDatosFacturacion(cached.datosFacturacion ?? null)
         setUsingCache(true)
         setCacheDate(cached.cachedAt)
+        setDatosListos(true)
+        datosListosRef.current = true
         showToast('Sin conexión — mostrando los últimos datos guardados')
       } else {
         showToast('No se pudo conectar y no hay datos guardados en este dispositivo')
@@ -244,18 +254,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true
 
-    getCurrentEmail().then((email) => {
+    const unsubscribe = onAuthStateChange((email, event) => {
       if (!mounted) return
-      if (email) {
-        setAuthState('authenticated')
-        loadData()
-      } else {
-        setAuthState('unauthenticated')
-      }
-    })
-
-    const unsubscribe = onAuthStateChange((email) => {
-      if (!mounted) return
+      if (event === 'TOKEN_REFRESHED') return
       if (email) {
         setAuthState('authenticated')
         loadData()
@@ -266,6 +267,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setIngresosExternos([])
         setTareas([])
         setDatosFacturacion(null)
+        setDatosListos(false)
+        datosListosRef.current = false
       }
     })
 
@@ -302,11 +305,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [showToast])
 
   const logout = useCallback(() => {
+    revokeToken()
+    try {
+      localStorage.removeItem(CACHE_KEY)
+    } catch {
+      /* ignore */
+    }
+    setDatosListos(false)
+    datosListosRef.current = false
     signOutSupabase().catch((err) => {
       console.error('Logout error', err)
       showToast('No se pudo cerrar sesión.')
     })
   }, [showToast])
+
+  useEffect(() => {
+    if (!datosListos || authState !== 'authenticated') return
+    saveCache({
+      propiedades,
+      transacciones,
+      ingresosExternos,
+      tareas,
+      datosFacturacion,
+    })
+  }, [datosListos, authState, propiedades, transacciones, ingresosExternos, tareas, datosFacturacion])
 
   // Pide el token de Drive/Sheets solo la primera vez que hace falta
   // (adjuntar un archivo o exportar a Sheets), no en el login.

@@ -15,7 +15,7 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 function Shell() {
-  const { authState, isLoadingData, usingCache, cacheDate } = useApp()
+  const { authState, isLoadingData, usingCache, cacheDate, propiedades } = useApp()
   const [view, setView] = useState<View>('dashboard')
   const [selectedPropId, setSelectedPropId] = useState<string | undefined>()
 
@@ -34,10 +34,7 @@ function Shell() {
     return <LoginView />
   }
 
-  if (
-    isLoadingData &&
-    !['dashboard', 'propiedades', 'transacciones', 'estadisticas', 'fiscal'].includes(view)
-  ) {
+  if (isLoadingData && !usingCache && propiedades.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm text-outline-variant">Cargando datos...</p>

@@ -24,6 +24,7 @@ const mockApiPost = vi.fn(async (url: string, body: { sheets: { properties: { ti
 vi.mock('./auth', () => ({
   apiPost: (url: string, body: unknown) => mockApiPost(url, body as never),
   getAccessToken: () => 'fake-token',
+  fetchConTimeout: vi.fn(async () => ({ ok: true })),
 }))
 
 const mockWriteFormattedSheets = vi.fn(async (_spreadsheetId: string, _specs: unknown) => {})

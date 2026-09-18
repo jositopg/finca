@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Button } from './Button'
 
 interface Props {
@@ -19,7 +20,11 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  if (!open) return null
+  const ocupado = useRef(false)
+  if (!open) {
+    ocupado.current = false
+    return null
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center lg:p-6">
@@ -32,7 +37,15 @@ export function ConfirmDialog({
           <Button variant="secondary" fullWidth onClick={onCancel}>
             Cancelar
           </Button>
-          <Button variant={danger ? 'danger' : 'primary'} fullWidth onClick={onConfirm}>
+          <Button
+            variant={danger ? 'danger' : 'primary'}
+            fullWidth
+            onClick={() => {
+              if (ocupado.current) return
+              ocupado.current = true
+              onConfirm()
+            }}
+          >
             {confirmLabel}
           </Button>
         </div>

@@ -14,6 +14,8 @@ export function useAccionesGlobales() {
     propiedades,
     transacciones,
     ingresosExternos,
+    tareas,
+    datosFacturacion,
     isLoadingData,
     refreshData,
     ensureDriveAccess,
@@ -26,6 +28,9 @@ export function useAccionesGlobales() {
       exportadoEn: new Date().toISOString(),
       propiedades,
       transacciones,
+      ingresosExternos,
+      tareas,
+      datosFacturacion,
     }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)

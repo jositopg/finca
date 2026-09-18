@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alquilerACobrar,
   alquilerVigente,
   amortizacionAnual,
   aplicarCambioCondiciones,
@@ -509,7 +510,7 @@ describe('rentaPendiente', () => {
 
   it('no marca pendiente si ya hay un ingreso de Alquiler mensual ese mes', () => {
     const p = propiedad({ alquilerMensual: 500 })
-    const tx = transaccion({ categoria: 'Alquiler mensual', tipo: 'ingreso', fecha: '2026-01-05' })
+    const tx = transaccion({ categoria: 'Alquiler mensual', tipo: 'ingreso', fecha: '2026-01-05', importe: 500 })
     expect(rentaPendiente(p, [tx], new Date('2026-01-20'))).toBe(false)
   })
 
@@ -577,6 +578,87 @@ describe('deudaInquilino', () => {
     ).toBeNull()
   })
 
+  it('en un local compara neta cobrada contra neta esperada, no la bruta', () => {
+    const p = propiedad({
+      tipo: 'local',
+      alquilerMensual: 1000,
+      contratoInicio: '2026-01-01',
+    })
+    const neta = alquilerACobrar(p, '2026-01-01', new Date('2026-03-15'))!
+    expect(neta).toBeCloseTo(880, 6)
+    const txs = [
+      transaccion({ importe: neta, fecha: '2026-01-05' }),
+      transaccion({ importe: neta, fecha: '2026-02-05' }),
+    ]
+    expect(deudaInquilino(p, txs, new Date('2026-03-15'))).toBeNull()
+  })
+})
+
+describe('rentaPendiente importe', () => {
+  it('un cobro parcial no cierra el mes', () => {
+    const p = propiedad({ alquilerMensual: 800, contratoInicio: '2026-01-01' })
+    const tx = transaccion({ importe: 400, fecha: '2026-01-05' })
+    expect(rentaPendiente(p, [tx], new Date('2026-01-10'))).toBe(true)
+  })
+
+  it('respeta el día de cobro configurado', () => {
+    const p = propiedad({ alquilerMensual: 800, contratoInicio: '2026-01-01', diaCobro: 10 })
+    expect(rentaPendiente(p, [], new Date('2026-01-09'))).toBe(false)
+    expect(rentaPendiente(p, [], new Date('2026-01-10'))).toBe(true)
+  })
+})
+
+describe('amortizacion prorrateada', () => {
+  it('un piso vacío todo el año, sin historial, no amortiza ese año', () => {
+    const p = propiedad({
+      estado: 'vacio',
+      valorConstruccion: 100000,
+      contratoInicio: undefined,
+    })
+    expect(amortizacionAnual(p, '2026')).toBe(0)
+  })
+
+  it('un contrato de medio año amortiza la mitad', () => {
+    const p = propiedad({
+      estado: 'vacio',
+      valorConstruccion: 100000,
+      historialContratos: [
+        { id: 'h1', fechaInicio: '2026-01-01', fechaFin: '2026-06-30', alquilerMensual: 700 },
+      ],
+    })
+    expect(amortizacionAnual(p, '2026')).toBeCloseTo(100000 * 0.03 * (6 / 12), 6)
+  })
+})
+
+describe('rendimiento IRPF unificado', () => {
+  it('una fianza no cuenta como rendimiento', () => {
+    const p = propiedad({ tipo: 'piso' })
+    const txs = [
+      transaccion({ categoria: 'Fianza recibida', tipo: 'ingreso', importe: 800, fecha: '2026-01-05' }),
+      transaccion({ categoria: 'Alquiler mensual', tipo: 'ingreso', importe: 800, fecha: '2026-01-05' }),
+    ]
+    const e = estimarAhorroRenta([p], txs, [], '2026', 0)
+    expect(e.porPropiedad[0].ingresos).toBe(800)
+  })
+
+  it('la cuota de hipoteca no se deduce; los intereses sí', () => {
+    const p = propiedad({ tipo: 'piso' })
+    const txs = [
+      transaccion({ categoria: 'Alquiler mensual', tipo: 'ingreso', importe: 1000, fecha: '2026-01-05' }),
+      transaccion({
+        categoria: 'Hipoteca / Financiación',
+        tipo: 'gasto',
+        importe: 400,
+        fecha: '2026-01-05',
+      }),
+      transaccion({ categoria: 'Intereses hipoteca', tipo: 'gasto', importe: 120, fecha: '2026-01-05' }),
+    ]
+    const e = estimarAhorroRenta([p], txs, [], '2026', 0)
+    expect(e.porPropiedad[0].gastos).toBe(120)
+  })
+})
+
+describe('deuda tramos leftover', () => {
   it('usa la renta de cada tramo, no la actual, para los meses anteriores a un cambio', () => {
     const base = propiedad({
       alquilerMensual: 500,

@@ -29,6 +29,7 @@ interface Props {
   initial?: Partial<Propiedad>
   onSave: (p: Propiedad) => void | Promise<void>
   onCancel: () => void
+  onDelete?: () => void
 }
 
 function uuid() {
@@ -223,7 +224,7 @@ function GastosRecurrentesSection({
   )
 }
 
-export function PropiedadForm({ initial, onSave, onCancel }: Props) {
+export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
   const [nombre, setNombre] = useState(initial?.nombre ?? '')
   const [direccion, setDireccion] = useState(initial?.direccion ?? '')
   const [municipio, setMunicipio] = useState(initial?.municipio ?? '')
@@ -267,6 +268,10 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
   const [gastosRecurrentes, setGastosRecurrentes] = useState<GastoRecurrente[]>(
     initial?.gastosRecurrentes ?? [],
   )
+  const [diaCobro, setDiaCobro] = useState(initial?.diaCobro != null ? String(initial.diaCobro) : '')
+  const [fianzaDepositoNumero, setFianzaDepositoNumero] = useState(initial?.fianzaDepositoNumero ?? '')
+  const [seguroVencimiento, setSeguroVencimiento] = useState(initial?.seguroVencimiento ?? '')
+  const [ibiMes, setIbiMes] = useState(initial?.ibiMes != null ? String(initial.ibiMes) : '')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
@@ -347,6 +352,12 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
       deudaDesde: initial?.deudaDesde,
       rentaRevisadaDesde: initial?.rentaRevisadaDesde,
       fianzaDepositadaDesde: initial?.fianzaDepositadaDesde,
+      diaCobro: diaCobro.trim() ? Number(diaCobro) : undefined,
+      fianzaDepositoNumero: fianzaDepositoNumero.trim() || undefined,
+      fianzaDepositoArchivoId: initial?.fianzaDepositoArchivoId,
+      fianzaDepositoArchivoNombre: initial?.fianzaDepositoArchivoNombre,
+      seguroVencimiento: seguroVencimiento || undefined,
+      ibiMes: ibiMes.trim() ? Number(ibiMes) : undefined,
     }
 
     const aGuardar = propiedad.tramosContrato?.length
@@ -681,6 +692,36 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
         </div>
       )}
 
+      <Input
+        label="Día de cobro de la renta (opcional)"
+        type="number"
+        min={1}
+        max={28}
+        placeholder="5"
+        value={diaCobro}
+        onChange={(e) => setDiaCobro(e.target.value)}
+      />
+      <Input
+        label="Nº resguardo fianza ICAVI (opcional)"
+        value={fianzaDepositoNumero}
+        onChange={(e) => setFianzaDepositoNumero(e.target.value)}
+      />
+      <Input
+        label="Vencimiento del seguro (opcional)"
+        type="date"
+        value={seguroVencimiento}
+        onChange={(e) => setSeguroVencimiento(e.target.value)}
+      />
+      <Input
+        label="Mes del IBI 1-12 (opcional)"
+        type="number"
+        min={1}
+        max={12}
+        placeholder="5"
+        value={ibiMes}
+        onChange={(e) => setIbiMes(e.target.value)}
+      />
+
       <GastosRecurrentesSection gastos={gastosRecurrentes} onChange={setGastosRecurrentes} />
 
       <Textarea
@@ -698,6 +739,15 @@ export function PropiedadForm({ initial, onSave, onCancel }: Props) {
           {saving ? 'Guardando...' : initial?.id ? 'Guardar cambios' : 'Añadir propiedad'}
         </Button>
       </div>
+      {onDelete && initial?.id && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="mt-2 w-full py-2.5 text-sm font-medium text-error"
+        >
+          Eliminar propiedad
+        </button>
+      )}
     </div>
   )
 }

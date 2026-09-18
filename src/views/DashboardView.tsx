@@ -18,6 +18,8 @@ import { BottomSheet } from '../components/BottomSheet'
 import { DatosFacturacionForm } from '../components/DatosFacturacionForm'
 import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
+import { AvisosDashboard } from '../components/AvisosDashboard'
+import { CobrosPendientes } from '../components/CobrosPendientes'
 import { TareasDashboard } from '../components/TareasDashboard'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
@@ -291,6 +293,18 @@ export function DashboardView({ onNavigate }: Props) {
           </div>
         </div>
       )}
+
+      <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">
+        <AvisosDashboard
+          propiedades={propiedades}
+          transacciones={transacciones}
+          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
+        />
+      </div>
+
+      <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">
+        <CobrosPendientes propiedades={propiedades} transacciones={transacciones} />
+      </div>
 
       {/* Tareas pendientes de todas las propiedades */}
       <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">

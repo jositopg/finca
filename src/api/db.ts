@@ -54,6 +54,12 @@ interface PropiedadRow {
   certificado_energetico_vencimiento: string | null
   fianza_importe: number | string | null
   fianza_depositada_desde: string | null
+  dia_cobro: number | string | null
+  fianza_deposito_numero: string | null
+  fianza_deposito_archivo_id: string | null
+  fianza_deposito_archivo_nombre: string | null
+  seguro_vencimiento: string | null
+  ibi_mes: number | string | null
 }
 
 interface TransaccionRow {
@@ -72,6 +78,7 @@ interface TransaccionRow {
   periodo_fin: string | null
   solo_mio: boolean | null
   igic_soportado: number | string | null
+  gasto_recurrente_id: string | null
 }
 
 function rowToPropiedad(row: PropiedadRow): Propiedad {
@@ -114,6 +121,12 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     certificadoEnergeticoVencimiento: row.certificado_energetico_vencimiento ?? undefined,
     fianzaImporte: row.fianza_importe != null ? Number(row.fianza_importe) : undefined,
     fianzaDepositadaDesde: row.fianza_depositada_desde ?? undefined,
+    diaCobro: row.dia_cobro != null ? Number(row.dia_cobro) : undefined,
+    fianzaDepositoNumero: row.fianza_deposito_numero ?? undefined,
+    fianzaDepositoArchivoId: row.fianza_deposito_archivo_id ?? undefined,
+    fianzaDepositoArchivoNombre: row.fianza_deposito_archivo_nombre ?? undefined,
+    seguroVencimiento: row.seguro_vencimiento ?? undefined,
+    ibiMes: row.ibi_mes != null ? Number(row.ibi_mes) : undefined,
   }
 }
 
@@ -157,6 +170,12 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     certificado_energetico_vencimiento: p.certificadoEnergeticoVencimiento ?? null,
     fianza_importe: p.fianzaImporte ?? null,
     fianza_depositada_desde: p.fianzaDepositadaDesde ?? null,
+    dia_cobro: p.diaCobro ?? null,
+    fianza_deposito_numero: p.fianzaDepositoNumero ?? null,
+    fianza_deposito_archivo_id: p.fianzaDepositoArchivoId ?? null,
+    fianza_deposito_archivo_nombre: p.fianzaDepositoArchivoNombre ?? null,
+    seguro_vencimiento: p.seguroVencimiento ?? null,
+    ibi_mes: p.ibiMes ?? null,
   }
 }
 
@@ -177,6 +196,7 @@ function rowToTransaccion(row: TransaccionRow): Transaccion {
     periodoFin: row.periodo_fin ?? undefined,
     soloMio: row.solo_mio ?? undefined,
     igicSoportado: row.igic_soportado != null ? Number(row.igic_soportado) : undefined,
+    gastoRecurrenteId: row.gasto_recurrente_id ?? undefined,
   }
 }
 
@@ -197,18 +217,39 @@ function transaccionToRow(t: Transaccion): TransaccionRow {
     periodo_fin: t.periodoFin ?? null,
     solo_mio: t.soloMio ?? null,
     igic_soportado: t.igicSoportado ?? null,
+    gasto_recurrente_id: t.gastoRecurrenteId ?? null,
   }
+}
+
+const PAGE_SIZE = 1000
+
+async function fetchAllRows<T>(table: string, orderCol: string, ascending: boolean): Promise<T[]> {
+  const all: T[] = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order(orderCol, { ascending })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw error
+    const rows = (data ?? []) as T[]
+    all.push(...rows)
+    if (rows.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  return all
+}
+
+function isUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === '23505'
 }
 
 // ─── Propiedades ─────────────────────────────────────────────────────────────
 
 export async function getPropiedades(): Promise<Propiedad[]> {
-  const { data, error } = await supabase
-    .from('propiedades')
-    .select('*')
-    .order('creado_en', { ascending: true })
-  if (error) throw error
-  return (data as PropiedadRow[]).map(rowToPropiedad)
+  const data = await fetchAllRows<PropiedadRow>('propiedades', 'creado_en', true)
+  return data.map(rowToPropiedad)
 }
 
 export async function addPropiedad(propiedad: Propiedad): Promise<void> {
@@ -232,23 +273,23 @@ export async function deletePropiedad(propiedadId: string): Promise<void> {
 // ─── Transacciones ───────────────────────────────────────────────────────────
 
 export async function getTransacciones(): Promise<Transaccion[]> {
-  const { data, error } = await supabase
-    .from('transacciones')
-    .select('*')
-    .order('fecha', { ascending: false })
-  if (error) throw error
-  return (data as TransaccionRow[]).map(rowToTransaccion)
+  const data = await fetchAllRows<TransaccionRow>('transacciones', 'fecha', false)
+  return data.map(rowToTransaccion)
 }
 
 export async function addTransaccion(transaccion: Transaccion): Promise<void> {
   const { error } = await supabase.from('transacciones').insert(transaccionToRow(transaccion))
-  if (error) throw error
+  if (error && !isUniqueViolation(error)) throw error
 }
 
 export async function addTransacciones(transacciones: Transaccion[]): Promise<void> {
   if (transacciones.length === 0) return
   const { error } = await supabase.from('transacciones').insert(transacciones.map(transaccionToRow))
-  if (error) throw error
+  if (!error) return
+  if (!isUniqueViolation(error)) throw error
+  for (const t of transacciones) {
+    await addTransaccion(t)
+  }
 }
 
 export async function updateTransaccion(transaccion: Transaccion): Promise<void> {
@@ -285,12 +326,8 @@ function rowToIngresoExterno(row: IngresoExternoRow): IngresoExterno {
 }
 
 export async function getIngresosExternos(): Promise<IngresoExterno[]> {
-  const { data, error } = await supabase
-    .from('ingresos_externos')
-    .select('*')
-    .order('creado_en', { ascending: true })
-  if (error) throw error
-  return (data as IngresoExternoRow[]).map(rowToIngresoExterno)
+  const data = await fetchAllRows<IngresoExternoRow>('ingresos_externos', 'creado_en', true)
+  return data.map(rowToIngresoExterno)
 }
 
 export async function addIngresoExterno(ingreso: IngresoExterno): Promise<void> {
@@ -348,9 +385,8 @@ function rowToTarea(row: TareaRow): Tarea {
 }
 
 export async function getTareas(): Promise<Tarea[]> {
-  const { data, error } = await supabase.from('tareas').select('*').order('creado_en', { ascending: true })
-  if (error) throw error
-  return (data as TareaRow[]).map(rowToTarea)
+  const data = await fetchAllRows<TareaRow>('tareas', 'creado_en', true)
+  return data.map(rowToTarea)
 }
 
 export async function addTarea(tarea: Tarea): Promise<void> {

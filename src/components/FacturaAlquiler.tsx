@@ -42,11 +42,15 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
     if (!datosFacturacionCompletos(datosFacturacion)) return
     let cancelado = false
     let urlLocal: string | null = null
-    generarFacturaPDF(tx, propiedad, datosFacturacion).then((pdf) => {
-      if (cancelado) return
-      urlLocal = URL.createObjectURL(pdf.output('blob'))
-      setBlobUrl(urlLocal)
-    })
+    generarFacturaPDF(tx, propiedad, datosFacturacion)
+      .then((pdf) => {
+        if (cancelado) return
+        urlLocal = URL.createObjectURL(pdf.output('blob'))
+        setBlobUrl(urlLocal)
+      })
+      .catch((err) => {
+        console.error('Vista previa factura error', err)
+      })
     return () => {
       cancelado = true
       if (urlLocal) URL.revokeObjectURL(urlLocal)
@@ -58,7 +62,7 @@ export function FacturaAlquiler({ tx, propiedad, onClose }: Props) {
     setGenerando(true)
     await keepScreenAwake()
     try {
-      const anio = new Date().getFullYear().toString()
+      const anio = tx.fecha.slice(0, 4)
       const numero = siguienteNumeroFactura(transacciones, tipoDoc, anio)
       const txConNumero: Transaccion = { ...tx, numeroFactura: numero }
 

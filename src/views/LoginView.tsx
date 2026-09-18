@@ -23,8 +23,8 @@ export function LoginView() {
 
       <div className="w-full flex flex-col gap-4">
         <p className="text-center text-sm text-outline-variant leading-relaxed">
-          Conecta tu cuenta de Google para guardar tus propiedades, ingresos y gastos
-          directamente en tu Google Drive.
+          Conecta tu cuenta de Google para entrar. Los datos viven en tu base
+          privada; los archivos (contratos, facturas) van a tu Google Drive.
         </p>
 
         <Button fullWidth size="lg" onClick={login}>
@@ -55,7 +55,7 @@ export function LoginView() {
       </div>
 
       <p className="text-center text-xs text-outline-variant leading-relaxed px-4">
-        Los datos se guardan en tu propio Google Drive. Nadie más tiene acceso.
+        Solo tu cuenta tiene acceso. Los archivos adjuntos se guardan en tu Drive.
       </p>
     </div>
   )

@@ -91,6 +91,12 @@ export interface Propiedad {
   certificadoEnergeticoVencimiento?: string // YYYY-MM-DD — el certificado de eficiencia energética caduca a los 10 años
   fianzaImporte?: number // fianza legal a depositar en el organismo correspondiente (normalmente 1 mes de renta, 2 en locales)
   fianzaDepositadaDesde?: string // ISO datetime: cuándo se marcó como depositada — undefined = pendiente de depositar
+  diaCobro?: number // 1-28, día del mes a partir del cual se avisa de renta pendiente (sin definir = 5)
+  fianzaDepositoNumero?: string // nº de resguardo ICAVI / organismo
+  fianzaDepositoArchivoId?: string
+  fianzaDepositoArchivoNombre?: string
+  seguroVencimiento?: string // YYYY-MM-DD
+  ibiMes?: number // 1-12, mes en que suele llegar el IBI
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -137,10 +143,49 @@ export function calcularRentabilidad(
 export const AMORTIZACION_PCT = 3
 
 export function amortizacionAnual(
-  propiedad: Pick<Propiedad, 'valorConstruccion' | 'porcentajePropiedad'>,
+  propiedad: Pick<
+    Propiedad,
+    'valorConstruccion' | 'porcentajePropiedad' | 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'
+  >,
+  anio?: string,
 ): number {
   if (!propiedad.valorConstruccion) return 0
-  return miParte(propiedad.valorConstruccion, propiedad) * (AMORTIZACION_PCT / 100)
+  const anual = miParte(propiedad.valorConstruccion, propiedad) * (AMORTIZACION_PCT / 100)
+  if (!anio) return anual
+  const meses = mesesAlquiladosEnAnio(propiedad, anio)
+  return Math.round(anual * (meses / 12) * 100) / 100
+}
+
+// Meses del año civil con ocupación de alquiler (contrato en vigor o
+// historial). Sin fechas, un inmueble que sigue `alquilado` cuenta 12;
+// vacío/reforma/venta sin historial ese año, 0.
+export function mesesAlquiladosEnAnio(
+  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'>,
+  anio: string,
+): number {
+  const desde = `${anio}-01-01`
+  const hasta = `${anio}-12-31`
+  const periodos: { ini: string; fin: string }[] = []
+  for (const h of propiedad.historialContratos ?? []) {
+    periodos.push({ ini: h.fechaInicio ?? h.fechaFin, fin: h.fechaFin })
+  }
+  if (propiedad.contratoInicio) {
+    let fin = propiedad.contratoFin ?? hasta
+    if (propiedad.estado === 'alquilado' && (!propiedad.contratoFin || propiedad.contratoFin < hasta)) {
+      fin = hasta
+    }
+    periodos.push({ ini: propiedad.contratoInicio, fin })
+  }
+  const meses = new Set<string>()
+  for (const per of periodos) {
+    const a = per.ini > desde ? per.ini : desde
+    const b = per.fin < hasta ? per.fin : hasta
+    if (a > b) continue
+    for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m)
+  }
+  if (meses.size > 0) return meses.size
+  if (propiedad.estado === 'alquilado') return 12
+  return 0
 }
 
 // ─── Valoración: ¿es suficiente la rentabilidad? ───────────────────────────────
@@ -290,13 +335,11 @@ export function generarGastosPendientes(
       const mesInicio = g.creadoEn.slice(0, 7)
       if (mesInicio > mesActual) continue
       for (const mes of mesesEntre(mesInicio, mesActual)) {
-        const yaExiste =
-          transacciones.some(
-            (t) => t.propiedadId === p.id && t.categoria === g.categoria && t.fecha.startsWith(mes),
-          ) ||
-          nuevas.some(
-            (t) => t.propiedadId === p.id && t.categoria === g.categoria && t.fecha.startsWith(mes),
-          )
+        const misma = (t: Transaccion) =>
+          t.propiedadId === p.id &&
+          t.fecha.startsWith(mes) &&
+          (t.gastoRecurrenteId === g.id || t.categoria === g.categoria)
+        const yaExiste = transacciones.some(misma) || nuevas.some(misma)
         if (!yaExiste) {
           nuevas.push({
             id: crypto.randomUUID(),
@@ -308,6 +351,7 @@ export function generarGastosPendientes(
             descripcion: g.descripcion || 'Gasto fijo mensual',
             archivos: [],
             creadoEn: new Date().toISOString(),
+            gastoRecurrenteId: g.id,
           })
         }
       }
@@ -736,6 +780,7 @@ export interface Transaccion {
   periodoFin?: string // YYYY-MM-DD
   soloMio?: boolean // true = ignora el % de copropiedad de la propiedad, cuenta 100% para Jose (facturas a su nombre personal en propiedades a medias)
   igicSoportado?: number // IGIC incluido en un gasto de un local (deducible del IGIC repercutido en el Modelo 420) — solo aplica a locales, únicas propiedades sujetas a IGIC
+  gastoRecurrenteId?: string // id del GastoRecurrente que lo generó — para no duplicar el mes si hay carrera entre dispositivos
 }
 
 // ─── Alta masiva de transacciones (pegar varias líneas) ────────────────────────
@@ -849,15 +894,41 @@ export function rangoMes(mesYYYYMM: string): [string, string] {
   return [`${mesYYYYMM}-01`, `${mesYYYYMM}-${String(ultimoDia).padStart(2, '0')}`]
 }
 
-// A partir del día 5 del mes, si una propiedad alquilada (con alquiler
-// mensual pactado) no tiene registrado el ingreso de "Alquiler mensual" de
-// ese mes, se considera renta pendiente de cobro.
+// Lo que debería entrar en el banco ese mes: en vivienda, la renta pactada;
+// en local, la neta (base + IGIC − IRPF), que es lo que se registra al cobrar.
+export function alquilerACobrar(
+  propiedad: Pick<
+    Propiedad,
+    | 'tipo'
+    | 'alquilerMensual'
+    | 'tramosContrato'
+    | 'contratoInicio'
+    | 'contratoFin'
+    | 'fianzaImporte'
+    | 'historialContratos'
+    | 'inquilinoNombre'
+    | 'inquilinoDni'
+  >,
+  fecha?: string,
+  hoy: Date = new Date(),
+): number | undefined {
+  const bruta = alquilerVigente(propiedad, fecha, hoy)
+  if (bruta == null || bruta <= 0) return undefined
+  if (propiedad.tipo === 'local') return Math.round(calcularRentaLocal(bruta).neta * 100) / 100
+  return bruta
+}
+
+// A partir del día de cobro (por defecto el 5), si una propiedad alquilada
+// no tiene registrado al menos el importe pactado de "Alquiler mensual" de
+// ese mes, se considera renta pendiente. Un cobro parcial no cierra el mes.
 export function rentaPendiente(
   propiedad: Pick<
     Propiedad,
     | 'estado'
     | 'alquilerMensual'
     | 'id'
+    | 'tipo'
+    | 'diaCobro'
     | 'tramosContrato'
     | 'contratoInicio'
     | 'contratoFin'
@@ -871,17 +942,41 @@ export function rentaPendiente(
 ): boolean {
   if (propiedad.estado !== 'alquilado') return false
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
-  const alquiler = alquilerVigente(propiedad, `${mesActual}-01`, hoy)
-  if (!alquiler) return false
-  if (hoy.getDate() < 5) return false
-  const pagado = transacciones.some(
-    (t) =>
-      t.propiedadId === propiedad.id &&
-      t.tipo === 'ingreso' &&
-      t.categoria === 'Alquiler mensual' &&
-      t.fecha.startsWith(mesActual),
-  )
-  return !pagado
+  const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy)
+  if (!esperado) return false
+  const diaAviso = propiedad.diaCobro && propiedad.diaCobro >= 1 && propiedad.diaCobro <= 28 ? propiedad.diaCobro : 5
+  if (hoy.getDate() < diaAviso) return false
+  const pagado = transacciones
+    .filter(
+      (t) =>
+        t.propiedadId === propiedad.id &&
+        t.tipo === 'ingreso' &&
+        t.categoria === 'Alquiler mensual' &&
+        t.fecha.startsWith(mesActual),
+    )
+    .reduce((s, t) => s + t.importe, 0)
+  return pagado + 0.005 < esperado
+}
+
+export function rentaDelMesIncompleta(
+  propiedad: Parameters<typeof rentaPendiente>[0],
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): boolean {
+  if (propiedad.estado !== 'alquilado') return false
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy)
+  if (!esperado) return false
+  const pagado = transacciones
+    .filter(
+      (t) =>
+        t.propiedadId === propiedad.id &&
+        t.tipo === 'ingreso' &&
+        t.categoria === 'Alquiler mensual' &&
+        t.fecha.startsWith(mesActual),
+    )
+    .reduce((s, t) => s + t.importe, 0)
+  return pagado + 0.005 < esperado
 }
 
 // Deuda de renta acumulada: no es un registro aparte que haya que llevar a
@@ -902,6 +997,7 @@ export function deudaInquilino(
     Propiedad,
     | 'id'
     | 'estado'
+    | 'tipo'
     | 'alquilerMensual'
     | 'contratoInicio'
     | 'deudaDesde'
@@ -930,7 +1026,7 @@ export function deudaInquilino(
   if (mesInicio > mesLimite) return null
 
   const meses = mesesEntre(mesInicio, mesLimite)
-  const esperado = meses.reduce((s, mes) => s + (alquilerVigente(propiedad, `${mes}-01`, hoy) ?? 0), 0)
+  const esperado = meses.reduce((s, mes) => s + (alquilerACobrar(propiedad, `${mes}-01`, hoy) ?? 0), 0)
   if (esperado <= 0) return null
 
   const pagado = transacciones
@@ -946,7 +1042,7 @@ export function deudaInquilino(
   const importe = Math.round((esperado - pagado) * 100) / 100
   if (importe <= 0) return null
 
-  const alquilerActual = alquilerVigente(propiedad, fechaISO(hoy), hoy)
+  const alquilerActual = alquilerACobrar(propiedad, fechaISO(hoy), hoy)
   const divisor = alquilerActual && alquilerActual > 0 ? alquilerActual : importe
   return { importe, meses: importe / divisor }
 }
@@ -984,6 +1080,63 @@ export function tocaRevisarRenta(
   let aniversario = new Date(desde.getFullYear(), inicio.getMonth(), inicio.getDate())
   if (aniversario <= desde) aniversario = new Date(desde.getFullYear() + 1, inicio.getMonth(), inicio.getDate())
   return hoy >= aniversario
+}
+
+export type AvisoTipo = 'renta' | 'fianza' | 'contrato' | 'revision' | 'cee' | 'seguro' | 'ibi'
+
+export interface AvisoPropiedad {
+  tipo: AvisoTipo
+  propiedadId: string
+  nombre: string
+  mensaje: string
+}
+
+export function avisosDePropiedad(
+  propiedad: Propiedad,
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): AvisoPropiedad[] {
+  const avisos: AvisoPropiedad[] = []
+  const base = { propiedadId: propiedad.id, nombre: propiedad.nombre }
+  if (rentaPendiente(propiedad, transacciones, hoy)) {
+    avisos.push({ ...base, tipo: 'renta', mensaje: 'Renta sin cobrar este mes' })
+  }
+  if (propiedad.estado === 'alquilado' && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) {
+    avisos.push({ ...base, tipo: 'fianza', mensaje: 'Fianza pendiente de depositar (ICAVI)' })
+  }
+  const estadoC = contratoEstado(propiedad.contratoFin, hoy)
+  if (propiedad.estado === 'alquilado' && estadoC?.alerta) {
+    avisos.push({
+      ...base,
+      tipo: 'contrato',
+      mensaje: estadoC.vencido
+        ? 'Contrato en tácita reconducción'
+        : `Contrato vence en ${estadoC.dias} días`,
+    })
+  }
+  if (tocaRevisarRenta(propiedad, hoy)) {
+    avisos.push({ ...base, tipo: 'revision', mensaje: 'Toca revisar la renta (IPC/IGC)' })
+  }
+  const cee = contratoEstado(propiedad.certificadoEnergeticoVencimiento, hoy)
+  if (cee?.alerta) {
+    avisos.push({
+      ...base,
+      tipo: 'cee',
+      mensaje: cee.vencido ? 'Certificado energético caducado' : `CEE vence en ${cee.dias} días`,
+    })
+  }
+  const seguro = contratoEstado(propiedad.seguroVencimiento, hoy)
+  if (seguro?.alerta) {
+    avisos.push({
+      ...base,
+      tipo: 'seguro',
+      mensaje: seguro.vencido ? 'Seguro caducado' : `Seguro vence en ${seguro.dias} días`,
+    })
+  }
+  if (propiedad.ibiMes && hoy.getMonth() + 1 === propiedad.ibiMes && hoy.getDate() <= 20) {
+    avisos.push({ ...base, tipo: 'ibi', mensaje: 'Mes del IBI' })
+  }
+  return avisos
 }
 
 // ─── Reparto de suministros y tasas ────────────────────────────────────────────
@@ -1113,11 +1266,16 @@ export const CATEGORIAS_GASTO = [
   'Mantenimiento',
   'Reparaciones',
   'Hipoteca / Financiación',
+  'Intereses hipoteca',
   'Honorarios / Gestión',
   'Mobiliario / Equipamiento',
   'Obras / Reforma',
   'Otros gastos',
 ] as const
+
+// La cuota de hipoteca (capital + intereses) no es gasto deducible en IRPF
+// de alquiler: solo los intereses. Sigue contando en el cashflow del Dashboard.
+export const CATEGORIAS_GASTO_NO_DEDUCIBLE_IRPF: readonly string[] = ['Hipoteca / Financiación']
 
 export const CATEGORIAS_INGRESO = [
   'Alquiler mensual',
@@ -1199,12 +1357,58 @@ export interface IngresoExterno {
 
 // Categorías de ingreso que cuentan como rendimiento a efectos de IRPF —
 // una fianza no es un ingreso, es un depósito, así que se excluye.
-const CATEGORIAS_RENDIMIENTO: readonly string[] = [
+export const CATEGORIAS_RENDIMIENTO: readonly string[] = [
   'Alquiler mensual',
   'Electricidad (repercutida)',
   'Agua (repercutida)',
   'Otros ingresos',
 ]
+
+export function esGastoDeducibleIRPF(categoria: string): boolean {
+  return !CATEGORIAS_GASTO_NO_DEDUCIBLE_IRPF.includes(categoria)
+}
+
+export function ingresoIrpfDeTx(
+  t: Pick<Transaccion, 'tipo' | 'categoria' | 'importe' | 'periodoInicio' | 'periodoFin' | 'fecha' | 'soloMio'>,
+  propiedad: Pick<Propiedad, 'tipo' | 'porcentajePropiedad'>,
+  desde: string,
+  hasta: string,
+): number {
+  if (t.tipo !== 'ingreso' || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return 0
+  const bruto = miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+  if (propiedad.tipo === 'local' && t.categoria === 'Alquiler mensual') return baseDesdeRentaNeta(bruto)
+  return bruto
+}
+
+export function gastoIrpfDeTx(
+  t: Pick<Transaccion, 'tipo' | 'categoria' | 'importe' | 'periodoInicio' | 'periodoFin' | 'fecha' | 'soloMio'>,
+  propiedad: Pick<Propiedad, 'porcentajePropiedad'>,
+  desde: string,
+  hasta: string,
+): number {
+  if (t.tipo !== 'gasto' || !esGastoDeducibleIRPF(t.categoria)) return 0
+  return miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+}
+
+export function rendimientoIrpfPropiedad(
+  propiedad: Propiedad,
+  transacciones: Transaccion[],
+  anio: string,
+  reduccionViviendaPct: number,
+): EstimacionPropiedad {
+  const [desde, hasta] = rangoAnio(anio)
+  const txs = transacciones.filter((t) => t.propiedadId === propiedad.id)
+  const ingresos = txs.reduce((s, t) => s + ingresoIrpfDeTx(t, propiedad, desde, hasta), 0)
+  const gastos = txs.reduce((s, t) => s + gastoIrpfDeTx(t, propiedad, desde, hasta), 0)
+  const amortizacion = amortizacionAnual(propiedad, anio)
+  const rendimientoNeto = ingresos - gastos - amortizacion
+  const reducible = propiedad.tipo === 'piso' || propiedad.tipo === 'casa'
+  const rendimientoComputable =
+    reducible && rendimientoNeto > 0
+      ? rendimientoNeto * (1 - reduccionViviendaPct / 100)
+      : rendimientoNeto
+  return { propiedad, ingresos, gastos, amortizacion, rendimientoNeto, reducible, rendimientoComputable }
+}
 
 export interface EstimacionPropiedad {
   propiedad: Propiedad
@@ -1246,35 +1450,10 @@ export function estimarAhorroRenta(
   anio: string,
   reduccionViviendaPct: number,
 ): EstimacionRenta {
-  const txsAnio = transacciones.filter((t) => t.fecha.startsWith(anio))
-
-  const porPropiedad: EstimacionPropiedad[] = propiedades.map((p) => {
-    const txs = txsAnio.filter((t) => t.propiedadId === p.id)
-    const esLocal = p.tipo === 'local'
-
-    const ingresos = txs
-      .filter((t) => t.tipo === 'ingreso' && CATEGORIAS_RENDIMIENTO.includes(t.categoria))
-      .reduce((s, t) => {
-        const importe = miParte(t.importe, p, t.soloMio)
-        // El importe de alquiler de un local es la renta neta ya cobrada —
-        // a efectos de IRPF cuenta la base imponible, no la neta.
-        return s + (esLocal && t.categoria === 'Alquiler mensual' ? baseDesdeRentaNeta(importe) : importe)
-      }, 0)
-
-    const gastos = txs
-      .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
-
-    const amortizacion = amortizacionAnual(p)
-    const rendimientoNeto = ingresos - gastos - amortizacion
-    const reducible = p.tipo === 'piso' || p.tipo === 'casa'
-    const rendimientoComputable =
-      reducible && rendimientoNeto > 0
-        ? rendimientoNeto * (1 - reduccionViviendaPct / 100)
-        : rendimientoNeto
-
-    return { propiedad: p, ingresos, gastos, amortizacion, rendimientoNeto, reducible, rendimientoComputable }
-  })
+  const [desdeAnio, hastaAnio] = rangoAnio(anio)
+  const porPropiedad: EstimacionPropiedad[] = propiedades.map((p) =>
+    rendimientoIrpfPropiedad(p, transacciones, anio, reduccionViviendaPct),
+  )
 
   const amortizacionTotal = porPropiedad.reduce((s, f) => s + f.amortizacion, 0)
   const rendimientoInmobiliarioTotal = porPropiedad.reduce((s, f) => s + f.rendimientoComputable, 0)
@@ -1282,9 +1461,9 @@ export function estimarAhorroRenta(
   const retencionLocales = propiedades
     .filter((p) => p.tipo === 'local')
     .reduce((sTotal, p) => {
-      const netaTotal = txsAnio
+      const netaTotal = transacciones
         .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
-        .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
+        .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p, t.soloMio), 0)
       return sTotal + calcularRentaLocal(baseDesdeRentaNeta(netaTotal)).irpf
     }, 0)
 
@@ -1429,6 +1608,13 @@ export function siguienteNumeroFactura(
 // de vivienda (exento de IVA).
 export function tipoDocumentoAlquiler(propiedad: Pick<Propiedad, 'tipo'>): TipoDocumentoAlquiler {
   return propiedad.tipo === 'local' ? 'F' : 'R'
+}
+
+export function esDocumentoAlquiler(
+  tx: Pick<Transaccion, 'tipo' | 'categoria'>,
+  _propiedad?: Pick<Propiedad, 'tipo'> | null,
+): boolean {
+  return tx.tipo === 'ingreso' && tx.categoria === 'Alquiler mensual'
 }
 
 // Inicio del periodo "al día" vigente: el día 15 más reciente (del mes

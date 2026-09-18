@@ -94,6 +94,21 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           creadoEn: new Date().toISOString(),
           ...periodo,
         })
+        const r = calcularReparto('Agua', agua, p.reparto)
+        if (r && r.inquilino > 0.005) {
+          nuevas.push({
+            id: uuid(),
+            propiedadId: p.id,
+            fecha,
+            tipo: 'ingreso',
+            importe: Math.round(r.inquilino * 100) / 100,
+            categoria: 'Agua (repercutida)',
+            descripcion: 'Repercusión automática del gasto de agua',
+            archivos: [],
+            creadoEn: new Date().toISOString(),
+            ...periodo,
+          })
+        }
       }
       if (luz > 0) {
         nuevas.push({
@@ -108,6 +123,21 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           creadoEn: new Date().toISOString(),
           ...periodo,
         })
+        const r = calcularReparto('Electricidad', luz, p.reparto)
+        if (r && r.inquilino > 0.005) {
+          nuevas.push({
+            id: uuid(),
+            propiedadId: p.id,
+            fecha,
+            tipo: 'ingreso',
+            importe: Math.round(r.inquilino * 100) / 100,
+            categoria: 'Electricidad (repercutida)',
+            descripcion: 'Repercusión automática del gasto de luz',
+            archivos: [],
+            creadoEn: new Date().toISOString(),
+            ...periodo,
+          })
+        }
       }
     }
     if (nuevas.length === 0) return

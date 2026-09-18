@@ -8,7 +8,6 @@ import {
   Plus,
   BarChart2,
   Receipt,
-  Trash2,
   User,
   UserPlus,
 } from 'lucide-react'
@@ -214,7 +213,6 @@ function PropiedadCard({
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <div className="flex items-center gap-1.5">
-            <AlDiaToggle propiedad={p} stopPropagation />
             <Badge
               label={ESTADO_LABELS[p.estado]}
               variant={ESTADO_BADGE_VARIANT[p.estado]}
@@ -435,7 +433,7 @@ function FacturasPropiedad({
   const { showToast } = useToast()
   const [abriendo, setAbriendo] = useState(false)
 
-  if (propiedad.tipo !== 'local') return null
+  const etiqueta = propiedad.tipo === 'local' ? 'Facturas' : 'Recibos'
 
   const facturas = txs.filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
   if (facturas.length === 0) return null
@@ -464,7 +462,7 @@ function FacturasPropiedad({
           <div className="flex items-center gap-2 min-w-0">
             <FileText size={14} className="text-outline-variant flex-shrink-0" />
             <div className="min-w-0">
-              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Facturas</p>
+              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">{etiqueta}</p>
               <p className="text-xs text-outline-variant mt-0.5">
                 {facturas.length - pendientes.length} generada
                 {facturas.length - pendientes.length === 1 ? '' : 's'}
@@ -638,12 +636,6 @@ function PropiedadesPanel({
               >
                 <Edit2 size={15} />
               </button>
-              <button
-                onClick={() => setConfirmDelete({ type: 'prop', id: propiedad.id })}
-                className="w-8 h-8 flex items-center justify-center rounded-xl bg-error-container text-error transition-colors"
-              >
-                <Trash2 size={15} />
-              </button>
             </div>
           </div>
           <div className="flex gap-2 mt-3 flex-wrap items-center">
@@ -732,8 +724,26 @@ function PropiedadesPanel({
               {(propiedad.inquilinoDni || propiedad.inquilinoTelefono || propiedad.inquilinoEmail) && (
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-outline-variant">
                   {propiedad.inquilinoDni && <span>{propiedad.inquilinoDni}</span>}
-                  {propiedad.inquilinoTelefono && <span>{propiedad.inquilinoTelefono}</span>}
-                  {propiedad.inquilinoEmail && <span>{propiedad.inquilinoEmail}</span>}
+                  {propiedad.inquilinoTelefono && (
+                    <>
+                      <a href={`tel:${propiedad.inquilinoTelefono.replace(/\s/g, '')}`} className="text-primary">
+                        {propiedad.inquilinoTelefono}
+                      </a>
+                      <a
+                        href={`https://wa.me/34${propiedad.inquilinoTelefono.replace(/\D/g, '').replace(/^34/, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary"
+                      >
+                        WhatsApp
+                      </a>
+                    </>
+                  )}
+                  {propiedad.inquilinoEmail && (
+                    <a href={`mailto:${propiedad.inquilinoEmail}`} className="text-primary truncate">
+                      {propiedad.inquilinoEmail}
+                    </a>
+                  )}
                 </div>
               )}
             </div>
@@ -789,16 +799,7 @@ function PropiedadesPanel({
         {/* Cobro de renta y fin de contrato — acceso rápido */}
         {propiedad.estado === 'alquilado' && (
           <div className="px-5 mb-4 flex flex-col gap-2">
-            <div className="flex gap-2">
-              {alquilerHoy != null && (
-                <div className="flex-1">
-                  <CobroRenta propiedad={propiedad} transacciones={txs} />
-                </div>
-              )}
-              <div className="flex-1">
-                <TerminarContrato propiedad={propiedad} />
-              </div>
-            </div>
+            {alquilerHoy != null && <CobroRenta propiedad={propiedad} transacciones={txs} />}
             <div className="flex gap-2">
               <div className="flex-1">
                 <CambiarCondiciones propiedad={propiedad} />
@@ -807,6 +808,7 @@ function PropiedadesPanel({
                 <NuevoContrato propiedad={propiedad} />
               </div>
             </div>
+            <TerminarContrato propiedad={propiedad} />
           </div>
         )}
 
@@ -816,8 +818,7 @@ function PropiedadesPanel({
 
         {/* Iniciar nuevo alquiler — propiedades vacías que ya tuvieron
             inquilino este año */}
-        {propiedad.estado === 'vacio' &&
-          propiedad.historialContratos?.some((c) => c.fechaFin.startsWith(currentYearStr)) && (
+        {(propiedad.estado === 'vacio' || propiedad.estado === 'reforma') && (
             <div className="px-5 mb-4">
               <button
                 onClick={() =>
@@ -1170,6 +1171,10 @@ function PropiedadesPanel({
             initial={editProp ?? undefined}
             onSave={async (p) => { await updateProp(p); setEditProp(null) }}
             onCancel={() => setEditProp(null)}
+            onDelete={() => {
+              setEditProp(null)
+              setConfirmDelete({ type: 'prop', id: propiedad.id })
+            }}
           />
         </BottomSheet>
 
@@ -1217,7 +1222,7 @@ function PropiedadesPanel({
         <ConfirmDialog
           open={confirmRevisarRenta}
           title="Marcar renta revisada"
-          message="No cambia el alquiler mensual guardado — solo deja constancia de que ya revisaste si tocaba actualizarla este año. Si decides subirla, edita la propiedad para cambiar el importe."
+          message="No cambia el alquiler mensual guardado — solo deja constancia de que ya revisaste si tocaba actualizarla este año. Si subes la renta, usa «Cambiar condiciones» con fecha: editar la ficha solo corrige lo vigente hoy y no deja rastro de la renta anterior."
           confirmLabel="Marcar revisada"
           onConfirm={async () => {
             await updateProp({ ...propiedad, rentaRevisadaDesde: new Date().toISOString() })

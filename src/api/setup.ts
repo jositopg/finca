@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns'
-import { apiPost, getAccessToken } from './auth'
+import { apiPost, fetchConTimeout, getAccessToken } from './auth'
 import { deleteFile, findFileInFolder, getOrCreateFolder } from './drive'
 import { writeFormattedSheets, type SheetSpec } from './sheets'
 import {
@@ -549,7 +549,7 @@ export async function exportarASheets(
 
   const spreadsheetId = sheet.spreadsheetId
 
-  await fetch(
+  await fetchConTimeout(
     `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${rootFolder.id}&removeParents=root&fields=id,parents`,
     {
       method: 'PATCH',

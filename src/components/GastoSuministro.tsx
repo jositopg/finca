@@ -63,6 +63,22 @@ export function GastoSuministro({ propiedad }: Props) {
         periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
       }
       await addTx(tx)
+      if (reparto && reparto.inquilino > 0.005) {
+        const catIngreso = categoria === 'Agua' ? 'Agua (repercutida)' : 'Electricidad (repercutida)'
+        await addTx({
+          id: uuid(),
+          propiedadId: propiedad.id,
+          fecha,
+          tipo: 'ingreso',
+          importe: Math.round(reparto.inquilino * 100) / 100,
+          categoria: catIngreso,
+          descripcion: `Repercusión automática del gasto de ${categoria.toLowerCase()}`,
+          archivos: [],
+          creadoEn: new Date().toISOString(),
+          periodoInicio: tx.periodoInicio,
+          periodoFin: tx.periodoFin,
+        })
+      }
       setCategoria(null)
     } finally {
       setSaving(false)

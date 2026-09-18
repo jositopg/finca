@@ -31,7 +31,11 @@ function fmtFecha(iso: string) {
   return format(parseISO(iso), 'd MMM yyyy', { locale: es })
 }
 
-function fechaPorDefectoCambio(propiedad: Propiedad, hoy: Date): string {
+function fechaPorDefectoCambio(_propiedad: Propiedad, hoy: Date): string {
+  return fechaISO(hoy)
+}
+
+function fechaPorDefectoContratoNuevo(propiedad: Propiedad, hoy: Date): string {
   const hoyStr = fechaISO(hoy)
   if (propiedad.contratoFin && propiedad.contratoFin >= hoyStr) {
     return format(addDays(parseISO(propiedad.contratoFin), 1), 'yyyy-MM-dd')
@@ -194,7 +198,7 @@ export function NuevoContrato({ propiedad }: Props) {
 
   function abrir() {
     const hoy = new Date()
-    const inicio = fechaPorDefectoCambio(propiedad, hoy)
+    const inicio = fechaPorDefectoContratoNuevo(propiedad, hoy)
     setInicioYFinAnterior(inicio)
     setContratoFin(finPorDefecto(propiedad, inicio))
     setAlquilerStr(propiedad.alquilerMensual != null ? propiedad.alquilerMensual.toString() : '')

@@ -2,14 +2,12 @@ import { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { EstimadorRenta } from '../components/EstimadorRenta'
 import {
-  amortizacionAnual,
   baseDesdeRentaNeta,
   calcularRentaLocal,
   esDeAlquiler,
   esDeJose,
-  importeEnRango,
   miParte,
-  rangoAnio,
+  rendimientoIrpfPropiedad,
 } from '../types'
 
 function fmt(n: number) {
@@ -43,7 +41,6 @@ export function FiscalView() {
   const [trimestre, setTrimestre] = useState(Math.ceil((new Date().getMonth() + 1) / 3))
 
   const txsAnio = transacciones.filter((t) => t.fecha.startsWith(anio))
-  const [desdeAnio, hastaAnio] = rangoAnio(anio)
 
   // ── Para la Renta: por propiedad, ya en tu parte ──────────────────────────
   // Gastos con periodo facturado (agua/luz) se prorratean por días dentro del
@@ -51,19 +48,15 @@ export function FiscalView() {
   // que se pagó. Por eso se parte de todas las transacciones de la propiedad,
   // no solo las de txsAnio (que filtra por fecha de pago).
   const filasRenta = propiedades.map((p) => {
-    const txs = transacciones.filter((t) => t.propiedadId === p.id)
-    const ingresos = txs
-      .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p, t.soloMio), 0)
-    const gastos = txs
-      .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), p, t.soloMio), 0)
-    const amortizacion = amortizacionAnual(p)
-    return { propiedad: p, ingresos, gastos, amortizacion, neto: ingresos - gastos }
+    const r = rendimientoIrpfPropiedad(p, transacciones, anio, 0)
+    return { ...r, neto: r.ingresos - r.gastos }
   })
   const totalIngresos = filasRenta.reduce((s, f) => s + f.ingresos, 0)
   const totalGastos = filasRenta.reduce((s, f) => s + f.gastos, 0)
   const totalAmortizacion = filasRenta.reduce((s, f) => s + f.amortizacion, 0)
+  const hayHipotecaCaja = transacciones.some(
+    (t) => t.tipo === 'gasto' && t.categoria === 'Hipoteca / Financiación' && t.fecha.startsWith(anio),
+  )
 
   // ── Modelo 420 (IGIC trimestral): solo locales, solo renta de alquiler ────
   // El importe guardado en cada transacción es la renta NETA (lo que
@@ -106,8 +99,8 @@ export function FiscalView() {
       <div className="px-5 pt-12 pb-4 lg:px-0 lg:pt-6">
         <h1 className="font-display text-2xl font-bold text-on-surface mb-1 lg:text-3xl">Fiscal</h1>
         <p className="text-sm text-outline-variant">
-          Datos consolidados para ayudarte a rellenar la Renta y el Modelo 420 — no calcula el
-          impuesto final, eso lo aplicas tú o tu gestoría.
+          Datos consolidados para la Renta, el Modelo 420 (IGIC) y el Modelo 115 (retención de
+          locales). No calcula el impuesto final: eso lo aplicas tú o tu gestoría.
         </p>
       </div>
 
@@ -158,7 +151,7 @@ export function FiscalView() {
                 </div>
                 {amortizacion > 0 && (
                   <p className="text-xs text-outline-variant mt-1">
-                    Amortización deducible aparte (3% valor construcción): {fmt(amortizacion)} €/año
+                    Amortización deducible (prorrateada por meses alquilados): {fmt(amortizacion)} €
                   </p>
                 )}
               </div>
@@ -182,6 +175,12 @@ export function FiscalView() {
                 <span className="tabular-nums text-outline-variant">-{fmt(totalAmortizacion)} €</span>
               </div>
             )}
+            {hayHipotecaCaja && (
+              <p className="text-xs text-outline-variant mt-1">
+                La cuota «Hipoteca / Financiación» no se deduce en IRPF (solo el capital). Usa
+                «Intereses hipoteca» para la parte deducible.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -197,10 +196,9 @@ export function FiscalView() {
           Modelo 420 — IGIC trimestral (locales)
         </p>
         <p className="text-xs text-outline-variant mb-3">
-          Base imponible, IGIC (7%) e IRPF (19%) de la renta de alquiler de locales del trimestre,
-          ya a tu parte — reconstruidos a partir de la renta neta registrada en cada cobro. El IGIC
-          que marques en los gastos de un local (solo si tiene renta cobrada ese trimestre) se
-          descuenta del repercutido.
+          Base imponible e IGIC (7%) de la renta de locales del trimestre, a tu parte. El IRPF
+          retenido (19%) va en el Modelo 115, más abajo. El IGIC soportado en gastos del local
+          (solo si hubo renta ese trimestre) se descuenta del repercutido.
         </p>
 
         <div className="flex gap-2 mb-3">
@@ -223,7 +221,7 @@ export function FiscalView() {
           </p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasLocales.map(({ propiedad, base, igic, irpf, igicSoportado, igicResultado }) => (
+            {filasLocales.map(({ propiedad, base, igic, igicSoportado, igicResultado }) => (
               <div key={propiedad.id} className="p-4">
                 <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
                 <div className="flex items-center gap-3 text-xs flex-wrap">
@@ -232,8 +230,6 @@ export function FiscalView() {
                   </span>
                   <span className="text-outline-variant/40">·</span>
                   <span className="text-success">IGIC +{fmt(igic)} €</span>
-                  <span className="text-outline-variant/40">·</span>
-                  <span className="text-error">IRPF -{fmt(irpf)} €</span>
                 </div>
                 {igicSoportado > 0 && (
                   <p className="text-xs text-outline-variant mt-1">
@@ -247,36 +243,49 @@ export function FiscalView() {
         )}
 
         {locales.length > 0 && (
-          <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 mt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-outline-variant">Base imponible T{trimestre} {anio}</span>
-              <span className="text-sm font-bold tabular-nums text-primary">
-                {fmt(totalBaseTrimestre)} €
-              </span>
+          <>
+            <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 mt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-outline-variant">Base imponible T{trimestre} {anio}</span>
+                <span className="text-sm font-bold tabular-nums text-primary">
+                  {fmt(totalBaseTrimestre)} €
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-outline-variant">IGIC repercutido</span>
+                <span className="tabular-nums text-success">+{fmt(totalIgicTrimestre)} €</span>
+              </div>
+              {totalIgicSoportadoTrimestre > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-outline-variant">IGIC soportado (gastos)</span>
+                    <span className="tabular-nums text-error">-{fmt(totalIgicSoportadoTrimestre)} €</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-outline-variant">IGIC a ingresar</span>
+                    <span className="font-medium tabular-nums text-on-surface">
+                      {fmt(totalIgicResultado)} €
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-outline-variant">IGIC repercutido</span>
-              <span className="tabular-nums text-success">+{fmt(totalIgicTrimestre)} €</span>
+            <div className="bg-surface-lowest rounded-2xl shadow-soft px-4 py-3 mt-3">
+              <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-1">
+                Modelo 115 — IRPF retenido (locales)
+              </p>
+              <p className="text-xs text-outline-variant mb-2">
+                Retención del 19% que el inquilino del local ingresa en Hacienda. Trimestral (115) y
+                resumen anual (180).
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-outline-variant">IRPF retenido T{trimestre} {anio}</span>
+                <span className="text-sm font-bold tabular-nums text-error">
+                  {fmt(totalIrpfTrimestre)} €
+                </span>
+              </div>
             </div>
-            {totalIgicSoportadoTrimestre > 0 && (
-              <>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-outline-variant">IGIC soportado (gastos)</span>
-                  <span className="tabular-nums text-error">-{fmt(totalIgicSoportadoTrimestre)} €</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-outline-variant">IGIC a ingresar</span>
-                  <span className="font-medium tabular-nums text-on-surface">
-                    {fmt(totalIgicResultado)} €
-                  </span>
-                </div>
-              </>
-            )}
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-outline-variant">IRPF retenido</span>
-              <span className="tabular-nums text-error">-{fmt(totalIrpfTrimestre)} €</span>
-            </div>
-          </div>
+          </>
         )}
       </div>
 

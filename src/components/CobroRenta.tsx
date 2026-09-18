@@ -17,6 +17,7 @@ import {
 interface Props {
   propiedad: Propiedad
   transacciones: Transaccion[]
+  triggerLabel?: string
 }
 
 function uuid() {
@@ -27,7 +28,7 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function CobroRenta({ propiedad, transacciones }: Props) {
+export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de renta' }: Props) {
   const { addTx } = useApp()
   const [open, setOpen] = useState(false)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -38,6 +39,12 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
   const alquilerDeLaFecha = alquilerVigente(propiedad, fecha)
   if (alquilerDeLaFecha == null && alquilerVigente(propiedad) == null) return null
 
+  const yaHayCobroEsteMes = transacciones.some(
+    (t) =>
+      t.tipo === 'ingreso' &&
+      t.categoria === 'Alquiler mensual' &&
+      t.fecha.startsWith(fecha.slice(0, 7)),
+  )
   const deuda = deudaInquilino(propiedad, transacciones)
   const alquiler = alquilerDeLaFecha ?? alquilerVigente(propiedad) ?? 0
 
@@ -88,7 +95,7 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
         className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-success-container text-success text-sm font-semibold hover:brightness-95 transition-all"
       >
         <Wallet size={16} />
-        Cobro de renta
+        {triggerLabel}
       </button>
 
       <BottomSheet open={open} onClose={() => setOpen(false)} title="Cobro de renta">
@@ -141,6 +148,11 @@ export function CobroRenta({ propiedad, transacciones }: Props) {
               </p>
             )}
 
+          {yaHayCobroEsteMes && (
+            <p className="text-xs text-warning bg-warning-container/40 rounded-xl px-4 py-2.5">
+              Ya hay un cobro de alquiler este mes. Confirma solo si es un atraso o un extra.
+            </p>
+          )}
           {deuda && (
             <p className="text-xs text-warning bg-warning-container/40 rounded-xl px-4 py-2.5">
               Antes de este cobro, el inquilino debe {fmt(deuda.importe)} € (aprox.{' '}

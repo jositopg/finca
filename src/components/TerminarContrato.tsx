@@ -37,6 +37,9 @@ export function TerminarContrato({ propiedad }: Props) {
         fianzaImporte: undefined,
         fianzaDepositadaDesde: undefined,
         tramosContrato: undefined,
+        deudaDesde: undefined,
+        rentaRevisadaDesde: undefined,
+        diaCobro: undefined,
         historialContratos: [...(propiedad.historialContratos ?? []), historico],
       })
       setOpen(false)

@@ -1,14 +1,7 @@
-const CACHE = 'finca-v1'
-const PRECACHE = [
-  '/',
-  '/manifest.json',
-  '/icon.svg',
-]
+const CACHE = 'finca-v2'
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()),
-  )
+self.addEventListener('install', () => {
+  self.skipWaiting()
 })
 
 self.addEventListener('activate', (e) => {
@@ -23,14 +16,11 @@ self.addEventListener('fetch', (e) => {
   const { request } = e
   const url = new URL(request.url)
 
-  // Never intercept Google API calls
   if (url.hostname.includes('googleapis.com') || url.hostname.includes('accounts.google.com')) {
     return
   }
+  if (url.origin !== self.location.origin) return
 
-  // For navigation requests: always go to network first so index.html
-  // (and the hashed asset paths it references) stays current after a
-  // deploy. Only fall back to the cached shell when offline.
   if (request.mode === 'navigate') {
     e.respondWith(
       fetch(request)
@@ -39,22 +29,27 @@ self.addEventListener('fetch', (e) => {
           caches.open(CACHE).then((c) => c.put('/', clone))
           return res
         })
-        .catch(() => caches.match('/')),
+        .catch(() => caches.match('/').then((c) => c || Response.error())),
     )
     return
   }
 
-  // For assets: cache-first
+  // Solo assets hasheados en cache-first; el resto a red.
+  const esAsset = url.pathname.startsWith('/assets/')
+  if (!esAsset) return
+
   e.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached
-      return fetch(request).then((res) => {
-        if (res.ok && url.origin === self.location.origin) {
-          const clone = res.clone()
-          caches.open(CACHE).then((c) => c.put(request, clone))
-        }
-        return res
-      })
+      return fetch(request)
+        .then((res) => {
+          if (res.ok) {
+            const clone = res.clone()
+            caches.open(CACHE).then((c) => c.put(request, clone))
+          }
+          return res
+        })
+        .catch(() => cached || Response.error())
     }),
   )
 })
