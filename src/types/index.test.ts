@@ -4,6 +4,7 @@ import {
   amortizacionAnual,
   aplicarCambioCondiciones,
   baseDesdeRentaNeta,
+  sustituirPorContratoNuevo,
   calcularReparto,
   calcularRentaLocal,
   contratoEstado,
@@ -758,6 +759,138 @@ describe('tramos de contrato', () => {
     expect(futuro.ok).toBe(true)
     if (!futuro.ok) return
     expect(rentaPendiente(futuro.propiedad, [], new Date('2026-09-18'))).toBe(false)
+  })
+})
+
+describe('sustituirPorContratoNuevo', () => {
+  const alquilada = () =>
+    propiedad({
+      estado: 'alquilado',
+      inquilinoNombre: 'Ana Pérez',
+      inquilinoDni: '12345678A',
+      inquilinoEmail: 'ana@test.com',
+      alquilerMensual: 700,
+      contratoInicio: '2024-01-01',
+      contratoFin: '2026-09-30',
+      fianzaImporte: 700,
+      fianzaDepositadaDesde: '2024-01-10T00:00:00.000Z',
+      contratoArchivoId: 'file-old',
+      contratoArchivoNombre: 'contrato.pdf',
+      rentaRevisadaDesde: '2026-01-01T00:00:00.000Z',
+    })
+
+  it('archiva el contrato actual y deja al inquilino con uno nuevo', () => {
+    const r = sustituirPorContratoNuevo(alquilada(), {
+      fechaFinAnterior: '2026-09-30',
+      contratoInicio: '2026-10-01',
+      contratoFin: '2027-09-30',
+      alquilerMensual: 750,
+    })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.propiedad.estado).toBe('alquilado')
+    expect(r.propiedad.inquilinoNombre).toBe('Ana Pérez')
+    expect(r.propiedad.inquilinoDni).toBe('12345678A')
+    expect(r.propiedad.contratoInicio).toBe('2026-10-01')
+    expect(r.propiedad.contratoFin).toBe('2027-09-30')
+    expect(r.propiedad.alquilerMensual).toBe(750)
+    expect(r.propiedad.tramosContrato).toBeUndefined()
+    expect(r.propiedad.contratoArchivoId).toBeUndefined()
+    expect(r.propiedad.rentaRevisadaDesde).toBeUndefined()
+    expect(r.propiedad.fianzaDepositadaDesde).toBe('2024-01-10T00:00:00.000Z')
+    expect(r.propiedad.historialContratos).toHaveLength(1)
+    expect(r.propiedad.historialContratos![0]).toMatchObject({
+      inquilinoNombre: 'Ana Pérez',
+      fechaInicio: '2024-01-01',
+      fechaFin: '2026-09-30',
+      alquilerMensual: 700,
+      contratoArchivoId: 'file-old',
+    })
+  })
+
+  it('antes del inicio del contrato nuevo, la renta y la deuda siguen las del anterior', () => {
+    const r = sustituirPorContratoNuevo(
+      { ...alquilada(), contratoInicio: '2026-01-01' },
+      {
+        fechaFinAnterior: '2026-09-30',
+        contratoInicio: '2026-10-01',
+        contratoFin: '2027-09-30',
+        alquilerMensual: 750,
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(alquilerVigente(r.propiedad, '2026-09-18', new Date('2026-09-18'))).toBe(700)
+    expect(alquilerVigente(r.propiedad, '2026-10-01', new Date('2026-09-18'))).toBe(750)
+    expect(rentaPendiente(r.propiedad, [], new Date('2026-09-18'))).toBe(true)
+    // Agosto cerrado, a 700 del contrato archivado; septiembre aún no cuenta.
+    const deuda = deudaInquilino(r.propiedad, [], new Date('2026-09-18'))
+    expect(deuda?.importe).toBe(700 * 8)
+  })
+
+  it('un inquilino distinto en el historial no cuenta para la deuda del actual', () => {
+    const p = propiedad({
+      estado: 'alquilado',
+      inquilinoNombre: 'Ana Pérez',
+      alquilerMensual: 800,
+      contratoInicio: '2026-06-01',
+      historialContratos: [
+        {
+          id: 'h1',
+          inquilinoNombre: 'Otro',
+          alquilerMensual: 500,
+          fechaInicio: '2026-01-01',
+          fechaFin: '2026-05-31',
+        },
+      ],
+    })
+    const deuda = deudaInquilino(p, [], new Date('2026-08-15'))
+    // Junio y julio a 800; el contrato de Otro no entra.
+    expect(deuda?.importe).toBe(1600)
+  })
+
+  it('rechaza fechas incoherentes o una propiedad que no está alquilada', () => {
+    expect(
+      sustituirPorContratoNuevo(alquilada(), {
+        fechaFinAnterior: '2026-10-01',
+        contratoInicio: '2026-10-01',
+        alquilerMensual: 750,
+      }).ok,
+    ).toBe(false)
+    expect(
+      sustituirPorContratoNuevo(alquilada(), {
+        fechaFinAnterior: '2023-12-01',
+        contratoInicio: '2026-10-01',
+        alquilerMensual: 750,
+      }).ok,
+    ).toBe(false)
+    expect(
+      sustituirPorContratoNuevo(propiedad({ estado: 'vacio', contratoInicio: '2024-01-01' }), {
+        fechaFinAnterior: '2026-09-30',
+        contratoInicio: '2026-10-01',
+      }).ok,
+    ).toBe(false)
+  })
+
+  it('conserva los tramos del contrato archivado', () => {
+    const conTramos = aplicarCambioCondiciones(
+      alquilada(),
+      { vigenteDesde: '2026-01-01', alquilerMensual: 720, contratoFin: '2026-09-30' },
+      new Date('2026-09-18'),
+    )
+    expect(conTramos.ok).toBe(true)
+    if (!conTramos.ok) return
+    const r = sustituirPorContratoNuevo(conTramos.propiedad, {
+      fechaFinAnterior: '2026-09-30',
+      contratoInicio: '2026-10-01',
+      contratoFin: '2027-09-30',
+      alquilerMensual: 750,
+    })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.propiedad.tramosContrato).toBeUndefined()
+    expect(r.propiedad.historialContratos![0].tramos).toHaveLength(2)
+    expect(alquilerVigente(r.propiedad, '2026-02-01')).toBe(720)
   })
 })
 

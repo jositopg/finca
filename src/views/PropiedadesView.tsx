@@ -19,7 +19,7 @@ import { useToast } from '../context/ToastContext'
 import { useIsDesktop } from '../hooks/useMediaQuery'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { CambiarCondiciones, TramosContrato } from '../components/CambiarCondiciones'
+import { CambiarCondiciones, NuevoContrato, TramosContrato } from '../components/CambiarCondiciones'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { FacturaAlquiler } from '../components/FacturaAlquiler'
@@ -704,6 +704,13 @@ function PropiedadesPanel({
                   </span>
                 )}
               </div>
+              {propiedad.contratoInicio &&
+                propiedad.contratoInicio > format(new Date(), 'yyyy-MM-dd') && (
+                  <span className="text-xs text-primary">
+                    Contrato nuevo desde{' '}
+                    {format(parseISO(propiedad.contratoInicio), 'd MMM yyyy', { locale: es })}
+                  </span>
+                )}
               {propiedad.contratoFin && estadoContrato && (
                 <div className="flex items-center gap-1.5">
                   {contratoAlerta && <AlertTriangle size={12} className="text-warning" />}
@@ -792,7 +799,14 @@ function PropiedadesPanel({
                 <TerminarContrato propiedad={propiedad} />
               </div>
             </div>
-            <CambiarCondiciones propiedad={propiedad} />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <CambiarCondiciones propiedad={propiedad} />
+              </div>
+              <div className="flex-1">
+                <NuevoContrato propiedad={propiedad} />
+              </div>
+            </div>
           </div>
         )}
 

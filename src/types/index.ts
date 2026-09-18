@@ -411,16 +411,34 @@ export function tramoEnFecha(
 export function alquilerVigente(
   propiedad: Pick<
     Propiedad,
-    'tramosContrato' | 'contratoInicio' | 'alquilerMensual' | 'contratoFin' | 'fianzaImporte'
+    | 'tramosContrato'
+    | 'contratoInicio'
+    | 'alquilerMensual'
+    | 'contratoFin'
+    | 'fianzaImporte'
+    | 'historialContratos'
+    | 'inquilinoNombre'
+    | 'inquilinoDni'
   >,
   fecha?: string,
   hoy: Date = new Date(),
 ): number | undefined {
-  const tramo = tramoEnFecha(propiedad, fecha ?? fechaISO(hoy))
-  if (tramo?.alquilerMensual != null) return tramo.alquilerMensual
-  // Sin tramos persistidos ni fecha de inicio, los campos sueltos de la
-  // ficha siguen siendo la renta pactada (el caso anterior a esta feature).
-  if (!propiedad.tramosContrato?.length) return propiedad.alquilerMensual
+  const dia = fecha ?? fechaISO(hoy)
+  if (propiedad.contratoInicio && dia >= propiedad.contratoInicio) {
+    const tramo = tramoEnFecha(propiedad, dia)
+    if (tramo?.alquilerMensual != null) return tramo.alquilerMensual
+    return propiedad.alquilerMensual
+  }
+  // Fecha anterior al contrato en ficha: si es el mismo inquilino y el
+  // contrato anterior está en el historial (sustitución sin cambiar de
+  // persona), usa la renta de ese periodo.
+  const historico = (propiedad.historialContratos ?? [])
+    .filter((c) => mismoInquilino(c, propiedad) && historicoCubre(c, dia))
+    .sort((a, b) => b.fechaFin.localeCompare(a.fechaFin))[0]
+  if (historico) return alquilerDeHistorico(historico, dia)
+  // Sin fecha de inicio, los campos sueltos de la ficha siguen siendo la
+  // renta pactada (el caso anterior a esta feature).
+  if (!propiedad.contratoInicio && !propiedad.tramosContrato?.length) return propiedad.alquilerMensual
   return undefined
 }
 
@@ -567,6 +585,141 @@ export function corregirTramoVigente(
   return sincronizarCamposVigentes({ ...propiedad, tramosContrato: tramos }, hoy)
 }
 
+export function diaAnteriorISO(fecha: string): string {
+  const d = new Date(`${fecha}T00:00:00`)
+  d.setDate(d.getDate() - 1)
+  return fechaISO(d)
+}
+
+export function diaSiguienteISO(fecha: string): string {
+  const d = new Date(`${fecha}T00:00:00`)
+  d.setDate(d.getDate() + 1)
+  return fechaISO(d)
+}
+
+function mismoInquilino(
+  a: { inquilinoNombre?: string; inquilinoDni?: string },
+  b: { inquilinoNombre?: string; inquilinoDni?: string },
+): boolean {
+  const dniA = a.inquilinoDni?.trim().toUpperCase()
+  const dniB = b.inquilinoDni?.trim().toUpperCase()
+  if (dniA && dniB) return dniA === dniB
+  const nA = a.inquilinoNombre?.trim().toLowerCase()
+  const nB = b.inquilinoNombre?.trim().toLowerCase()
+  return !!nA && !!nB && nA === nB
+}
+
+function historicoCubre(c: ContratoHistorico, fecha: string): boolean {
+  if (fecha > c.fechaFin) return false
+  if (c.fechaInicio && fecha < c.fechaInicio) return false
+  return true
+}
+
+function alquilerDeHistorico(c: ContratoHistorico, fecha: string): number | undefined {
+  if (c.tramos && c.tramos.length > 0) {
+    const sorted = [...c.tramos].sort((a, b) => a.vigenteDesde.localeCompare(b.vigenteDesde))
+    let vigente: TramoContrato | undefined
+    for (const t of sorted) {
+      if (t.vigenteDesde <= fecha) vigente = t
+    }
+    if (vigente?.alquilerMensual != null) return vigente.alquilerMensual
+  }
+  return c.alquilerMensual
+}
+
+// Inicio del alquiler continuo al mismo inquilino: si se sustituyó el
+// contrato sin cambiar de persona y las fechas son consecutivas, se
+// remonta al primer contrato de esa ocupación (para la deuda).
+export function inicioOcupacionActual(
+  propiedad: Pick<Propiedad, 'contratoInicio' | 'historialContratos' | 'inquilinoNombre' | 'inquilinoDni'>,
+): string | undefined {
+  let inicio = propiedad.contratoInicio
+  const hist = [...(propiedad.historialContratos ?? [])]
+    .filter((c) => mismoInquilino(c, propiedad))
+    .sort((a, b) => b.fechaFin.localeCompare(a.fechaFin))
+  for (const c of hist) {
+    if (!inicio) {
+      inicio = c.fechaInicio
+      continue
+    }
+    if (diaSiguienteISO(c.fechaFin) === inicio) {
+      inicio = c.fechaInicio ?? inicio
+    } else {
+      break
+    }
+  }
+  return inicio
+}
+
+export function snapshotContratoActual(propiedad: Propiedad, fechaFin: string): ContratoHistorico {
+  return {
+    id: crypto.randomUUID(),
+    inquilinoNombre: propiedad.inquilinoNombre,
+    inquilinoEmail: propiedad.inquilinoEmail,
+    inquilinoTelefono: propiedad.inquilinoTelefono,
+    inquilinoDni: propiedad.inquilinoDni,
+    alquilerMensual: alquilerVigente(propiedad, fechaFin) ?? propiedad.alquilerMensual,
+    fechaInicio: propiedad.contratoInicio,
+    fechaFin,
+    contratoArchivoId: propiedad.contratoArchivoId,
+    contratoArchivoNombre: propiedad.contratoArchivoNombre,
+    fianzaImporte: propiedad.fianzaImporte,
+    tramos: propiedad.tramosContrato,
+  }
+}
+
+export type ContratoNuevoInput = {
+  fechaFinAnterior: string
+  contratoInicio: string
+  contratoFin?: string
+  alquilerMensual?: number
+  fianzaImporte?: number
+}
+
+// Archiva el contrato en vigor (mismo inquilino, la vivienda no queda
+// vacía) y deja en la ficha un contrato nuevo, con su propia fecha de
+// inicio y aniversario. Distinto de aplicarCambioCondiciones, que es un
+// anexo: no cambia contratoInicio.
+export function sustituirPorContratoNuevo(
+  propiedad: Propiedad,
+  nuevo: ContratoNuevoInput,
+): ResultadoCambioCondiciones {
+  if (propiedad.estado !== 'alquilado') {
+    return { ok: false, error: 'Solo se puede sustituir un contrato en vigor' }
+  }
+  if (!nuevo.contratoInicio) {
+    return { ok: false, error: 'Indica la fecha de inicio del contrato nuevo' }
+  }
+  if (!nuevo.fechaFinAnterior) {
+    return { ok: false, error: 'Indica cuándo termina el contrato actual' }
+  }
+  if (nuevo.fechaFinAnterior >= nuevo.contratoInicio) {
+    return { ok: false, error: 'El contrato nuevo tiene que empezar después de que termine el actual' }
+  }
+  if (propiedad.contratoInicio && nuevo.fechaFinAnterior < propiedad.contratoInicio) {
+    return { ok: false, error: 'El fin del contrato actual no puede ser anterior a su inicio' }
+  }
+  if (nuevo.contratoFin && nuevo.contratoFin < nuevo.contratoInicio) {
+    return { ok: false, error: 'El fin del contrato nuevo no puede ser anterior a su inicio' }
+  }
+
+  return {
+    ok: true,
+    propiedad: {
+      ...propiedad,
+      contratoInicio: nuevo.contratoInicio,
+      contratoFin: nuevo.contratoFin,
+      alquilerMensual: nuevo.alquilerMensual ?? propiedad.alquilerMensual,
+      fianzaImporte: nuevo.fianzaImporte ?? propiedad.fianzaImporte,
+      contratoArchivoId: undefined,
+      contratoArchivoNombre: undefined,
+      tramosContrato: undefined,
+      rentaRevisadaDesde: undefined,
+      historialContratos: [...(propiedad.historialContratos ?? []), snapshotContratoActual(propiedad, nuevo.fechaFinAnterior)],
+    },
+  }
+}
+
 export interface Transaccion {
   id: string
   propiedadId: string
@@ -702,7 +855,16 @@ export function rangoMes(mesYYYYMM: string): [string, string] {
 export function rentaPendiente(
   propiedad: Pick<
     Propiedad,
-    'estado' | 'alquilerMensual' | 'id' | 'tramosContrato' | 'contratoInicio' | 'contratoFin' | 'fianzaImporte'
+    | 'estado'
+    | 'alquilerMensual'
+    | 'id'
+    | 'tramosContrato'
+    | 'contratoInicio'
+    | 'contratoFin'
+    | 'fianzaImporte'
+    | 'historialContratos'
+    | 'inquilinoNombre'
+    | 'inquilinoDni'
   >,
   transacciones: Transaccion[],
   hoy: Date = new Date(),
@@ -746,16 +908,20 @@ export function deudaInquilino(
     | 'tramosContrato'
     | 'contratoFin'
     | 'fianzaImporte'
+    | 'historialContratos'
+    | 'inquilinoNombre'
+    | 'inquilinoDni'
   >,
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): { importe: number; meses: number } | null {
   if (propiedad.estado !== 'alquilado') return null
-  if (!propiedad.contratoInicio) return null
+  const inicioOcupacion = inicioOcupacionActual(propiedad)
+  if (!inicioOcupacion) return null
 
   const mesAnteriorDate = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1)
   const mesLimite = `${mesAnteriorDate.getFullYear()}-${String(mesAnteriorDate.getMonth() + 1).padStart(2, '0')}`
-  const mesInicioContrato = propiedad.contratoInicio.slice(0, 7)
+  const mesInicioContrato = inicioOcupacion.slice(0, 7)
   const mesInicio =
     propiedad.deudaDesde && propiedad.deudaDesde > mesInicioContrato
       ? propiedad.deudaDesde

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { PenLine, Trash2 } from 'lucide-react'
+import { FilePlus, PenLine, Trash2 } from 'lucide-react'
 import { addDays, addYears, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
@@ -15,6 +15,7 @@ import {
   parseImporte,
   periodoTramo,
   quitarTramoContrato,
+  sustituirPorContratoNuevo,
   type Propiedad,
 } from '../types'
 
@@ -163,6 +164,142 @@ export function CambiarCondiciones({ propiedad }: Props) {
             </Button>
             <Button fullWidth onClick={handleConfirm} disabled={saving || !vigenteDesde}>
               {saving ? 'Guardando...' : 'Guardar cambio'}
+            </Button>
+          </div>
+        </div>
+      </BottomSheet>
+    </>
+  )
+}
+
+export function NuevoContrato({ propiedad }: Props) {
+  const { updateProp } = useApp()
+  const { showToast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [fechaFinAnterior, setFechaFinAnterior] = useState('')
+  const [contratoInicio, setContratoInicio] = useState('')
+  const [contratoFin, setContratoFin] = useState('')
+  const [alquilerStr, setAlquilerStr] = useState('')
+  const [fianzaStr, setFianzaStr] = useState('')
+
+  function setInicioYFinAnterior(inicio: string) {
+    setContratoInicio(inicio)
+    if (!inicio) {
+      setFechaFinAnterior('')
+      return
+    }
+    setFechaFinAnterior(format(addDays(parseISO(inicio), -1), 'yyyy-MM-dd'))
+  }
+
+  function abrir() {
+    const hoy = new Date()
+    const inicio = fechaPorDefectoCambio(propiedad, hoy)
+    setInicioYFinAnterior(inicio)
+    setContratoFin(finPorDefecto(propiedad, inicio))
+    setAlquilerStr(propiedad.alquilerMensual != null ? propiedad.alquilerMensual.toString() : '')
+    setFianzaStr(propiedad.fianzaImporte != null ? propiedad.fianzaImporte.toString() : '')
+    setOpen(true)
+  }
+
+  async function handleConfirm() {
+    if (saving) return
+    const alquilerParseado = alquilerStr.trim() ? parseImporte(alquilerStr) : undefined
+    if (alquilerStr.trim() && (Number.isNaN(alquilerParseado) || (alquilerParseado ?? 0) <= 0)) {
+      showToast('Importe de alquiler inválido')
+      return
+    }
+    const fianzaParseada = fianzaStr.trim() ? parseImporte(fianzaStr) : undefined
+    if (fianzaStr.trim() && Number.isNaN(fianzaParseada)) {
+      showToast('Importe de fianza inválido')
+      return
+    }
+    setSaving(true)
+    try {
+      const resultado = sustituirPorContratoNuevo(propiedad, {
+        fechaFinAnterior,
+        contratoInicio,
+        contratoFin: contratoFin || undefined,
+        alquilerMensual: alquilerParseado,
+        fianzaImporte: fianzaParseada,
+      })
+      if (!resultado.ok) {
+        showToast(resultado.error)
+        return
+      }
+      await updateProp(resultado.propiedad)
+      setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={abrir}
+        className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-primary-container text-primary text-sm font-medium hover:brightness-95 transition-all w-full"
+      >
+        <FilePlus size={16} />
+        Contrato nuevo
+      </button>
+
+      <BottomSheet open={open} onClose={() => setOpen(false)} title="Contrato nuevo">
+        <div className="flex flex-col gap-5 pb-4">
+          <p className="text-sm text-outline-variant">
+            {propiedad.inquilinoNombre ? `${propiedad.inquilinoNombre} se queda. ` : 'El inquilino se queda. '}
+            El contrato actual pasa al historial de alquileres y arranca uno
+            nuevo (nueva fecha de inicio y aniversario). El PDF hay que
+            adjuntarlo otra vez. Si solo quieres cambiar la renta o alargar
+            el actual, usa «Cambiar condiciones».
+          </p>
+
+          <Input
+            label="Fin del contrato actual"
+            type="date"
+            value={fechaFinAnterior}
+            onChange={(e) => setFechaFinAnterior(e.target.value)}
+          />
+          <Input
+            label="Inicio del contrato nuevo"
+            type="date"
+            value={contratoInicio}
+            onChange={(e) => setInicioYFinAnterior(e.target.value)}
+          />
+          <Input
+            label="Fin del contrato nuevo"
+            type="date"
+            value={contratoFin}
+            onChange={(e) => setContratoFin(e.target.value)}
+          />
+          <Input
+            label="Alquiler mensual €"
+            type="text"
+            inputMode="decimal"
+            placeholder="800 o 800,50"
+            value={alquilerStr}
+            onChange={(e) => setAlquilerStr(e.target.value)}
+          />
+          <Input
+            label="Fianza € (opcional)"
+            type="text"
+            inputMode="decimal"
+            placeholder="800"
+            value={fianzaStr}
+            onChange={(e) => setFianzaStr(e.target.value)}
+          />
+
+          <div className="flex gap-3 pt-2">
+            <Button variant="secondary" fullWidth onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              fullWidth
+              onClick={handleConfirm}
+              disabled={saving || !fechaFinAnterior || !contratoInicio}
+            >
+              {saving ? 'Guardando...' : 'Guardar contrato nuevo'}
             </Button>
           </div>
         </div>

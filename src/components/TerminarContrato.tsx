@@ -5,14 +5,10 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import type { ContratoHistorico, Propiedad } from '../types'
+import { snapshotContratoActual, type Propiedad } from '../types'
 
 interface Props {
   propiedad: Propiedad
-}
-
-function uuid() {
-  return crypto.randomUUID()
 }
 
 export function TerminarContrato({ propiedad }: Props) {
@@ -25,20 +21,7 @@ export function TerminarContrato({ propiedad }: Props) {
     if (saving) return
     setSaving(true)
     try {
-      const historico: ContratoHistorico = {
-        id: uuid(),
-        inquilinoNombre: propiedad.inquilinoNombre,
-        inquilinoEmail: propiedad.inquilinoEmail,
-        inquilinoTelefono: propiedad.inquilinoTelefono,
-        inquilinoDni: propiedad.inquilinoDni,
-        alquilerMensual: propiedad.alquilerMensual,
-        fechaInicio: propiedad.contratoInicio,
-        fechaFin,
-        contratoArchivoId: propiedad.contratoArchivoId,
-        contratoArchivoNombre: propiedad.contratoArchivoNombre,
-        fianzaImporte: propiedad.fianzaImporte,
-        tramos: propiedad.tramosContrato,
-      }
+      const historico = snapshotContratoActual(propiedad, fechaFin)
       await updateProp({
         ...propiedad,
         estado: 'vacio',
