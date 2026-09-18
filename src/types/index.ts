@@ -97,6 +97,7 @@ export interface Propiedad {
   fianzaDepositoArchivoNombre?: string
   seguroVencimiento?: string // YYYY-MM-DD
   ibiMes?: number // 1-12, mes en que suele llegar el IBI
+  huecosMensualesOmitidos?: HuecoMensual[] // avisos de renta/agua/luz que Jose ha quitado a mano
 }
 
 // Propiedades que son de Jose (sin propietarioNombre) — para excluir las que
@@ -1118,7 +1119,71 @@ export function tocaRevisarRenta(
   return hoy >= aniversario
 }
 
-export type AvisoTipo = 'renta' | 'fianza' | 'contrato' | 'revision' | 'cee' | 'seguro' | 'ibi'
+export type HuecoMensualTipo = 'renta' | 'agua' | 'luz'
+
+export interface HuecoMensual {
+  tipo: HuecoMensualTipo
+  mes: string // YYYY-MM
+}
+
+export const HUECO_MENSUAL_LABEL: Record<HuecoMensualTipo, string> = {
+  renta: 'Renta',
+  agua: 'Agua',
+  luz: 'Luz',
+}
+
+const MESES_SEGUIMIENTO_HUECOS = 6
+
+export function mesesSeguimientoAlquiler(
+  propiedad: Pick<Propiedad, 'contratoInicio' | 'historialContratos' | 'inquilinoNombre' | 'inquilinoDni'>,
+  hoy: Date = new Date(),
+): string[] {
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const ventana = ultimosNMeses(hoy, MESES_SEGUIMIENTO_HUECOS)
+  const haceN = ventana[0]
+  const ocupacion = inicioOcupacionActual(propiedad)?.slice(0, 7)
+  const desde = ocupacion && ocupacion > haceN ? ocupacion : haceN
+  if (desde > mesActual) return []
+  return mesesEntre(desde, mesActual)
+}
+
+export function huecosMensuales(
+  propiedad: Propiedad,
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): HuecoMensual[] {
+  if (propiedad.estado !== 'alquilado') return []
+  const omitidos = new Set(
+    (propiedad.huecosMensualesOmitidos ?? []).map((h) => `${h.tipo}:${h.mes}`),
+  )
+  const txs = transacciones.filter((t) => t.propiedadId === propiedad.id)
+  const huecos: HuecoMensual[] = []
+  for (const mes of mesesSeguimientoAlquiler(propiedad, hoy)) {
+    const [desde, hasta] = rangoMes(mes)
+    if (alquilerACobrar(propiedad, `${mes}-01`, hoy)) {
+      if (cobradoAlquilerEnMes(propiedad.id, txs, mes) <= 0.005 && !omitidos.has(`renta:${mes}`)) {
+        huecos.push({ tipo: 'renta', mes })
+      }
+    }
+    const hayAgua = txs.some(
+      (t) => t.tipo === 'gasto' && t.categoria === 'Agua' && importeEnRango(t, desde, hasta) !== 0,
+    )
+    if (!hayAgua && !omitidos.has(`agua:${mes}`)) huecos.push({ tipo: 'agua', mes })
+    const hayLuz = txs.some(
+      (t) => t.tipo === 'gasto' && t.categoria === 'Electricidad' && importeEnRango(t, desde, hasta) !== 0,
+    )
+    if (!hayLuz && !omitidos.has(`luz:${mes}`)) huecos.push({ tipo: 'luz', mes })
+  }
+  return huecos
+}
+
+export function omitirHuecoMensual(propiedad: Propiedad, hueco: HuecoMensual): Propiedad {
+  const ya = propiedad.huecosMensualesOmitidos ?? []
+  if (ya.some((h) => h.tipo === hueco.tipo && h.mes === hueco.mes)) return propiedad
+  return { ...propiedad, huecosMensualesOmitidos: [...ya, hueco] }
+}
+
+export type AvisoTipo = 'renta' | 'agua' | 'luz' | 'fianza' | 'contrato' | 'revision' | 'cee' | 'seguro' | 'ibi' | 'registro'
 
 export interface AvisoPropiedad {
   tipo: AvisoTipo
@@ -1134,7 +1199,23 @@ export function avisosDePropiedad(
 ): AvisoPropiedad[] {
   const avisos: AvisoPropiedad[] = []
   const base = { propiedadId: propiedad.id, nombre: propiedad.nombre }
-  if (rentaPendiente(propiedad, transacciones, hoy)) {
+  const huecos = huecosMensuales(propiedad, transacciones, hoy)
+  if (huecos.length > 0) {
+    const resumen = huecos
+      .slice(0, 4)
+      .map((h) => `${HUECO_MENSUAL_LABEL[h.tipo].toLowerCase()} ${h.mes.slice(5, 7)}/${h.mes.slice(0, 4)}`)
+      .join(' · ')
+    avisos.push({
+      ...base,
+      tipo: 'registro',
+      mensaje: huecos.length > 4 ? `Falta ${resumen} y ${huecos.length - 4} más` : `Falta ${resumen}`,
+    })
+  }
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  if (
+    rentaPendiente(propiedad, transacciones, hoy) &&
+    !huecos.some((h) => h.tipo === 'renta' && h.mes === mesActual)
+  ) {
     avisos.push({ ...base, tipo: 'renta', mensaje: 'Renta sin cobrar este mes' })
   }
   if (propiedad.estado === 'alquilado' && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) {

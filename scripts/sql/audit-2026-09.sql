@@ -6,6 +6,7 @@ ALTER TABLE propiedades ADD COLUMN IF NOT EXISTS fianza_deposito_archivo_id text
 ALTER TABLE propiedades ADD COLUMN IF NOT EXISTS fianza_deposito_archivo_nombre text;
 ALTER TABLE propiedades ADD COLUMN IF NOT EXISTS seguro_vencimiento date;
 ALTER TABLE propiedades ADD COLUMN IF NOT EXISTS ibi_mes smallint;
+ALTER TABLE propiedades ADD COLUMN IF NOT EXISTS huecos_mensuales_omitidos jsonb;
 
 ALTER TABLE transacciones ADD COLUMN IF NOT EXISTS gasto_recurrente_id uuid;
 

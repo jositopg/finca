@@ -358,6 +358,7 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
       fianzaDepositoArchivoNombre: initial?.fianzaDepositoArchivoNombre,
       seguroVencimiento: seguroVencimiento || undefined,
       ibiMes: ibiMes.trim() ? Number(ibiMes) : undefined,
+      huecosMensualesOmitidos: initial?.huecosMensualesOmitidos,
     }
 
     const aGuardar = propiedad.tramosContrato?.length

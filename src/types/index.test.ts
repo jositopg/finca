@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   alquilerACobrar,
   alquilerVigente,
+  huecosMensuales,
   mesAlquilerMasAntiguoPendiente,
+  omitirHuecoMensual,
   rentaDelMesIncompleta,
   amortizacionAnual,
   aplicarCambioCondiciones,
@@ -496,6 +498,62 @@ describe('generarGastosPendientes', () => {
     })
     const nuevas = generarGastosPendientes([p], [], new Date('2026-01-15'))
     expect(nuevas).toHaveLength(0)
+  })
+})
+
+describe('huecosMensuales', () => {
+  it('cuenta el periodo facturado, no el mes en que se registró el pago', () => {
+    const p = propiedad({
+      estado: 'alquilado',
+      alquilerMensual: 500,
+      contratoInicio: '2026-01-01',
+    })
+    const txs = [
+      transaccion({
+        tipo: 'ingreso',
+        categoria: 'Alquiler mensual',
+        importe: 500,
+        fecha: '2026-03-10',
+        periodoInicio: '2026-01-01',
+        periodoFin: '2026-01-31',
+      }),
+      transaccion({
+        tipo: 'gasto',
+        categoria: 'Agua',
+        importe: 40,
+        fecha: '2026-03-10',
+        periodoInicio: '2026-02-01',
+        periodoFin: '2026-02-28',
+      }),
+      transaccion({
+        tipo: 'gasto',
+        categoria: 'Electricidad',
+        importe: 30,
+        fecha: '2026-03-10',
+        periodoInicio: '2026-02-01',
+        periodoFin: '2026-02-28',
+      }),
+    ]
+    const huecos = huecosMensuales(p, txs, new Date('2026-03-15'))
+    expect(huecos).not.toContainEqual({ tipo: 'renta', mes: '2026-01' })
+    expect(huecos).toContainEqual({ tipo: 'renta', mes: '2026-02' })
+    expect(huecos).not.toContainEqual({ tipo: 'agua', mes: '2026-02' })
+    expect(huecos).toContainEqual({ tipo: 'agua', mes: '2026-01' })
+    expect(huecos).not.toContainEqual({ tipo: 'luz', mes: '2026-02' })
+  })
+
+  it('quitar un aviso lo saca de la lista', () => {
+    const p = propiedad({
+      estado: 'alquilado',
+      alquilerMensual: 500,
+      contratoInicio: '2026-03-01',
+    })
+    const huecos = huecosMensuales(p, [], new Date('2026-03-15'))
+    expect(huecos.some((h) => h.tipo === 'agua' && h.mes === '2026-03')).toBe(true)
+    const sinAgua = omitirHuecoMensual(p, { tipo: 'agua', mes: '2026-03' })
+    expect(huecosMensuales(sinAgua, [], new Date('2026-03-15')).some((h) => h.tipo === 'agua')).toBe(
+      false,
+    )
   })
 })
 

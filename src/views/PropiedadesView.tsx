@@ -19,6 +19,7 @@ import { useIsDesktop } from '../hooks/useMediaQuery'
 import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CambiarCondiciones, NuevoContrato, TramosContrato } from '../components/CambiarCondiciones'
+import { HuecosMensuales } from '../components/HuecosMensuales'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { FacturaAlquiler } from '../components/FacturaAlquiler'
@@ -36,6 +37,7 @@ import { Button } from '../components/Button'
 import {
   alquilerVigente,
   calcularRentabilidad,
+  huecosMensuales,
   calcularReparto,
   contratoEstado,
   deudaInquilino,
@@ -189,6 +191,7 @@ function PropiedadCard({
   const revisionPendienteP = tocaRevisarRenta(p)
   const certificadoAlertaP = contratoEstado(p.certificadoEnergeticoVencimiento)?.alerta ?? false
   const fianzaSinDepositarP = !!p.fianzaImporte && !p.fianzaDepositadaDesde
+  const huecosP = huecosMensuales(p, transacciones)
   const tareasVencidasP = tareas.filter((t) => t.propiedadId === p.id && tareaVencida(t)).length
 
   return (
@@ -243,10 +246,12 @@ function PropiedadCard({
           {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
         </span>
       </div>
-      {rentaSinCobrar && (
+      {(rentaSinCobrar || huecosP.length > 0) && (
         <div className="flex items-center gap-1 mt-2 text-xs text-warning font-medium">
           <AlertTriangle size={11} />
-          Renta sin cobrar este mes
+          {rentaSinCobrar
+            ? 'Renta sin cobrar este mes'
+            : `${huecosP.length} registro${huecosP.length === 1 ? '' : 's'} pendiente${huecosP.length === 1 ? '' : 's'}`}
         </div>
       )}
       {revisionPendienteP && (
@@ -794,6 +799,12 @@ function PropiedadesPanel({
                 Marcar revisada
               </button>
             </div>
+          </div>
+        )}
+
+        {propiedad.estado === 'alquilado' && (
+          <div className="px-5 mb-4">
+            <HuecosMensuales propiedad={propiedad} transacciones={txs} />
           </div>
         )}
 

@@ -9,6 +9,7 @@ import type {
   Tarea,
   TareaEstado,
   TareaPrioridad,
+  HuecoMensual,
   TramoContrato,
   Transaccion,
 } from '../types'
@@ -60,6 +61,7 @@ interface PropiedadRow {
   fianza_deposito_archivo_nombre: string | null
   seguro_vencimiento: string | null
   ibi_mes: number | string | null
+  huecos_mensuales_omitidos: HuecoMensual[] | null
 }
 
 interface TransaccionRow {
@@ -127,6 +129,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     fianzaDepositoArchivoNombre: row.fianza_deposito_archivo_nombre ?? undefined,
     seguroVencimiento: row.seguro_vencimiento ?? undefined,
     ibiMes: row.ibi_mes != null ? Number(row.ibi_mes) : undefined,
+    huecosMensualesOmitidos: row.huecos_mensuales_omitidos ?? undefined,
   }
 }
 
@@ -176,6 +179,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     fianza_deposito_archivo_nombre: p.fianzaDepositoArchivoNombre ?? null,
     seguro_vencimiento: p.seguroVencimiento ?? null,
     ibi_mes: p.ibiMes ?? null,
+    huecos_mensuales_omitidos: p.huecosMensualesOmitidos ?? null,
   }
 }
 
