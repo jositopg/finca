@@ -946,15 +946,7 @@ export function rentaPendiente(
   if (!esperado) return false
   const diaAviso = propiedad.diaCobro && propiedad.diaCobro >= 1 && propiedad.diaCobro <= 28 ? propiedad.diaCobro : 5
   if (hoy.getDate() < diaAviso) return false
-  const pagado = transacciones
-    .filter(
-      (t) =>
-        t.propiedadId === propiedad.id &&
-        t.tipo === 'ingreso' &&
-        t.categoria === 'Alquiler mensual' &&
-        t.fecha.startsWith(mesActual),
-    )
-    .reduce((s, t) => s + t.importe, 0)
+  const pagado = cobradoAlquilerEnMes(propiedad.id, transacciones, mesActual)
   return pagado + 0.005 < esperado
 }
 
@@ -967,31 +959,69 @@ export function rentaDelMesIncompleta(
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
   const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy)
   if (!esperado) return false
-  const pagado = transacciones
-    .filter(
-      (t) =>
-        t.propiedadId === propiedad.id &&
-        t.tipo === 'ingreso' &&
-        t.categoria === 'Alquiler mensual' &&
-        t.fecha.startsWith(mesActual),
-    )
-    .reduce((s, t) => s + t.importe, 0)
+  const pagado = cobradoAlquilerEnMes(propiedad.id, transacciones, mesActual)
   return pagado + 0.005 < esperado
 }
 
-// Deuda de renta acumulada: no es un registro aparte que haya que llevar a
-// mano — se calcula sola comparando lo que debería haber entrado desde el
-// inicio del contrato (alquiler vigente de cada mes × meses transcurridos)
-// contra la suma de todo lo que ya se ha registrado como "Alquiler mensual".
-// Si el contrato tuvo cambios de condiciones, cada mes usa la renta de su
-// tramo, no la actual. Cualquier ingreso nuevo de esa categoría (aunque sea
-// parcial, o cubra varios meses de golpe) reduce la deuda sola al añadirlo
-// — no hace falta "casar" pagos contra meses concretos. `deudaDesde`
-// (YYYY-MM) permite dar la deuda por saldada sin tocar el contrato: la
-// cuenta empieza a contar desde ahí en vez de desde el inicio real, para no
-// arrastrar meses antiguos mal registrados. El mes en curso nunca cuenta
-// como deuda todavía (puede que aún no haya vencido) — solo se considera
-// deuda lo que corresponde a meses ya cerrados.
+// Mes de renta que cubre un cobro: el periodo facturado si se indicó
+// (atrasos), si no el mes de la fecha de cobro. Así un pago de enero
+// registrado en marzo no tapa marzo.
+export function mesDelCobroAlquiler(
+  t: Pick<Transaccion, 'fecha' | 'periodoInicio' | 'tipo' | 'categoria'>,
+): string {
+  if (t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual' && t.periodoInicio) {
+    return t.periodoInicio.slice(0, 7)
+  }
+  return t.fecha.slice(0, 7)
+}
+
+export function cobradoAlquilerEnMes(
+  propiedadId: string,
+  transacciones: Transaccion[],
+  mes: string,
+): number {
+  return transacciones
+    .filter(
+      (t) =>
+        t.propiedadId === propiedadId &&
+        t.tipo === 'ingreso' &&
+        t.categoria === 'Alquiler mensual' &&
+        mesDelCobroAlquiler(t) === mes,
+    )
+    .reduce((s, t) => s + t.importe, 0)
+}
+
+export function rangoMesCivil(mes: string): { inicio: string; fin: string } {
+  const y = Number(mes.slice(0, 4))
+  const m = Number(mes.slice(5, 7))
+  return { inicio: `${mes}-01`, fin: fechaISO(new Date(y, m, 0)) }
+}
+
+// Primer mes (desde la ocupación o deudaDesde hasta hoy) que aún no está
+// cubierto. Si está todo pagado, el mes en curso — para prellenar el cobro.
+export function mesAlquilerMasAntiguoPendiente(
+  propiedad: Parameters<typeof rentaPendiente>[0] & Pick<Propiedad, 'deudaDesde'>,
+  transacciones: Transaccion[],
+  hoy: Date = new Date(),
+): string {
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const inicio = inicioOcupacionActual(propiedad)?.slice(0, 7) ?? mesActual
+  const desde =
+    propiedad.deudaDesde && propiedad.deudaDesde > inicio ? propiedad.deudaDesde : inicio
+  if (desde > mesActual) return mesActual
+  for (const mes of mesesEntre(desde, mesActual)) {
+    const esperado = alquilerACobrar(propiedad, `${mes}-01`, hoy)
+    if (!esperado) continue
+    if (cobradoAlquilerEnMes(propiedad.id, transacciones, mes) + 0.005 < esperado) return mes
+  }
+  return mesActual
+}
+
+// Deuda de renta acumulada. Cada mes cerrado tiene un esperado
+// (`alquilerACobrar`). Un cobro con `periodoInicio` se casa a ese mes; un
+// cobro antiguo sin periodo sigue restando del total (pagos que cubrían
+// varios meses de golpe). `deudaDesde` adelanta el origen. El mes en curso
+// no cuenta.
 export function deudaInquilino(
   propiedad: Pick<
     Propiedad,
@@ -1026,20 +1056,26 @@ export function deudaInquilino(
   if (mesInicio > mesLimite) return null
 
   const meses = mesesEntre(mesInicio, mesLimite)
-  const esperado = meses.reduce((s, mes) => s + (alquilerACobrar(propiedad, `${mes}-01`, hoy) ?? 0), 0)
+  const cobros = transacciones.filter(
+    (t) => t.propiedadId === propiedad.id && t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual',
+  )
+  let esperado = 0
+  let hueco = 0
+  for (const mes of meses) {
+    const due = alquilerACobrar(propiedad, `${mes}-01`, hoy) ?? 0
+    if (due <= 0) continue
+    esperado += due
+    const asignado = cobros
+      .filter((t) => t.periodoInicio && mesDelCobroAlquiler(t) === mes)
+      .reduce((s, t) => s + t.importe, 0)
+    hueco += Math.max(0, due - asignado)
+  }
   if (esperado <= 0) return null
 
-  const pagado = transacciones
-    .filter(
-      (t) =>
-        t.propiedadId === propiedad.id &&
-        t.tipo === 'ingreso' &&
-        t.categoria === 'Alquiler mensual' &&
-        t.fecha.slice(0, 7) >= mesInicio,
-    )
+  const libre = cobros
+    .filter((t) => !t.periodoInicio && t.fecha.slice(0, 7) >= mesInicio)
     .reduce((s, t) => s + t.importe, 0)
-
-  const importe = Math.round((esperado - pagado) * 100) / 100
+  const importe = Math.round((hueco - libre) * 100) / 100
   if (importe <= 0) return null
 
   const alquilerActual = alquilerACobrar(propiedad, fechaISO(hoy), hoy)

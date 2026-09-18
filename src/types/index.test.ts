@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   alquilerACobrar,
   alquilerVigente,
+  mesAlquilerMasAntiguoPendiente,
+  rentaDelMesIncompleta,
   amortizacionAnual,
   aplicarCambioCondiciones,
   baseDesdeRentaNeta,
@@ -578,6 +580,20 @@ describe('deudaInquilino', () => {
     ).toBeNull()
   })
 
+  it('un cobro casado a enero no salda febrero', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
+    const txs = [
+      transaccion({
+        importe: 500,
+        fecha: '2026-03-10',
+        periodoInicio: '2026-01-01',
+        periodoFin: '2026-01-31',
+      }),
+    ]
+    const deuda = deudaInquilino(p, txs, new Date('2026-03-15'))
+    expect(deuda).toEqual({ importe: 500, meses: 1 })
+  })
+
   it('en un local compara neta cobrada contra neta esperada, no la bruta', () => {
     const p = propiedad({
       tipo: 'local',
@@ -595,6 +611,19 @@ describe('deudaInquilino', () => {
 })
 
 describe('rentaPendiente importe', () => {
+  it('un cobro de un mes atrasado no tapa el mes en curso', () => {
+    const p = propiedad({ alquilerMensual: 500, contratoInicio: '2026-01-01' })
+    const tx = transaccion({
+      importe: 500,
+      fecha: '2026-03-10',
+      periodoInicio: '2026-01-01',
+      periodoFin: '2026-01-31',
+    })
+    expect(rentaPendiente(p, [tx], new Date('2026-03-10'))).toBe(true)
+    expect(rentaDelMesIncompleta(p, [tx], new Date('2026-03-10'))).toBe(true)
+    expect(mesAlquilerMasAntiguoPendiente(p, [tx], new Date('2026-03-10'))).toBe('2026-02')
+  })
+
   it('un cobro parcial no cierra el mes', () => {
     const p = propiedad({ alquilerMensual: 800, contratoInicio: '2026-01-01' })
     const tx = transaccion({ importe: 400, fecha: '2026-01-05' })

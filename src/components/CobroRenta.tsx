@@ -1,15 +1,20 @@
 import { useState } from 'react'
 import { Wallet } from 'lucide-react'
 import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
 import {
+  alquilerACobrar,
   alquilerVigente,
   calcularRentaLocal,
+  cobradoAlquilerEnMes,
   deudaInquilino,
+  mesAlquilerMasAntiguoPendiente,
   parseImporte,
+  rangoMesCivil,
   type Propiedad,
   type Transaccion,
 } from '../types'
@@ -32,21 +37,21 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
   const { addTx } = useApp()
   const [open, setOpen] = useState(false)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [mesPagado, setMesPagado] = useState(format(new Date(), 'yyyy-MM'))
   const [saving, setSaving] = useState(false)
   const esLocal = propiedad.tipo === 'local'
   const [rentaBrutaStr, setRentaBrutaStr] = useState('')
 
-  const alquilerDeLaFecha = alquilerVigente(propiedad, fecha)
-  if (alquilerDeLaFecha == null && alquilerVigente(propiedad) == null) return null
+  const diaMes = `${mesPagado}-01`
+  const alquilerDelMes = alquilerVigente(propiedad, diaMes)
+  if (alquilerDelMes == null && alquilerVigente(propiedad) == null && alquilerACobrar(propiedad) == null) {
+    return null
+  }
 
-  const yaHayCobroEsteMes = transacciones.some(
-    (t) =>
-      t.tipo === 'ingreso' &&
-      t.categoria === 'Alquiler mensual' &&
-      t.fecha.startsWith(fecha.slice(0, 7)),
-  )
+  const yaHayCobroEsteMes =
+    cobradoAlquilerEnMes(propiedad.id, transacciones, mesPagado) > 0.005
   const deuda = deudaInquilino(propiedad, transacciones)
-  const alquiler = alquilerDeLaFecha ?? alquilerVigente(propiedad) ?? 0
+  const alquiler = alquilerDelMes ?? alquilerVigente(propiedad) ?? 0
 
   const rentaBrutaParseada = parseImporte(rentaBrutaStr)
   const rentaBruta = esLocal
@@ -61,9 +66,11 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
     if (saving) return
     setSaving(true)
     try {
+      const periodo = rangoMesCivil(mesPagado)
+      const mesTexto = format(new Date(`${periodo.inicio}T00:00:00`), "MMMM yyyy", { locale: es })
       const descripcion = desglose
-        ? `Base ${fmt(desglose.base)} € · IGIC +${fmt(desglose.igic)} € · IRPF -${fmt(desglose.irpf)} €`
-        : ''
+        ? `${mesTexto} · Base ${fmt(desglose.base)} € · IGIC +${fmt(desglose.igic)} € · IRPF -${fmt(desglose.irpf)} €`
+        : mesTexto
       const tx: Transaccion = {
         id: uuid(),
         propiedadId: propiedad.id,
@@ -74,6 +81,8 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
         descripcion,
         archivos: [],
         creadoEn: new Date().toISOString(),
+        periodoInicio: periodo.inicio,
+        periodoFin: periodo.fin,
       }
       await addTx(tx)
       setOpen(false)
@@ -86,10 +95,13 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
     <>
       <button
         onClick={() => {
-          const hoy = format(new Date(), 'yyyy-MM-dd')
-          setFecha(hoy)
-          const alquilerHoy = alquilerVigente(propiedad, hoy) ?? alquilerVigente(propiedad)
-          setRentaBrutaStr(alquilerHoy != null ? alquilerHoy.toString() : '')
+          const hoy = new Date()
+          const hoyStr = format(hoy, 'yyyy-MM-dd')
+          const mes = mesAlquilerMasAntiguoPendiente(propiedad, transacciones, hoy)
+          setFecha(hoyStr)
+          setMesPagado(mes)
+          const bruta = alquilerVigente(propiedad, `${mes}-01`, hoy) ?? alquilerVigente(propiedad)
+          setRentaBrutaStr(bruta != null ? bruta.toString() : '')
           setOpen(true)
         }}
         className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-success-container text-success text-sm font-semibold hover:brightness-95 transition-all"
@@ -139,18 +151,18 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
           )}
           {propiedad.tramosContrato &&
             propiedad.tramosContrato.length > 0 &&
-            alquilerDeLaFecha != null &&
+            alquilerDelMes != null &&
             alquilerVigente(propiedad) != null &&
-            alquilerDeLaFecha !== alquilerVigente(propiedad) && (
+            alquilerDelMes !== alquilerVigente(propiedad) && (
               <p className="text-xs text-outline-variant -mt-2">
-                En esta fecha aplica {fmt(alquilerDeLaFecha)} €/mes (el contrato
+                En ese mes aplica {fmt(alquilerDelMes)} €/mes (el contrato
                 tiene un cambio de condiciones).
               </p>
             )}
 
           {yaHayCobroEsteMes && (
             <p className="text-xs text-warning bg-warning-container/40 rounded-xl px-4 py-2.5">
-              Ya hay un cobro de alquiler este mes. Confirma solo si es un atraso o un extra.
+              Ese mes ya tiene un cobro. Confirma solo si es un pago parcial o un extra.
             </p>
           )}
           {deuda && (
@@ -160,6 +172,17 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
             </p>
           )}
 
+          <Input
+            label="Mes que paga"
+            type="month"
+            value={mesPagado}
+            onChange={(e) => {
+              const mes = e.target.value
+              setMesPagado(mes)
+              const bruta = alquilerVigente(propiedad, `${mes}-01`) ?? alquilerVigente(propiedad)
+              if (esLocal && bruta != null) setRentaBrutaStr(bruta.toString())
+            }}
+          />
           <Input
             label="Fecha de cobro"
             type="date"
