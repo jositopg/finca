@@ -81,7 +81,8 @@ export function TransaccionesTable({
                   !isIngreso && prop
                     ? calcularReparto(tx.categoria, tx.importe, prop.reparto)
                     : null
-                const esFacturable = isIngreso && tx.categoria === 'Alquiler mensual' && !!prop
+                const esFacturable =
+                  isIngreso && tx.categoria === 'Alquiler mensual' && prop?.tipo === 'local'
                 return (
                   <tr
                     key={tx.id}

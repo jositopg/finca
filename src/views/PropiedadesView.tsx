@@ -433,7 +433,8 @@ function FacturasPropiedad({
   const { showToast } = useToast()
   const [abriendo, setAbriendo] = useState(false)
 
-  const etiqueta = propiedad.tipo === 'local' ? 'Facturas' : 'Recibos'
+  if (propiedad.tipo !== 'local') return null
+  const etiqueta = 'Facturas'
 
   const facturas = txs.filter((t) => t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual')
   if (facturas.length === 0) return null

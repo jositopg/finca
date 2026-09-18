@@ -31,7 +31,8 @@ export function TransactionItem({
   const isIngreso = tx.tipo === 'ingreso'
   const reparto =
     !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
-  const esFacturable = isIngreso && tx.categoria === 'Alquiler mensual' && !!propiedad
+  const esFacturable =
+    isIngreso && tx.categoria === 'Alquiler mensual' && propiedad?.tipo === 'local'
 
   return (
     <div
