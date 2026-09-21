@@ -1,11 +1,12 @@
 import { Copy, FileText, Pencil, Receipt, Paperclip, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { calcularReparto, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   tx: Transaccion
   propiedad?: Propiedad
+  transacciones?: Transaccion[]
   propiedadNombre?: string
   onDelete?: (id: string) => void
   onDuplicate?: (tx: Transaccion) => void
@@ -21,6 +22,7 @@ function fmt(n: number) {
 export function TransactionItem({
   tx,
   propiedad,
+  transacciones,
   propiedadNombre,
   onDelete,
   onDuplicate,
@@ -30,7 +32,7 @@ export function TransactionItem({
 }: Props) {
   const isIngreso = tx.tipo === 'ingreso'
   const reparto =
-    !isIngreso && propiedad ? calcularReparto(tx.categoria, tx.importe, propiedad.reparto) : null
+    !isIngreso && propiedad ? cuotaSuministro(tx, propiedad, transacciones ?? []) : null
   const esFacturable =
     isIngreso && tx.categoria === 'Alquiler mensual' && propiedad?.tipo === 'local'
 
@@ -99,8 +101,8 @@ export function TransactionItem({
             {reparto && reparto.modo !== 'incluido' && (
               <p className="text-xs text-primary mt-0.5">
                 {reparto.modo === 'no_incluido'
-                  ? `Repercutible al inquilino: ${fmt(reparto.inquilino)} €`
-                  : `Inquilino ${fmt(reparto.inquilino)} € · Tuyo ${fmt(reparto.propietario)} €`}
+                  ? `Informativo · repercutible al inquilino: ${fmt(reparto.inquilino)} €`
+                  : `Inquilino ${fmt(reparto.inquilino)} € · gasto ${fmt(reparto.propietario)} €`}
               </p>
             )}
           </div>

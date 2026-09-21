@@ -29,14 +29,13 @@ import {
   esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
-  importeEnRango,
-  miParte,
   rangoAnio,
   rangoMes,
   rentaPendiente,
+  resumenEnRango,
+  resumenVariasEnRango,
   TIPO_LABELS,
   type Propiedad,
-  type Transaccion,
 } from '../types'
 import type { View } from '../components/Nav'
 
@@ -75,28 +74,12 @@ export function DashboardView({ onNavigate }: Props) {
   // de Jose (no las que gestiona por cuenta de otros) y que no sean de uso
   // propio/vivienda habitual (esas se llevan aparte, no son alquiler).
   const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
-  const propiedadPorId = new Map(propiedadesJose.map((p) => [p.id, p]))
-
-  function miImporteEnRango(t: Transaccion, desde: string, hasta: string): number | null {
-    const p = propiedadPorId.get(t.propiedadId)
-    return p ? miParte(importeEnRango(t, desde, hasta), p, t.soloMio) : null
-  }
-
-  const ingresosMes = transacciones
-    .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + (miImporteEnRango(t, desdeMes, hastaMes) ?? 0), 0)
-
-  const gastosMes = transacciones
-    .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + (miImporteEnRango(t, desdeMes, hastaMes) ?? 0), 0)
-
-  const ingresosAnio = transacciones
-    .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + (miImporteEnRango(t, desdeAnio, hastaAnio) ?? 0), 0)
-
-  const gastosAnio = transacciones
-    .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + (miImporteEnRango(t, desdeAnio, hastaAnio) ?? 0), 0)
+  const mesJose = resumenVariasEnRango(propiedadesJose, transacciones, desdeMes, hastaMes)
+  const anioJose = resumenVariasEnRango(propiedadesJose, transacciones, desdeAnio, hastaAnio)
+  const ingresosMes = mesJose.ingresos
+  const gastosMes = mesJose.gastos
+  const ingresosAnio = anioJose.ingresos
+  const gastosAnio = anioJose.gastos
 
   // Quick stats
   const alquiladas = propiedades.filter((p) => p.estado === 'alquilado').length
@@ -185,6 +168,11 @@ export function DashboardView({ onNavigate }: Props) {
               <p className="text-sm font-bold text-on-surface tabular-nums">{fmt(gastosMes)} €</p>
             </div>
           </div>
+          {mesJose.inquilino > 0.005 && (
+            <p className="text-xs text-primary mt-3">
+              A repercutir al inquilino este mes: {fmt(mesJose.inquilino)} €
+            </p>
+          )}
         </div>
       </div>
 
@@ -241,20 +229,19 @@ export function DashboardView({ onNavigate }: Props) {
           </div>
         ) : (
           <div className="flex flex-col gap-3 xl:grid xl:grid-cols-2">
-            {propiedades.map((p) => (
+            {propiedades.map((p) => {
+              const r = resumenEnRango(p, transacciones, desdeMes, hastaMes)
+              return (
               <PropiedadCard
                 key={p.id}
                 propiedad={p}
-                ingresosMes={transacciones
-                  .filter((t) => t.propiedadId === p.id && t.tipo === 'ingreso')
-                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p, t.soloMio), 0)}
-                gastosMes={transacciones
-                  .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
-                  .reduce((s, t) => s + miParte(importeEnRango(t, desdeMes, hastaMes), p, t.soloMio), 0)}
+                ingresosMes={r.ingresos}
+                gastosMes={r.gastos}
                 rentaPendiente={rentaPendiente(p, transacciones)}
                 onClick={() => onNavigate('propiedades', p.id)}
               />
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

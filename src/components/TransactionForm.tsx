@@ -4,7 +4,7 @@ import { format, parseISO } from 'date-fns'
 import { Button } from './Button'
 import { Input, Select } from './Input'
 import type { Propiedad, Transaccion, TransaccionTipo } from '../types'
-import { calcularReparto, CATEGORIAS_GASTO, CATEGORIAS_INGRESO, parseImporte } from '../types'
+import { cuotaSuministro, CATEGORIAS_GASTO, CATEGORIAS_INGRESO, parseImporte } from '../types'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../context/ToastContext'
 import { uploadFile } from '../api/drive'
@@ -37,7 +37,7 @@ export function TransactionForm({
   onSave,
   onCancel,
 }: Props) {
-  const { ensureTxFolder, addTx } = useApp()
+  const { ensureTxFolder, addTx, transacciones } = useApp()
   const { showToast } = useToast()
   const [tipo, setTipo] = useState<TransaccionTipo>(initial?.tipo ?? defaultTipo)
   const [propiedadId, setPropiedadId] = useState(
@@ -71,7 +71,19 @@ export function TransactionForm({
   const importeParseado = parseImporte(importe)
   const reparto =
     tipo === 'gasto' && propiedadSeleccionada
-      ? calcularReparto(categoria, Number.isNaN(importeParseado) ? 0 : importeParseado, propiedadSeleccionada.reparto)
+      ? cuotaSuministro(
+          {
+            id: initial?.id,
+            tipo: 'gasto',
+            categoria,
+            importe: Number.isNaN(importeParseado) ? 0 : importeParseado,
+            fecha,
+            periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
+            periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
+          },
+          propiedadSeleccionada,
+          transacciones,
+        )
       : null
 
   const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
@@ -343,13 +355,18 @@ export function TransactionForm({
       )}
 
       {reparto && reparto.modo !== 'incluido' && (
-        <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 text-xs">
-          <span className="text-outline-variant">
-            Tuyo: <span className="font-medium text-on-surface">{fmt(reparto.propietario)} €</span>
-          </span>
-          <span className="text-primary font-medium">
-            Inquilino: {fmt(reparto.inquilino)} €
-          </span>
+        <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-outline-variant">
+              Gasto tuyo: <span className="font-medium text-on-surface">{fmt(reparto.propietario)} €</span>
+            </span>
+            <span className="text-primary font-medium">
+              A repercutir: {fmt(reparto.inquilino)} €
+            </span>
+          </div>
+          {reparto.modo === 'no_incluido' && (
+            <p className="text-outline-variant">No cuenta como gasto: solo informativo.</p>
+          )}
         </div>
       )}
 

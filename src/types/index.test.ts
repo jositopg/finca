@@ -11,6 +11,12 @@ import {
   baseDesdeRentaNeta,
   sustituirPorContratoNuevo,
   calcularReparto,
+  cuotaSuministro,
+  desgloseSuministrosEnRango,
+  gastosPorCategoriaEnRango,
+  inclusionAguaLuz,
+  rendimientoIrpfPropiedad,
+  resumenEnRango,
   calcularRentaLocal,
   contratoEstado,
   corregirTramoVigente,
@@ -222,6 +228,218 @@ describe('calcularReparto', () => {
   it('modo parcial con importe incluido mayor que la factura no da inquilino negativo', () => {
     const r = calcularReparto('Agua', 20, { agua: { modo: 'parcial', importeIncluido: 30 } })
     expect(r).toEqual({ concepto: 'agua', modo: 'parcial', propietario: 20, inquilino: 0 })
+  })
+})
+
+describe('inclusionAguaLuz', () => {
+  it('usa aguaLuz si está definido', () => {
+    expect(inclusionAguaLuz({ aguaLuz: { modo: 'no_incluido' }, agua: { modo: 'incluido' } })).toEqual({
+      modo: 'no_incluido',
+    })
+  })
+
+  it('unifica agua y luz legado si coinciden', () => {
+    expect(inclusionAguaLuz({ agua: { modo: 'no_incluido' }, luz: { modo: 'no_incluido' } })).toEqual({
+      modo: 'no_incluido',
+    })
+    expect(
+      inclusionAguaLuz({
+        agua: { modo: 'parcial', importeIncluido: 30 },
+        luz: { modo: 'parcial', importeIncluido: 30 },
+      }),
+    ).toEqual({ modo: 'parcial_conjunto', importeMensual: 30 })
+  })
+
+  it('no unifica si agua y luz discrepan', () => {
+    expect(inclusionAguaLuz({ agua: { modo: 'incluido' }, luz: { modo: 'no_incluido' } })).toBeUndefined()
+  })
+})
+
+describe('desgloseSuministrosEnRango', () => {
+  const p = (reparto: Propiedad['reparto']) => propiedad({ id: 'p1', reparto })
+
+  it('sin configurar, agua y luz cuentan enteros como gasto', () => {
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-10' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+    ]
+    expect(desgloseSuministrosEnRango(p(undefined), txs, ...rangoMes('2026-03'))).toEqual({
+      facturado: 60,
+      propietario: 60,
+      inquilino: 0,
+    })
+  })
+
+  it('no incluido: cero gasto, todo repercutible', () => {
+    const txs = [transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 45, fecha: '2026-03-10' })]
+    expect(
+      desgloseSuministrosEnRango(p({ aguaLuz: { modo: 'no_incluido' } }), txs, ...rangoMes('2026-03')),
+    ).toEqual({ facturado: 45, propietario: 0, inquilino: 45 })
+  })
+
+  it('incluido: todo es gasto, nada a repercutir', () => {
+    const txs = [transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 80, fecha: '2026-03-10' })]
+    expect(
+      desgloseSuministrosEnRango(p({ aguaLuz: { modo: 'incluido' } }), txs, ...rangoMes('2026-03')),
+    ).toEqual({ facturado: 80, propietario: 80, inquilino: 0 })
+  })
+
+  it('parcial conjunto 30 €/mes: agua 20 + luz 40 → 30 gasto, 30 a repercutir', () => {
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+    ]
+    expect(
+      desgloseSuministrosEnRango(
+        p({ aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } }),
+        txs,
+        ...rangoMes('2026-03'),
+      ),
+    ).toEqual({ facturado: 60, propietario: 30, inquilino: 30 })
+  })
+
+  it('parcial conjunto: si el mes no llega a 30 €, todo es gasto', () => {
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 10, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 15, fecha: '2026-03-12' }),
+    ]
+    expect(
+      desgloseSuministrosEnRango(
+        p({ aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } }),
+        txs,
+        ...rangoMes('2026-03'),
+      ),
+    ).toEqual({ facturado: 25, propietario: 25, inquilino: 0 })
+  })
+
+  it('parcial conjunto aplica el cupo por mes, no al año entero', () => {
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-01-10' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-02-10' }),
+    ]
+    expect(
+      desgloseSuministrosEnRango(
+        p({ aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } }),
+        txs,
+        ...rangoAnio('2026'),
+      ),
+    ).toEqual({ facturado: 80, propietario: 60, inquilino: 20 })
+  })
+
+  it('el cupo se aplica al periodo facturado, no a la fecha de pago', () => {
+    const txs = [
+      transaccion({
+        tipo: 'gasto',
+        categoria: 'Electricidad',
+        importe: 62,
+        fecha: '2026-03-20',
+        periodoInicio: '2026-02-01',
+        periodoFin: '2026-02-28',
+      }),
+    ]
+    const p30 = p({ aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } })
+    expect(desgloseSuministrosEnRango(p30, txs, ...rangoMes('2026-02'))).toEqual({
+      facturado: 62,
+      propietario: 30,
+      inquilino: 32,
+    })
+    expect(desgloseSuministrosEnRango(p30, txs, ...rangoMes('2026-03'))).toEqual({
+      facturado: 0,
+      propietario: 0,
+      inquilino: 0,
+    })
+  })
+})
+
+describe('resumenEnRango', () => {
+  it('no cuenta agua/luz no incluidos como gasto, y deja el resto igual', () => {
+    const p = propiedad({
+      id: 'p1',
+      reparto: { aguaLuz: { modo: 'no_incluido' } },
+    })
+    const txs = [
+      transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 700, fecha: '2026-03-05' }),
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' }),
+      transaccion({ tipo: 'gasto', categoria: 'Comunidad de propietarios', importe: 50, fecha: '2026-03-01' }),
+    ]
+    const r = resumenEnRango(p, txs, ...rangoMes('2026-03'))
+    expect(r.ingresos).toBe(700)
+    expect(r.gastos).toBe(50)
+    expect(r.suministros).toEqual({ facturado: 40, propietario: 0, inquilino: 40 })
+  })
+
+  it('ignora ingresos de agua/luz repercutida para no inflar el rendimiento', () => {
+    const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'no_incluido' } } })
+    const txs = [
+      transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 700, fecha: '2026-03-05' }),
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' }),
+      transaccion({ tipo: 'ingreso', categoria: 'Agua (repercutida)', importe: 40, fecha: '2026-03-10' }),
+    ]
+    const r = resumenEnRango(p, txs, ...rangoMes('2026-03'))
+    expect(r.ingresos).toBe(700)
+    expect(r.gastos).toBe(0)
+  })
+
+  it('aplica miParte al gasto incluido, no a lo que se repercute al inquilino', () => {
+    const p = propiedad({
+      id: 'p1',
+      porcentajePropiedad: 50,
+      reparto: { aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } },
+    })
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+      transaccion({ tipo: 'gasto', categoria: 'Comunidad de propietarios', importe: 80, fecha: '2026-03-01' }),
+    ]
+    const r = resumenEnRango(p, txs, ...rangoMes('2026-03'))
+    expect(r.gastos).toBe(55) // 40 comunidad + 15 (mitad de 30)
+    expect(r.suministros.inquilino).toBe(30)
+  })
+})
+
+describe('cuotaSuministro', () => {
+  it('reparte el cupo mensual entre agua y luz de ese mes', () => {
+    const p = propiedad({
+      id: 'p1',
+      reparto: { aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } },
+    })
+    const agua = transaccion({ id: 'a', tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' })
+    const luz = transaccion({ id: 'l', tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' })
+    const rAgua = cuotaSuministro(agua, p, [agua, luz])
+    const rLuz = cuotaSuministro(luz, p, [agua, luz])
+    expect(rAgua).toEqual({ concepto: 'agua', modo: 'parcial_conjunto', propietario: 10, inquilino: 10 })
+    expect(rLuz).toEqual({ concepto: 'luz', modo: 'parcial_conjunto', propietario: 20, inquilino: 20 })
+  })
+})
+
+describe('gastosPorCategoriaEnRango', () => {
+  it('en no incluido, agua y luz no aparecen en el desglose de gastos', () => {
+    const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'no_incluido' } } })
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' }),
+      transaccion({ tipo: 'gasto', categoria: 'Comunidad de propietarios', importe: 50, fecha: '2026-03-01' }),
+    ]
+    expect(gastosPorCategoriaEnRango(p, txs, ...rangoMes('2026-03'))).toEqual({
+      'Comunidad de propietarios': 50,
+    })
+  })
+})
+
+describe('rendimientoIrpfPropiedad y suministros', () => {
+  it('solo deduce la parte incluida de agua/luz', () => {
+    const p = propiedad({
+      id: 'p1',
+      tipo: 'piso',
+      reparto: { aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } },
+    })
+    const txs = [
+      transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 800, fecha: '2026-03-05' }),
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+    ]
+    const r = rendimientoIrpfPropiedad(p, txs, '2026', 0)
+    expect(r.ingresos).toBe(800)
+    expect(r.gastos).toBe(30)
   })
 })
 

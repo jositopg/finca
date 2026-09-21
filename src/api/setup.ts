@@ -6,6 +6,7 @@ import {
   esDeAlquiler,
   esDeJose,
   ESTADO_LABELS,
+  inclusionAguaLuz,
   miParte,
   parseImporte,
   TIPO_LABELS,
@@ -141,26 +142,46 @@ function buildRepartoSuministros(propiedades: Propiedad[]) {
     'Basuras - Importe incluido',
     'IBI - Modo',
     'IBI - Importe incluido',
+    'Agua y luz - Modo',
+    'Agua y luz - €/mes',
   ]
   const modoLabel: Record<SuministroModo, string> = {
     incluido: 'Incluido',
     no_incluido: 'No incluido',
     parcial: 'Parcial',
+    parcial_conjunto: 'Parcial conjunto',
   }
   const rows = propiedades
     .filter((p) => p.reparto && Object.keys(p.reparto).length > 0)
-    .map((p) => [
-      p.nombre,
-      p.reparto?.agua ? modoLabel[p.reparto.agua.modo] : '',
-      p.reparto?.agua?.modo === 'parcial' ? round2(p.reparto.agua.importeIncluido ?? 0) : '',
-      p.reparto?.luz ? modoLabel[p.reparto.luz.modo] : '',
-      p.reparto?.luz?.modo === 'parcial' ? round2(p.reparto.luz.importeIncluido ?? 0) : '',
-      p.reparto?.basuras ? modoLabel[p.reparto.basuras.modo] : '',
-      p.reparto?.basuras?.modo === 'parcial' ? round2(p.reparto.basuras.importeIncluido ?? 0) : '',
-      p.reparto?.ibi ? modoLabel[p.reparto.ibi.modo] : '',
-      p.reparto?.ibi?.modo === 'parcial' ? round2(p.reparto.ibi.importeIncluido ?? 0) : '',
-    ])
-  return { headers, rows, moneyCols: [2, 4, 6, 8] }
+    .map((p) => {
+      const conjunto = inclusionAguaLuz(p.reparto)
+      const aguaModo =
+        conjunto && conjunto.modo !== 'parcial_conjunto'
+          ? modoLabel[conjunto.modo]
+          : p.reparto?.agua
+            ? modoLabel[p.reparto.agua.modo]
+            : ''
+      const luzModo =
+        conjunto && conjunto.modo !== 'parcial_conjunto'
+          ? modoLabel[conjunto.modo]
+          : p.reparto?.luz
+            ? modoLabel[p.reparto.luz.modo]
+            : ''
+      return [
+        p.nombre,
+        aguaModo,
+        p.reparto?.agua?.modo === 'parcial' ? round2(p.reparto.agua.importeIncluido ?? 0) : '',
+        luzModo,
+        p.reparto?.luz?.modo === 'parcial' ? round2(p.reparto.luz.importeIncluido ?? 0) : '',
+        p.reparto?.basuras ? modoLabel[p.reparto.basuras.modo] : '',
+        p.reparto?.basuras?.modo === 'parcial' ? round2(p.reparto.basuras.importeIncluido ?? 0) : '',
+        p.reparto?.ibi ? modoLabel[p.reparto.ibi.modo] : '',
+        p.reparto?.ibi?.modo === 'parcial' ? round2(p.reparto.ibi.importeIncluido ?? 0) : '',
+        conjunto ? modoLabel[conjunto.modo] : '',
+        conjunto?.modo === 'parcial_conjunto' ? round2(conjunto.importeMensual ?? 0) : '',
+      ]
+    })
+  return { headers, rows, moneyCols: [2, 4, 6, 8, 10] }
 }
 
 // ─── Gastos fijos mensuales configurados (datos crudos) ────────────────────

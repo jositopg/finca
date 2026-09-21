@@ -1,4 +1,4 @@
-import { importeEnRango, miParte, type Propiedad, type Transaccion } from '../types'
+import { gastosPorCategoriaEnRango, type Propiedad, type Transaccion } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { maximumFractionDigits: 0 })
@@ -17,16 +17,12 @@ interface Props {
 // solo el neto agregado. Ranking horizontal con un solo color (magnitud, no
 // identidad — el nombre de cada categoría ya la distingue).
 export function GastosPorCategoria({ propiedades, transacciones, desde, hasta, anioLabel }: Props) {
-  const propiedadPorId = new Map(propiedades.map((p) => [p.id, p]))
   const porCategoria = new Map<string, number>()
-
-  for (const t of transacciones) {
-    if (t.tipo !== 'gasto') continue
-    const p = propiedadPorId.get(t.propiedadId)
-    if (!p) continue
-    const importe = miParte(importeEnRango(t, desde, hasta), p, t.soloMio)
-    if (importe === 0) continue
-    porCategoria.set(t.categoria, (porCategoria.get(t.categoria) ?? 0) + importe)
+  for (const p of propiedades) {
+    const porProp = gastosPorCategoriaEnRango(p, transacciones, desde, hasta)
+    for (const [cat, importe] of Object.entries(porProp)) {
+      porCategoria.set(cat, (porCategoria.get(cat) ?? 0) + importe)
+    }
   }
 
   const filas = [...porCategoria.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])

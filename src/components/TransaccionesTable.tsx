@@ -1,7 +1,7 @@
 import { Copy, FileText, Paperclip, Pencil, Receipt, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { calcularReparto, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, type Propiedad, type Transaccion } from '../types'
 
 interface Grupo {
   mes: string
@@ -11,6 +11,7 @@ interface Grupo {
 interface Props {
   grupos: Grupo[]
   propiedades: Propiedad[]
+  transacciones: Transaccion[]
   mostrarPropiedad?: boolean
   onDelete: (id: string) => void
   onDuplicate: (tx: Transaccion) => void
@@ -29,6 +30,7 @@ function fmt(n: number) {
 export function TransaccionesTable({
   grupos,
   propiedades,
+  transacciones,
   mostrarPropiedad = true,
   onDelete,
   onDuplicate,
@@ -78,9 +80,7 @@ export function TransaccionesTable({
                 const prop = propiedades.find((p) => p.id === tx.propiedadId)
                 const isIngreso = tx.tipo === 'ingreso'
                 const reparto =
-                  !isIngreso && prop
-                    ? calcularReparto(tx.categoria, tx.importe, prop.reparto)
-                    : null
+                  !isIngreso && prop ? cuotaSuministro(tx, prop, transacciones) : null
                 const esFacturable =
                   isIngreso && tx.categoria === 'Alquiler mensual' && prop?.tipo === 'local'
                 return (
@@ -120,8 +120,8 @@ export function TransaccionesTable({
                       {reparto && reparto.modo !== 'incluido' && (
                         <span className="block text-xs text-primary mt-1">
                           {reparto.modo === 'no_incluido'
-                            ? `Repercutible al inquilino: ${fmt(reparto.inquilino)} €`
-                            : `Inquilino ${fmt(reparto.inquilino)} € · Tuyo ${fmt(reparto.propietario)} €`}
+                            ? `Informativo · repercutible al inquilino: ${fmt(reparto.inquilino)} €`
+                            : `Inquilino ${fmt(reparto.inquilino)} € · gasto ${fmt(reparto.propietario)} €`}
                         </span>
                       )}
                       {tx.soloMio && (

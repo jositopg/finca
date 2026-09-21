@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularReparto, parseImporte, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -22,7 +22,7 @@ function fmt(n: number) {
 }
 
 export function GastoSuministro({ propiedad }: Props) {
-  const { addTx } = useApp()
+  const { addTx, transacciones } = useApp()
   const [categoria, setCategoria] = useState<CategoriaSuministro | null>(null)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [importeStr, setImporteStr] = useState('')
@@ -33,7 +33,20 @@ export function GastoSuministro({ propiedad }: Props) {
 
   const importeParseado = parseImporte(importeStr)
   const importe = Number.isNaN(importeParseado) ? 0 : importeParseado
-  const reparto = categoria ? calcularReparto(categoria, importe, propiedad.reparto) : null
+  const reparto = categoria
+    ? cuotaSuministro(
+        {
+          tipo: 'gasto',
+          categoria,
+          importe,
+          fecha,
+          periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
+          periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
+        },
+        propiedad,
+        transacciones,
+      )
+    : null
   const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
 
   function abrir(cat: CategoriaSuministro) {
@@ -63,22 +76,6 @@ export function GastoSuministro({ propiedad }: Props) {
         periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
       }
       await addTx(tx)
-      if (reparto && reparto.inquilino > 0.005) {
-        const catIngreso = categoria === 'Agua' ? 'Agua (repercutida)' : 'Electricidad (repercutida)'
-        await addTx({
-          id: uuid(),
-          propiedadId: propiedad.id,
-          fecha,
-          tipo: 'ingreso',
-          importe: Math.round(reparto.inquilino * 100) / 100,
-          categoria: catIngreso,
-          descripcion: `Repercusión automática del gasto de ${categoria.toLowerCase()}`,
-          archivos: [],
-          creadoEn: new Date().toISOString(),
-          periodoInicio: tx.periodoInicio,
-          periodoFin: tx.periodoFin,
-        })
-      }
       setCategoria(null)
     } finally {
       setSaving(false)
@@ -173,11 +170,19 @@ export function GastoSuministro({ propiedad }: Props) {
           )}
 
           {reparto && reparto.modo !== 'incluido' && (
-            <div className="flex items-center justify-between bg-surface-low rounded-xl px-4 py-3 text-xs">
-              <span className="text-outline-variant">
-                Tuyo: <span className="font-medium text-on-surface">{fmt(reparto.propietario)} €</span>
-              </span>
-              <span className="text-primary font-medium">Inquilino: {fmt(reparto.inquilino)} €</span>
+            <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-outline-variant">
+                  Gasto tuyo:{' '}
+                  <span className="font-medium text-on-surface">{fmt(reparto.propietario)} €</span>
+                </span>
+                <span className="text-primary font-medium">
+                  A repercutir: {fmt(reparto.inquilino)} €
+                </span>
+              </div>
+              {reparto.modo === 'no_incluido' && (
+                <p className="text-outline-variant">No cuenta como gasto: solo informativo.</p>
+              )}
             </div>
           )}
 

@@ -38,18 +38,20 @@ import {
   alquilerVigente,
   calcularRentabilidad,
   huecosMensuales,
-  calcularReparto,
   contratoEstado,
   deudaInquilino,
   esDeAlquiler,
   esDeJose,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
-  importeEnRango,
-  miParte,
+  gastosPorCategoriaEnRango,
+  inclusionAguaLuz,
+  INCLUSION_AGUA_LUZ_LABEL,
   parseImporte,
   rangoAnio,
+  rangoMes,
   rentaPendiente,
+  resumenEnRango,
   tareaVencida,
   TIPO_LABELS,
   tocaRevisarRenta,
@@ -177,13 +179,7 @@ function PropiedadCard({
   selected?: boolean
 }) {
   const [desdeAnioCard, hastaAnioCard] = rangoAnio(currentAnio)
-  const txsProp = transacciones.filter((t) => t.propiedadId === p.id)
-  const ingresos = txsProp
-    .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p, t.soloMio), 0)
-  const gastos = txsProp
-    .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioCard, hastaAnioCard), p, t.soloMio), 0)
+  const { ingresos, gastos } = resumenEnRango(p, transacciones, desdeAnioCard, hastaAnioCard)
   const estadoContratoP = contratoEstado(p.contratoFin)
   const alertaContrato = estadoContratoP?.alerta ?? false
   const alquilerHoy = alquilerVigente(p)
@@ -302,32 +298,17 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
   // Gastos con periodo facturado (agua/luz) se prorratean por días dentro del
   // año en curso — de ahí que se parta de `txs` completo (todas las
   // transacciones de la propiedad) y no de un filtro por fecha de pago.
-  const txsAnio = txs.filter((t) => importeEnRango(t, desdeAnio, hastaAnio) !== 0)
-  const ingresos = txsAnio
-    .filter((t) => t.tipo === 'ingreso')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio), 0)
-  const gastos = txsAnio
-    .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio), 0)
-
-  // Group gastos by category (ya en tu parte, ya prorrateado)
-  const porCategoria = txsAnio
-    .filter((t) => t.tipo === 'gasto')
-    .reduce<Record<string, number>>((acc, t) => {
-      acc[t.categoria] =
-        (acc[t.categoria] ?? 0) + miParte(importeEnRango(t, desdeAnio, hastaAnio), propiedad, t.soloMio)
-      return acc
-    }, {})
-
+  const { ingresos, gastos, suministros } = resumenEnRango(propiedad, txs, desdeAnio, hastaAnio)
+  const porCategoria = gastosPorCategoriaEnRango(propiedad, txs, desdeAnio, hastaAnio)
   const categorias = Object.entries(porCategoria).sort(([, a], [, b]) => b - a)
-
-  const repercutible = txsAnio
-    .filter((t) => t.tipo === 'gasto')
-    .reduce((s, t) => {
-      const r = calcularReparto(t.categoria, t.importe, propiedad.reparto)
-      const fraccion = t.importe !== 0 ? importeEnRango(t, desdeAnio, hastaAnio) / t.importe : 0
-      return s + miParte((r?.inquilino ?? 0) * fraccion, propiedad, t.soloMio)
-    }, 0)
+  const repercutible = suministros.inquilino
+  const hayMovimientosAnio = txs.some(
+    (t) =>
+      t.fecha.startsWith(anio) ||
+      (t.periodoInicio != null &&
+        t.periodoInicio <= hastaAnio &&
+        (t.periodoFin ?? t.periodoInicio) >= desdeAnio),
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -415,7 +396,7 @@ function FiscalSummary({ txs, propiedad }: { txs: Transaccion[]; propiedad: Prop
         </div>
       )}
 
-      {txsAnio.length === 0 && (
+      {!hayMovimientosAnio && (
         <p className="text-sm text-outline-variant text-center py-4">
           Sin movimientos en {anio}
         </p>
@@ -559,16 +540,13 @@ function PropiedadesPanel({
 
     const txsFiltradas = filterMes ? txs.filter((t) => t.fecha.startsWith(filterMes)) : txs
 
-    const ingresos = txsFiltradas
-      .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(t.importe, propiedad, t.soloMio), 0)
-    const gastos = txsFiltradas
-      .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(t.importe, propiedad, t.soloMio), 0)
-
     const meses = [...new Set(txs.map((t) => t.fecha.slice(0, 7)))].sort().reverse()
     const currentMonth = format(new Date(), 'yyyy-MM')
     const currentYearStr = format(new Date(), 'yyyy')
+    const rangoFicha = filterMes ? rangoMes(filterMes) : (['2000-01-01', '2099-12-31'] as [string, string])
+    const resumenFicha = resumenEnRango(propiedad, txs, rangoFicha[0], rangoFicha[1])
+    const ingresos = resumenFicha.ingresos
+    const gastos = resumenFicha.gastos
     if (!meses.includes(currentMonth)) meses.unshift(currentMonth)
 
     const grupos = groupByMonth(txsFiltradas)
@@ -580,12 +558,10 @@ function PropiedadesPanel({
     // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
     // Prorrateada por periodo facturado (agua/luz), no por fecha de pago.
     const [desdeAnioActual, hastaAnioActual] = rangoAnio(currentYearStr)
-    const ingresosAnioActual = txs
-      .filter((t) => t.tipo === 'ingreso')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad, t.soloMio), 0)
-    const gastosAnioActual = txs
-      .filter((t) => t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioActual, hastaAnioActual), propiedad, t.soloMio), 0)
+    const resumenAnio = resumenEnRango(propiedad, txs, desdeAnioActual, hastaAnioActual)
+    const ingresosAnioActual = resumenAnio.ingresos
+    const gastosAnioActual = resumenAnio.gastos
+    const inclusionAL = inclusionAguaLuz(propiedad.reparto)
     const rentabilidadMercado = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
@@ -857,6 +833,20 @@ function PropiedadesPanel({
 
         {/* Gastos de suministros — acceso rápido, para cualquier propiedad */}
         <div className="px-5 mb-4">
+          {inclusionAL && (
+            <p className="text-xs text-outline-variant mb-2">
+              Agua y luz:{' '}
+              {inclusionAL.modo === 'parcial_conjunto'
+                ? `${inclusionAL.importeMensual ?? 0} €/mes incluidos en la renta`
+                : INCLUSION_AGUA_LUZ_LABEL[inclusionAL.modo].toLowerCase()}
+              {resumenAnio.suministros.inquilino > 0.005 && (
+                <span className="text-primary">
+                  {' '}
+                  · a repercutir {currentYearStr}: {fmt(resumenAnio.suministros.inquilino)} €
+                </span>
+              )}
+            </p>
+          )}
           <GastoSuministro propiedad={propiedad} />
         </div>
 
@@ -978,6 +968,11 @@ function PropiedadesPanel({
                 </p>
               </div>
             </div>
+            {resumenFicha.suministros.inquilino > 0.005 && (
+              <p className="text-xs text-primary mt-3">
+                A repercutir al inquilino{filterMes ? ' este mes' : ''}: {fmt(resumenFicha.suministros.inquilino)} €
+              </p>
+            )}
           </div>
         </div>
 
@@ -1109,6 +1104,7 @@ function PropiedadesPanel({
                           key={tx.id}
                           tx={tx}
                           propiedad={propiedad}
+                          transacciones={txs}
                           onDelete={(id) => setConfirmDelete({ type: 'tx', id })}
                           onDuplicate={(t) => {
                             setDuplicateTx(t)
@@ -1270,12 +1266,9 @@ function PropiedadesPanel({
 
   const propiedadesAlquiler = propiedades.filter(esDeAlquiler)
   const propiedadesPropias = propiedades.filter((p) => !esDeAlquiler(p))
-  const gastosAnioPropias = propiedadesPropias.filter(esDeJose).reduce((total, p) => {
-    const gastos = transacciones
-      .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto')
-      .reduce((s, t) => s + miParte(importeEnRango(t, desdeAnioPropias, hastaAnioPropias), p, t.soloMio), 0)
-    return total + gastos
-  }, 0)
+  const gastosAnioPropias = propiedadesPropias
+    .filter(esDeJose)
+    .reduce((total, p) => total + resumenEnRango(p, transacciones, desdeAnioPropias, hastaAnioPropias).gastos, 0)
 
   return (
     <div className="flex flex-col pb-24">

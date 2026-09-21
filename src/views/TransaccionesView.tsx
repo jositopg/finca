@@ -12,7 +12,7 @@ import { ImportarTransacciones } from '../components/ImportarTransacciones'
 import { TransactionForm } from '../components/TransactionForm'
 import { TransaccionesTable } from '../components/TransaccionesTable'
 import { Button } from '../components/Button'
-import type { Transaccion, TransaccionTipo } from '../types'
+import { rangoMes, resumenVariasEnRango, type Transaccion, type TransaccionTipo } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -69,8 +69,12 @@ export function TransaccionesView() {
       .sort((a, b) => b.fecha.localeCompare(a.fecha))
   }, [transacciones, filterTipo, filterProp, filterMes, search, propiedades])
 
-  const ingresos = filtered.filter((t) => t.tipo === 'ingreso').reduce((s, t) => s + t.importe, 0)
-  const gastos = filtered.filter((t) => t.tipo === 'gasto').reduce((s, t) => s + t.importe, 0)
+  const propsFiltradas =
+    filterProp === 'todas' ? propiedades : propiedades.filter((p) => p.id === filterProp)
+  const [desdeMes, hastaMes] = filterMes ? rangoMes(filterMes) : (['2000-01-01', '2099-12-31'] as [string, string])
+  const resumenMes = resumenVariasEnRango(propsFiltradas, transacciones, desdeMes, hastaMes)
+  const ingresos = resumenMes.ingresos
+  const gastos = resumenMes.gastos
   const grupos = groupByMonth(filtered)
 
   return (
@@ -167,7 +171,8 @@ export function TransaccionesView() {
 
       {/* Summary bar */}
       <div className="px-5 mb-4 lg:px-0">
-        <div className="flex gap-3 lg:max-w-lg">
+        <div className="flex flex-col gap-2 lg:max-w-lg">
+        <div className="flex gap-3">
           <div className="flex-1 bg-success-container/50 rounded-xl px-3 py-2.5">
             <p className="text-xs text-success mb-0.5">Ingresos</p>
             <p className="text-sm font-bold text-success tabular-nums">+{fmt(ingresos)} €</p>
@@ -186,6 +191,12 @@ export function TransaccionesView() {
               {ingresos - gastos >= 0 ? '+' : ''}{fmt(ingresos - gastos)} €
             </p>
           </div>
+        </div>
+        {resumenMes.inquilino > 0.005 && (
+          <p className="text-xs text-primary">
+            A repercutir al inquilino: {fmt(resumenMes.inquilino)} €
+          </p>
+        )}
         </div>
       </div>
 
@@ -211,6 +222,7 @@ export function TransaccionesView() {
             <TransaccionesTable
               grupos={grupos}
               propiedades={propiedades}
+              transacciones={transacciones}
               mostrarPropiedad={propiedades.length > 1}
               onDelete={(id) => setConfirmId(id)}
               onDuplicate={(t) => {
@@ -248,6 +260,7 @@ export function TransaccionesView() {
                           key={tx.id}
                           tx={tx}
                           propiedad={prop}
+                          transacciones={transacciones}
                           propiedadNombre={propiedades.length > 1 ? prop?.nombre : undefined}
                           onDelete={(id) => setConfirmId(id)}
                           onDuplicate={(t) => {

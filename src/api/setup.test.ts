@@ -198,7 +198,7 @@ describe('exportarASheets', () => {
     })
     const byTitle = await exportar([p1], [], [])
     const reparto = byTitle.get('Reparto de suministros')!
-    expect(reparto.rows).toEqual([['Piso Mayor', 'Parcial', 10, 'Incluido', '', '', '', '', '']])
+    expect(reparto.rows).toEqual([['Piso Mayor', 'Parcial', 10, 'Incluido', '', '', '', '', '', '', '']])
   })
 
   it('Modelo 420: base/IGIC/IRPF por fórmula a partir de la renta neta', async () => {

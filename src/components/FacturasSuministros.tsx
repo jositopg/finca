@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { calcularReparto, parseImporte, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedades: Propiedad[]
@@ -31,7 +31,7 @@ function importeOCero(s: string): number {
 }
 
 export function FacturasSuministros({ propiedades, trigger }: Props) {
-  const { addTxs } = useApp()
+  const { addTxs, transacciones } = useApp()
   const [open, setOpen] = useState(false)
   const [fecha, setFecha] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [importes, setImportes] = useState<Record<string, Importes>>({})
@@ -62,8 +62,43 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
     const v = importes[p.id] ?? { agua: '', luz: '' }
     const aguaImporte = importeOCero(v.agua)
     const luzImporte = importeOCero(v.luz)
-    const repartoAgua = aguaImporte > 0 ? calcularReparto('Agua', aguaImporte, p.reparto) : null
-    const repartoLuz = luzImporte > 0 ? calcularReparto('Electricidad', luzImporte, p.reparto) : null
+    const periodo =
+      mostrarPeriodo && periodoInicio && periodoFin
+        ? { periodoInicio, periodoFin }
+        : { periodoInicio: undefined, periodoFin: undefined }
+    const borradores: Transaccion[] = []
+    if (aguaImporte > 0) {
+      borradores.push({
+        id: '__draft-agua',
+        propiedadId: p.id,
+        fecha,
+        tipo: 'gasto',
+        importe: aguaImporte,
+        categoria: 'Agua',
+        descripcion: '',
+        archivos: [],
+        creadoEn: '',
+        ...periodo,
+      })
+    }
+    if (luzImporte > 0) {
+      borradores.push({
+        id: '__draft-luz',
+        propiedadId: p.id,
+        fecha,
+        tipo: 'gasto',
+        importe: luzImporte,
+        categoria: 'Electricidad',
+        descripcion: '',
+        archivos: [],
+        creadoEn: '',
+        ...periodo,
+      })
+    }
+    const txs = [...transacciones.filter((t) => t.propiedadId === p.id), ...borradores]
+    const repartoAgua = aguaImporte > 0 ? cuotaSuministro(borradores.find((b) => b.categoria === 'Agua')!, p, txs) : null
+    const repartoLuz =
+      luzImporte > 0 ? cuotaSuministro(borradores.find((b) => b.categoria === 'Electricidad')!, p, txs) : null
     return { propiedad: p, agua: v.agua, luz: v.luz, repartoAgua, repartoLuz }
   })
 
@@ -94,21 +129,6 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           creadoEn: new Date().toISOString(),
           ...periodo,
         })
-        const r = calcularReparto('Agua', agua, p.reparto)
-        if (r && r.inquilino > 0.005) {
-          nuevas.push({
-            id: uuid(),
-            propiedadId: p.id,
-            fecha,
-            tipo: 'ingreso',
-            importe: Math.round(r.inquilino * 100) / 100,
-            categoria: 'Agua (repercutida)',
-            descripcion: 'Repercusión automática del gasto de agua',
-            archivos: [],
-            creadoEn: new Date().toISOString(),
-            ...periodo,
-          })
-        }
       }
       if (luz > 0) {
         nuevas.push({
@@ -123,21 +143,6 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           creadoEn: new Date().toISOString(),
           ...periodo,
         })
-        const r = calcularReparto('Electricidad', luz, p.reparto)
-        if (r && r.inquilino > 0.005) {
-          nuevas.push({
-            id: uuid(),
-            propiedadId: p.id,
-            fecha,
-            tipo: 'ingreso',
-            importe: Math.round(r.inquilino * 100) / 100,
-            categoria: 'Electricidad (repercutida)',
-            descripcion: 'Repercusión automática del gasto de luz',
-            archivos: [],
-            creadoEn: new Date().toISOString(),
-            ...periodo,
-          })
-        }
       }
     }
     if (nuevas.length === 0) return
@@ -244,14 +249,13 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
                     />
                   </div>
                 </div>
-                {(repartoAgua?.modo === 'no_incluido' || repartoAgua?.modo === 'parcial') && (
+                {(repartoAgua?.inquilino ?? 0) + (repartoLuz?.inquilino ?? 0) > 0.005 && (
                   <p className="text-xs text-primary mt-1.5">
-                    Agua repercutible al inquilino: {fmt(repartoAgua.inquilino)} €
-                  </p>
-                )}
-                {(repartoLuz?.modo === 'no_incluido' || repartoLuz?.modo === 'parcial') && (
-                  <p className="text-xs text-primary mt-1.5">
-                    Luz repercutible al inquilino: {fmt(repartoLuz.inquilino)} €
+                    A repercutir al inquilino:{' '}
+                    {fmt((repartoAgua?.inquilino ?? 0) + (repartoLuz?.inquilino ?? 0))} €
+                    {(repartoAgua?.propietario ?? 0) + (repartoLuz?.propietario ?? 0) > 0.005
+                      ? ` · gasto tuyo ${fmt((repartoAgua?.propietario ?? 0) + (repartoLuz?.propietario ?? 0))} €`
+                      : ' · no cuenta como gasto'}
                   </p>
                 )}
               </div>

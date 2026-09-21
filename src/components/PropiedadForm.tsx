@@ -5,6 +5,8 @@ import { Input, Select, Textarea } from './Input'
 import type {
   ConceptoReparto,
   GastoRecurrente,
+  InclusionAguaLuz,
+  InclusionAguaLuzModo,
   Propiedad,
   PropiedadEstado,
   PropiedadTipo,
@@ -17,6 +19,7 @@ import {
   CONCEPTO_LABELS,
   corregirTramoVigente,
   ESTADO_LABELS,
+  inclusionAguaLuz,
   parseImporte,
   TIPO_LABELS,
 } from '../types'
@@ -36,10 +39,97 @@ function uuid() {
   return crypto.randomUUID()
 }
 
-const MODO_LABELS: Record<SuministroModo, string> = {
+const MODO_LABELS: Record<Exclude<SuministroModo, 'parcial_conjunto'>, string> = {
   incluido: 'Incluido',
   no_incluido: 'No incluido',
   parcial: 'Parcial',
+}
+
+const AGUA_LUZ_MODOS: InclusionAguaLuzModo[] = ['incluido', 'no_incluido', 'parcial_conjunto']
+
+const AGUA_LUZ_MODO_LABEL: Record<InclusionAguaLuzModo, string> = {
+  incluido: 'Incluido',
+  no_incluido: 'No incluido',
+  parcial_conjunto: 'Parcial',
+}
+
+function AguaLuzRow({
+  value,
+  onChange,
+}: {
+  value?: InclusionAguaLuz
+  onChange: (v?: InclusionAguaLuz) => void
+}) {
+  const modo = value?.modo
+  const [importeStr, setImporteStr] = useState(
+    value?.importeMensual != null ? String(value.importeMensual) : '30',
+  )
+
+  function handleModoClick(m: InclusionAguaLuzModo) {
+    if (modo === m) {
+      onChange(undefined)
+      return
+    }
+    if (m === 'parcial_conjunto') {
+      const n = parseImporte(importeStr)
+      onChange({ modo: m, importeMensual: Number.isNaN(n) || n <= 0 ? 30 : n })
+    } else {
+      onChange({ modo: m })
+    }
+  }
+
+  function handleImporteChange(raw: string) {
+    setImporteStr(raw)
+    const n = parseImporte(raw)
+    onChange({ modo: 'parcial_conjunto', importeMensual: Number.isNaN(n) ? 0 : n })
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-on-surface">Agua y luz</p>
+      <div className="flex gap-1.5">
+        {AGUA_LUZ_MODOS.map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => handleModoClick(m)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              modo === m ? 'bg-on-surface text-surface' : 'bg-surface-lowest text-outline-variant'
+            }`}
+          >
+            {AGUA_LUZ_MODO_LABEL[m]}
+          </button>
+        ))}
+      </div>
+      {modo === 'parcial_conjunto' && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="30"
+            value={importeStr}
+            onChange={(e) => handleImporteChange(e.target.value)}
+            className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-base text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+          <span className="text-xs text-outline-variant">€/mes de agua y luz juntos, incluidos en la renta</span>
+        </div>
+      )}
+      {modo === 'no_incluido' && (
+        <p className="text-xs text-outline-variant">
+          Las facturas se quedan a efectos informativos: no cuentan como gasto. El importe se
+          repercute al inquilino.
+        </p>
+      )}
+      {modo === 'parcial_conjunto' && (
+        <p className="text-xs text-outline-variant">
+          Solo cuenta como gasto esa cantidad al mes. El resto de agua+luz se repercute al inquilino.
+        </p>
+      )}
+      {modo === 'incluido' && (
+        <p className="text-xs text-outline-variant">Las facturas de agua y luz cuentan enteras como gasto.</p>
+      )}
+    </div>
+  )
 }
 
 function RepartoRow({
@@ -76,7 +166,7 @@ function RepartoRow({
     <div className="flex flex-col gap-2">
       <p className="text-xs text-on-surface">{CONCEPTO_LABELS[concepto]}</p>
       <div className="flex gap-1.5">
-        {(['incluido', 'no_incluido', 'parcial'] as SuministroModo[]).map((m) => (
+        {(['incluido', 'no_incluido', 'parcial'] as const).map((m) => (
           <button
             key={m}
             type="button"
@@ -264,7 +354,11 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
   const [contratoLuzEmpresa, setContratoLuzEmpresa] = useState(initial?.contratoLuzEmpresa ?? '')
   const [contratoAguaNumero, setContratoAguaNumero] = useState(initial?.contratoAguaNumero ?? '')
   const [contratoAguaEmpresa, setContratoAguaEmpresa] = useState(initial?.contratoAguaEmpresa ?? '')
-  const [reparto, setReparto] = useState<Reparto>(initial?.reparto ?? {})
+  const [aguaLuz, setAguaLuz] = useState<InclusionAguaLuz | undefined>(inclusionAguaLuz(initial?.reparto))
+  const [reparto, setReparto] = useState<Reparto>({
+    basuras: initial?.reparto?.basuras,
+    ibi: initial?.reparto?.ibi,
+  })
   const [gastosRecurrentes, setGastosRecurrentes] = useState<GastoRecurrente[]>(
     initial?.gastosRecurrentes ?? [],
   )
@@ -342,7 +436,13 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
       contratoLuzEmpresa: contratoLuzEmpresa.trim() || undefined,
       contratoAguaNumero: contratoAguaNumero.trim() || undefined,
       contratoAguaEmpresa: contratoAguaEmpresa.trim() || undefined,
-      reparto: Object.keys(reparto).length > 0 ? reparto : undefined,
+      reparto: (() => {
+        const r: Reparto = {}
+        if (aguaLuz) r.aguaLuz = aguaLuz
+        if (reparto.basuras) r.basuras = reparto.basuras
+        if (reparto.ibi) r.ibi = reparto.ibi
+        return Object.keys(r).length > 0 ? r : undefined
+      })(),
       gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
       historialContratos: initial?.historialContratos,
       tramosContrato: initial?.tramosContrato,
@@ -665,21 +765,11 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
               Agua, luz, basuras e IBI
             </p>
             <p className="text-xs text-outline-variant mt-0.5">
-              Indica quién los paga para calcular después, al registrar cada
-              factura, qué parte te corresponde a ti y qué parte es repercutible
-              al inquilino
+              Agua y luz van juntos en el contrato: incluidos, no incluidos, o un
+              cupo mensual conjunto (p. ej. 30 €). Basuras e IBI se indican aparte.
             </p>
           </div>
-          <RepartoRow
-            concepto="agua"
-            value={reparto.agua}
-            onChange={(v) => setReparto((r) => ({ ...r, agua: v }))}
-          />
-          <RepartoRow
-            concepto="luz"
-            value={reparto.luz}
-            onChange={(v) => setReparto((r) => ({ ...r, luz: v }))}
-          />
+          <AguaLuzRow value={aguaLuz} onChange={setAguaLuz} />
           <RepartoRow
             concepto="basuras"
             value={reparto.basuras}

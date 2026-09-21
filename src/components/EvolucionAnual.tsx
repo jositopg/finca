@@ -1,4 +1,4 @@
-import { importeEnRango, miParte, rangoAnio, type Propiedad, type Transaccion } from '../types'
+import { rangoAnio, resumenVariasEnRango, type Propiedad, type Transaccion } from '../types'
 
 const CHART_HEIGHT = 140
 
@@ -25,15 +25,8 @@ export function EvolucionAnual({ propiedades, transacciones }: Props) {
   const porAnio = new Map<string, number>()
   for (const anio of aniosSet) {
     const [desde, hasta] = rangoAnio(anio)
-    let total = 0
-    for (const t of transacciones) {
-      const importeAnio = importeEnRango(t, desde, hasta)
-      if (importeAnio === 0) continue
-      const p = propiedades.find((pr) => pr.id === t.propiedadId)
-      const importe = p ? miParte(importeAnio, p, t.soloMio) : importeAnio
-      total += t.tipo === 'ingreso' ? importe : -importe
-    }
-    porAnio.set(anio, total)
+    const r = resumenVariasEnRango(propiedades, transacciones, desde, hasta)
+    porAnio.set(anio, r.ingresos - r.gastos)
   }
 
   const anios = [...porAnio.keys()].sort()
