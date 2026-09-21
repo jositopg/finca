@@ -50,7 +50,7 @@ const AGUA_LUZ_MODOS: InclusionAguaLuzModo[] = ['incluido', 'no_incluido', 'parc
 const AGUA_LUZ_MODO_LABEL: Record<InclusionAguaLuzModo, string> = {
   incluido: 'Incluido',
   no_incluido: 'No incluido',
-  parcial_conjunto: 'Parcial',
+  parcial_conjunto: '30 € juntos',
 }
 
 function AguaLuzRow({
@@ -102,27 +102,28 @@ function AguaLuzRow({
         ))}
       </div>
       {modo === 'parcial_conjunto' && (
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="30"
-            value={importeStr}
-            onChange={(e) => handleImporteChange(e.target.value)}
-            className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-base text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
-          />
-          <span className="text-xs text-outline-variant">€/mes de agua y luz juntos, incluidos en la renta</span>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="30"
+              value={importeStr}
+              onChange={(e) => handleImporteChange(e.target.value)}
+              className="w-20 bg-surface-lowest border-0 rounded-lg px-2 py-1.5 text-base text-on-surface focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <span className="text-xs text-outline-variant">€/mes de agua y luz juntos</span>
+          </div>
+          <p className="text-xs text-outline-variant">
+            Un solo cupo para los dos: no se reparte entre agua y luz. Solo cuenta como gasto esa
+            cantidad al mes; el resto se repercute al inquilino.
+          </p>
         </div>
       )}
       {modo === 'no_incluido' && (
         <p className="text-xs text-outline-variant">
           Las facturas se quedan a efectos informativos: no cuentan como gasto. El importe se
           repercute al inquilino.
-        </p>
-      )}
-      {modo === 'parcial_conjunto' && (
-        <p className="text-xs text-outline-variant">
-          Solo cuenta como gasto esa cantidad al mes. El resto de agua+luz se repercute al inquilino.
         </p>
       )}
       {modo === 'incluido' && (
@@ -765,8 +766,8 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
               Agua, luz, basuras e IBI
             </p>
             <p className="text-xs text-outline-variant mt-0.5">
-              Agua y luz van juntos en el contrato: incluidos, no incluidos, o un
-              cupo mensual conjunto (p. ej. 30 €). Basuras e IBI se indican aparte.
+              Agua y luz son un solo dato del contrato (incluidos, no, o 30 €/mes
+              juntos). Basuras e IBI se indican aparte.
             </p>
           </div>
           <AguaLuzRow value={aguaLuz} onChange={setAguaLuz} />

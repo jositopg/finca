@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { cuotaSuministro, parseImporte, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, inclusionAguaLuz, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -31,6 +31,7 @@ export function GastoSuministro({ propiedad }: Props) {
   const [periodoFin, setPeriodoFin] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const inclusion = inclusionAguaLuz(propiedad.reparto)
   const importeParseado = parseImporte(importeStr)
   const importe = Number.isNaN(importeParseado) ? 0 : importeParseado
   const reparto = categoria
@@ -84,6 +85,12 @@ export function GastoSuministro({ propiedad }: Props) {
 
   return (
     <>
+      {inclusion?.modo === 'parcial_conjunto' && (
+        <p className="text-xs text-outline-variant mb-2">
+          Cupo {inclusion.importeMensual ?? 0} €/mes de agua y luz juntos. Mete cada factura tal
+          cual; no hay que partir los {inclusion.importeMensual ?? 0} €.
+        </p>
+      )}
       <div className="flex gap-2">
         <button
           onClick={() => abrir('Agua')}

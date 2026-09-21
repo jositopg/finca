@@ -1,4 +1,4 @@
-const CACHE = 'finca-v2'
+const CACHE = 'finca-v3'
 
 self.addEventListener('install', () => {
   self.skipWaiting()

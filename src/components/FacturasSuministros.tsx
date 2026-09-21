@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { cuotaSuministro, parseImporte, type Propiedad, type Transaccion } from '../types'
+import { cuotaSuministro, inclusionAguaLuz, parseImporte, type Propiedad, type Transaccion } from '../types'
 
 interface Props {
   propiedades: Propiedad[]
@@ -222,9 +222,17 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           )}
 
           <div className="flex flex-col gap-3">
-            {filas.map(({ propiedad, agua, luz, repartoAgua, repartoLuz }) => (
+            {filas.map(({ propiedad, agua, luz, repartoAgua, repartoLuz }) => {
+              const inclusion = inclusionAguaLuz(propiedad.reparto)
+              return (
               <div key={propiedad.id} className="bg-surface-low rounded-xl p-3">
-                <p className="text-sm font-medium text-on-surface truncate mb-2">{propiedad.nombre}</p>
+                <p className="text-sm font-medium text-on-surface truncate mb-1">{propiedad.nombre}</p>
+                {inclusion?.modo === 'parcial_conjunto' && (
+                  <p className="text-xs text-outline-variant mb-2">
+                    Cupo {inclusion.importeMensual ?? 0} €/mes agua+luz juntos — mete cada factura
+                    tal cual
+                  </p>
+                )}
                 <div className="flex gap-2">
                   <div className="flex-1 flex items-center gap-2 bg-surface-lowest rounded-lg px-3 py-2">
                     <Droplet size={14} className="text-outline-variant flex-shrink-0" />
@@ -259,7 +267,8 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
                   </p>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
 
           <div className="flex gap-3 pt-2">

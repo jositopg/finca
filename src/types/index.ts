@@ -1283,7 +1283,7 @@ export interface Reparto {
 export const INCLUSION_AGUA_LUZ_LABEL: Record<InclusionAguaLuzModo, string> = {
   incluido: 'Incluido',
   no_incluido: 'No incluido',
-  parcial_conjunto: 'Parcial',
+  parcial_conjunto: '30 € juntos',
 }
 
 export function esAguaOLuz(categoria: string): boolean {
