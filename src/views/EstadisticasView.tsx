@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext'
 import { EvolucionAnual } from '../components/EvolucionAnual'
 import { GastosPorCategoria } from '../components/GastosPorCategoria'
 import { RankingRentabilidad } from '../components/RankingRentabilidad'
+import { RepercutirSuministros } from '../components/RepercutirSuministros'
 import { esDeAlquiler, esDeJose, rangoAnio } from '../types'
 import type { View } from '../components/Nav'
 
@@ -36,6 +37,17 @@ export function EstadisticasView({ onNavigate }: Props) {
         <>
           <div className="px-5 mb-7 lg:px-0">
             <EvolucionAnual propiedades={propiedadesJose} transacciones={transacciones} />
+          </div>
+
+          <div className="px-5 mb-7 lg:px-0">
+            <RepercutirSuministros
+              propiedades={propiedadesJose}
+              transacciones={transacciones}
+              desde={desdeAnio}
+              hasta={hastaAnio}
+              titulo={`A repercutir agua y luz ${currentYear}`}
+              onSelectPropiedad={(id) => onNavigate('propiedades', id)}
+            />
           </div>
 
           <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">

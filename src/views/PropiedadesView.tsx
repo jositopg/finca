@@ -20,6 +20,7 @@ import { BottomSheet } from '../components/BottomSheet'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { CambiarCondiciones, NuevoContrato, TramosContrato } from '../components/CambiarCondiciones'
 import { HuecosMensuales } from '../components/HuecosMensuales'
+import { RepercutirSuministrosFicha } from '../components/RepercutirSuministros'
 import { CobroRenta } from '../components/CobroRenta'
 import { ContratoAlquiler } from '../components/ContratoAlquiler'
 import { FacturaAlquiler } from '../components/FacturaAlquiler'
@@ -968,13 +969,16 @@ function PropiedadesPanel({
                 </p>
               </div>
             </div>
-            {resumenFicha.suministros.inquilino > 0.005 && (
-              <p className="text-xs text-primary mt-3">
-                A repercutir al inquilino{filterMes ? ' este mes' : ''}: {fmt(resumenFicha.suministros.inquilino)} €
-              </p>
-            )}
           </div>
         </div>
+
+        <RepercutirSuministrosFicha
+          propiedad={propiedad}
+          transacciones={txs}
+          desde={rangoFicha[0]}
+          hasta={rangoFicha[1]}
+          etiqueta={filterMes ? 'este mes' : ''}
+        />
 
         {/* Rentabilidad */}
         {(rentabilidadMercado || rentabilidadReferencia) && (

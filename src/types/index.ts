@@ -1577,6 +1577,71 @@ export function resumenVariasEnRango(
   return { ingresos: round2(ingresos), gastos: round2(gastos), inquilino: round2(inquilino) }
 }
 
+export interface DesgloseRepercutible {
+  agua: number
+  luz: number
+  total: number
+}
+
+// Parte de agua/luz a repercutir al inquilino, desglosada. El cupo conjunto
+// se reparte entre las dos facturas del mes a prorrata.
+export function desgloseRepercutible(
+  propiedad: Pick<Propiedad, 'id' | 'reparto'>,
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+): DesgloseRepercutible {
+  const txs = txsDePropiedad(propiedad, transacciones)
+  const suministros = txs.filter((t) => t.tipo === 'gasto' && esAguaOLuz(t.categoria))
+  let agua = 0
+  let luz = 0
+  for (const mes of mesesEntre(desde.slice(0, 7), hasta.slice(0, 7))) {
+    const [mesDesde, mesHasta] = rangoMes(mes)
+    const sliceDesde = mesDesde > desde ? mesDesde : desde
+    const sliceHasta = mesHasta < hasta ? mesHasta : hasta
+    if (sliceDesde > sliceHasta) continue
+    const d = desgloseSuministrosEnRango(propiedad, txs, sliceDesde, sliceHasta)
+    if (d.inquilino <= 0 || d.facturado <= 0) continue
+    let aguaMes = 0
+    let luzMes = 0
+    for (const t of suministros) {
+      const n = importeEnRango(t, sliceDesde, sliceHasta)
+      if (t.categoria === 'Agua') aguaMes += n
+      else luzMes += n
+    }
+    agua += d.inquilino * (aguaMes / d.facturado)
+    luz += d.inquilino * (luzMes / d.facturado)
+  }
+  return { agua: round2(agua), luz: round2(luz), total: round2(agua + luz) }
+}
+
+export function contratoRepercuteSuministros(reparto?: Reparto): boolean {
+  const i = inclusionAguaLuz(reparto)
+  if (i) return i.modo !== 'incluido'
+  const a = reparto?.agua
+  const l = reparto?.luz
+  return (!!a && a.modo !== 'incluido') || (!!l && l.modo !== 'incluido')
+}
+
+export interface FilaRepercutible {
+  propiedad: Propiedad
+  agua: number
+  luz: number
+  total: number
+}
+
+export function filasRepercutibles(
+  propiedades: Propiedad[],
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+): FilaRepercutible[] {
+  return propiedades
+    .map((propiedad) => ({ propiedad, ...desgloseRepercutible(propiedad, transacciones, desde, hasta) }))
+    .filter((f) => f.total > 0.005 || contratoRepercuteSuministros(f.propiedad.reparto))
+    .sort((a, b) => b.total - a.total || a.propiedad.nombre.localeCompare(b.propiedad.nombre, 'es'))
+}
+
 export function gastosPorCategoriaEnRango(
   propiedad: Pick<Propiedad, 'id' | 'reparto' | 'porcentajePropiedad'>,
   transacciones: Transaccion[],

@@ -12,7 +12,9 @@ import {
   sustituirPorContratoNuevo,
   calcularReparto,
   cuotaSuministro,
+  desgloseRepercutible,
   desgloseSuministrosEnRango,
+  filasRepercutibles,
   gastosPorCategoriaEnRango,
   inclusionAguaLuz,
   rendimientoIrpfPropiedad,
@@ -409,6 +411,56 @@ describe('cuotaSuministro', () => {
     const rLuz = cuotaSuministro(luz, p, [agua, luz])
     expect(rAgua).toEqual({ concepto: 'agua', modo: 'parcial_conjunto', propietario: 10, inquilino: 10 })
     expect(rLuz).toEqual({ concepto: 'luz', modo: 'parcial_conjunto', propietario: 20, inquilino: 20 })
+  })
+})
+
+describe('desgloseRepercutible', () => {
+  it('no incluido: cada factura entera, desglosada', () => {
+    const p = propiedad({ id: 'p1', nombre: 'Piso A', reparto: { aguaLuz: { modo: 'no_incluido' } } })
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+    ]
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
+      agua: 20,
+      luz: 40,
+      total: 60,
+    })
+  })
+
+  it('parcial conjunto: el exceso se reparte a prorrata entre agua y luz', () => {
+    const p = propiedad({
+      id: 'p1',
+      nombre: 'Piso A',
+      reparto: { aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } },
+    })
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ tipo: 'gasto', categoria: 'Electricidad', importe: 40, fecha: '2026-03-12' }),
+    ]
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
+      agua: 10,
+      luz: 20,
+      total: 30,
+    })
+  })
+
+  it('incluido: nada a repercutir', () => {
+    const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'incluido' } } })
+    const txs = [transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' })]
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({ agua: 0, luz: 0, total: 0 })
+  })
+
+  it('filasRepercutibles incluye propiedades con contrato que repercute aunque este mes vayan a 0', () => {
+    const p = propiedad({
+      id: 'p1',
+      nombre: 'Piso A',
+      estado: 'alquilado',
+      reparto: { aguaLuz: { modo: 'no_incluido' } },
+    })
+    const filas = filasRepercutibles([p], [], ...rangoMes('2026-03'))
+    expect(filas).toHaveLength(1)
+    expect(filas[0].total).toBe(0)
   })
 })
 
