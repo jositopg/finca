@@ -223,7 +223,10 @@ export interface ValoracionPropiedad {
 }
 
 export function valorarPropiedad(
-  propiedad: Pick<Propiedad, 'id' | 'tipo' | 'reparto' | 'porcentajePropiedad' | 'valorMercado' | 'valorReferencia'>,
+  propiedad: Pick<
+    Propiedad,
+    'id' | 'tipo' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad' | 'valorMercado' | 'valorReferencia'
+  >,
   transacciones: Transaccion[],
   umbralNetaPct: number,
   hoy: Date = new Date(),
@@ -314,23 +317,37 @@ function mesesEntre(desdeYYYYMM: string, hastaYYYYMM: string): string[] {
   return meses
 }
 
-// Calcula qué gastos recurrentes faltan por generar (desde el mes en que se
-// configuró cada uno hasta el mes actual) y que aún no existen como
-// transacción — para crearlos automáticamente sin que haya que darlos de
-// alta a mano cada mes.
+// Tasa de basuras fija: cubre el año civil entero (los meses de 2026 que
+// aún no tienen el gasto), no solo desde el día en que se dio de alta.
+function rangoMesesRecurrente(
+  g: GastoRecurrente,
+  hoy: Date,
+): { desde: string; hasta: string } | null {
+  const mesCreado = g.creadoEn.slice(0, 7)
+  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  if (g.categoria === 'Tasa de basuras') {
+    const anio = mesCreado.slice(0, 4)
+    return { desde: `${anio}-01`, hasta: `${anio}-12` }
+  }
+  if (mesCreado > mesActual) return null
+  return { desde: mesCreado, hasta: mesActual }
+}
+
+// Calcula qué gastos recurrentes faltan por generar y que aún no existen
+// como transacción — para crearlos automáticamente sin darlos de alta a
+// mano cada mes.
 export function generarGastosPendientes(
   propiedades: Propiedad[],
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): Transaccion[] {
-  const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
   const nuevas: Transaccion[] = []
 
   for (const p of propiedades) {
     for (const g of p.gastosRecurrentes ?? []) {
-      const mesInicio = g.creadoEn.slice(0, 7)
-      if (mesInicio > mesActual) continue
-      for (const mes of mesesEntre(mesInicio, mesActual)) {
+      const rango = rangoMesesRecurrente(g, hoy)
+      if (!rango) continue
+      for (const mes of mesesEntre(rango.desde, rango.hasta)) {
         const misma = (t: Transaccion) =>
           t.propiedadId === p.id &&
           t.fecha.startsWith(mes) &&
@@ -1290,6 +1307,21 @@ export function esAguaOLuz(categoria: string): boolean {
   return categoria === 'Agua' || categoria === 'Electricidad'
 }
 
+// Si hay tasa de basuras como gasto fijo y no se ha dicho que va en la
+// renta, se trata como no incluida (a repercutir).
+export function repartoEfectivo(
+  propiedad: Pick<Propiedad, 'reparto' | 'gastosRecurrentes'>,
+): Reparto | undefined {
+  const r: Reparto = { ...(propiedad.reparto ?? {}) }
+  if (
+    !r.basuras &&
+    (propiedad.gastosRecurrentes ?? []).some((g) => g.categoria === 'Tasa de basuras')
+  ) {
+    r.basuras = { modo: 'no_incluido' }
+  }
+  return Object.keys(r).length > 0 ? r : undefined
+}
+
 export function esIngresoRepercutido(categoria: string): boolean {
   return categoria === 'Agua (repercutida)' || categoria === 'Electricidad (repercutida)'
 }
@@ -1446,15 +1478,15 @@ export function cuotaSuministro(
     id?: string
     propiedadId?: string
   },
-  propiedad: Pick<Propiedad, 'id' | 'reparto'>,
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes'>,
   transacciones: Transaccion[] = [],
 ): RepartoCalculado | null {
   if (tx.tipo && tx.tipo !== 'gasto') return null
-  if (!esAguaOLuz(tx.categoria)) return calcularReparto(tx.categoria, tx.importe, propiedad.reparto)
+  if (!esAguaOLuz(tx.categoria)) return calcularReparto(tx.categoria, tx.importe, repartoEfectivo(propiedad))
 
   const inclusion = inclusionAguaLuz(propiedad.reparto)
   const concepto: ConceptoReparto = tx.categoria === 'Agua' ? 'agua' : 'luz'
-  if (!inclusion) return calcularReparto(tx.categoria, tx.importe, propiedad.reparto)
+  if (!inclusion) return calcularReparto(tx.categoria, tx.importe, repartoEfectivo(propiedad))
 
   if (inclusion.modo === 'incluido') {
     return { concepto, modo: 'incluido', propietario: tx.importe, inquilino: 0 }
@@ -1525,8 +1557,22 @@ export function sumIngresosEnRango(
   }, 0)
 }
 
+function cuotaOtrosEnRango(
+  t: Transaccion,
+  propiedad: Pick<Propiedad, 'reparto' | 'gastosRecurrentes'>,
+  desde: string,
+  hasta: string,
+): { propietario: number; inquilino: number } {
+  const enRango = importeEnRango(t, desde, hasta)
+  if (enRango === 0) return { propietario: 0, inquilino: 0 }
+  const r = calcularReparto(t.categoria, t.importe, repartoEfectivo(propiedad))
+  if (!r) return { propietario: enRango, inquilino: 0 }
+  const frac = t.importe !== 0 ? enRango / t.importe : 0
+  return { propietario: r.propietario * frac, inquilino: r.inquilino * frac }
+}
+
 export function sumGastosEnRango(
-  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'porcentajePropiedad'>,
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad'>,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1540,13 +1586,16 @@ export function sumGastosEnRango(
         !esAguaOLuz(t.categoria) &&
         (!opts?.irpf || esGastoDeducibleIRPF(t.categoria)),
     )
-    .reduce((s, t) => s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio), 0)
+    .reduce(
+      (s, t) => s + miParte(cuotaOtrosEnRango(t, propiedad, desde, hasta).propietario, propiedad, t.soloMio),
+      0,
+    )
   const { propietario } = desgloseSuministrosEnRango(propiedad, txs, desde, hasta)
   return round2(otros + miParte(propietario, propiedad))
 }
 
 export function resumenEnRango(
-  propiedad: Pick<Propiedad, 'id' | 'tipo' | 'reparto' | 'porcentajePropiedad'>,
+  propiedad: Pick<Propiedad, 'id' | 'tipo' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad'>,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1560,7 +1609,7 @@ export function resumenEnRango(
 }
 
 export function resumenVariasEnRango(
-  propiedades: Pick<Propiedad, 'id' | 'tipo' | 'reparto' | 'porcentajePropiedad'>[],
+  propiedades: Pick<Propiedad, 'id' | 'tipo' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad'>[],
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1580,13 +1629,14 @@ export function resumenVariasEnRango(
 export interface DesgloseRepercutible {
   agua: number
   luz: number
+  porCategoria: Record<string, number>
   total: number
 }
 
-// Parte de agua/luz a repercutir al inquilino, desglosada. El cupo conjunto
-// se reparte entre las dos facturas del mes a prorrata.
+// Parte a repercutir al inquilino, desglosada: agua/luz (cupo conjunto) y
+// el resto de conceptos no incluidos (basuras, IBI…).
 export function desgloseRepercutible(
-  propiedad: Pick<Propiedad, 'id' | 'reparto'>,
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes'>,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1612,21 +1662,41 @@ export function desgloseRepercutible(
     agua += d.inquilino * (aguaMes / d.facturado)
     luz += d.inquilino * (luzMes / d.facturado)
   }
-  return { agua: round2(agua), luz: round2(luz), total: round2(agua + luz) }
+  const porCategoria: Record<string, number> = {}
+  if (agua > 0.005) porCategoria.Agua = round2(agua)
+  if (luz > 0.005) porCategoria.Electricidad = round2(luz)
+  for (const t of txs) {
+    if (t.tipo !== 'gasto' || esAguaOLuz(t.categoria)) continue
+    const { inquilino } = cuotaOtrosEnRango(t, propiedad, desde, hasta)
+    if (inquilino <= 0.005) continue
+    porCategoria[t.categoria] = round2((porCategoria[t.categoria] ?? 0) + inquilino)
+  }
+  const total = round2(Object.values(porCategoria).reduce((s, n) => s + n, 0))
+  return {
+    agua: round2(agua),
+    luz: round2(luz),
+    porCategoria,
+    total,
+  }
 }
 
-export function contratoRepercuteSuministros(reparto?: Reparto): boolean {
-  const i = inclusionAguaLuz(reparto)
-  if (i) return i.modo !== 'incluido'
-  const a = reparto?.agua
-  const l = reparto?.luz
-  return (!!a && a.modo !== 'incluido') || (!!l && l.modo !== 'incluido')
+export function contratoRepercuteSuministros(
+  propiedad: Pick<Propiedad, 'reparto' | 'gastosRecurrentes'>,
+): boolean {
+  const r = repartoEfectivo(propiedad)
+  const i = inclusionAguaLuz(r)
+  if (i?.modo && i.modo !== 'incluido') return true
+  if ((r?.agua && r.agua.modo !== 'incluido') || (r?.luz && r.luz.modo !== 'incluido')) return true
+  if (r?.basuras && r.basuras.modo !== 'incluido') return true
+  if (r?.ibi && r.ibi.modo !== 'incluido') return true
+  return false
 }
 
 export interface FilaRepercutible {
   propiedad: Propiedad
   agua: number
   luz: number
+  porCategoria: Record<string, number>
   total: number
 }
 
@@ -1638,13 +1708,13 @@ export function filasRepercutibles(
 ): FilaRepercutible[] {
   return propiedades
     .map((propiedad) => ({ propiedad, ...desgloseRepercutible(propiedad, transacciones, desde, hasta) }))
-    .filter((f) => f.total > 0.005 || contratoRepercuteSuministros(f.propiedad.reparto))
+    .filter((f) => f.total > 0.005 || contratoRepercuteSuministros(f.propiedad))
     .sort((a, b) => b.total - a.total || a.propiedad.nombre.localeCompare(b.propiedad.nombre, 'es'))
 }
 
 export interface LineaSuministroMes {
   txId: string
-  categoria: 'Agua' | 'Electricidad'
+  categoria: string
   facturadoMes: number
   propietario: number
   inquilino: number
@@ -1664,48 +1734,65 @@ export interface MesSuministrosDesglose {
 // Facturas de agua/luz agrupadas por mes facturado, con la parte a
 // repercutir ya aplicada (cupo conjunto a prorrata). Para la ficha.
 export function desgloseSuministrosPorMes(
-  propiedad: Pick<Propiedad, 'id' | 'reparto'>,
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes'>,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
 ): MesSuministrosDesglose[] {
   const txs = txsDePropiedad(propiedad, transacciones)
   const suministros = txs.filter((t) => t.tipo === 'gasto' && esAguaOLuz(t.categoria))
+  const otros = txs.filter((t) => t.tipo === 'gasto' && !esAguaOLuz(t.categoria))
   const meses: MesSuministrosDesglose[] = []
   for (const mes of mesesEntre(desde.slice(0, 7), hasta.slice(0, 7))) {
     const [md, mh] = rangoMes(mes)
     const d = desgloseSuministrosEnRango(propiedad, txs, md, mh)
-    if (d.facturado <= 0.005) continue
     const lineas: LineaSuministroMes[] = []
-    for (const t of suministros) {
-      const slice = importeEnRango(t, md, mh)
-      if (slice <= 0.005) continue
-      const frac = d.facturado !== 0 ? slice / d.facturado : 0
+    if (d.facturado > 0.005) {
+      for (const t of suministros) {
+        const slice = importeEnRango(t, md, mh)
+        if (slice <= 0.005) continue
+        const frac = d.facturado !== 0 ? slice / d.facturado : 0
+        const inquilino = round2(d.inquilino * frac)
+        if (inquilino <= 0.005 && d.inquilino <= 0.005) continue
+        lineas.push({
+          txId: t.id,
+          categoria: t.categoria,
+          facturadoMes: round2(slice),
+          propietario: round2(d.propietario * frac),
+          inquilino,
+          fecha: t.fecha,
+          periodoInicio: t.periodoInicio,
+          periodoFin: t.periodoFin,
+        })
+      }
+    }
+    for (const t of otros) {
+      const { propietario, inquilino } = cuotaOtrosEnRango(t, propiedad, md, mh)
+      if (inquilino <= 0.005) continue
       lineas.push({
         txId: t.id,
-        categoria: t.categoria === 'Agua' ? 'Agua' : 'Electricidad',
-        facturadoMes: round2(slice),
-        propietario: round2(d.propietario * frac),
-        inquilino: round2(d.inquilino * frac),
+        categoria: t.categoria,
+        facturadoMes: round2(importeEnRango(t, md, mh)),
+        propietario: round2(propietario),
+        inquilino: round2(inquilino),
         fecha: t.fecha,
         periodoInicio: t.periodoInicio,
         periodoFin: t.periodoFin,
       })
     }
+    if (lineas.length === 0) continue
     lineas.sort((a, b) => a.categoria.localeCompare(b.categoria, 'es') || a.fecha.localeCompare(b.fecha))
-    meses.push({
-      mes,
-      facturado: d.facturado,
-      propietario: d.propietario,
-      inquilino: d.inquilino,
-      lineas,
-    })
+    const facturado = round2(lineas.reduce((s, l) => s + l.facturadoMes, 0))
+    const propietario = round2(lineas.reduce((s, l) => s + l.propietario, 0))
+    const inquilino = round2(lineas.reduce((s, l) => s + l.inquilino, 0))
+    if (inquilino <= 0.005) continue
+    meses.push({ mes, facturado, propietario, inquilino, lineas })
   }
   return meses.reverse()
 }
 
 export function gastosPorCategoriaEnRango(
-  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'porcentajePropiedad'>,
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad'>,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1714,7 +1801,7 @@ export function gastosPorCategoriaEnRango(
   const acc: Record<string, number> = {}
   for (const t of txs) {
     if (t.tipo !== 'gasto' || esAguaOLuz(t.categoria)) continue
-    const n = miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+    const n = miParte(cuotaOtrosEnRango(t, propiedad, desde, hasta).propietario, propiedad, t.soloMio)
     if (n === 0) continue
     acc[t.categoria] = (acc[t.categoria] ?? 0) + n
   }

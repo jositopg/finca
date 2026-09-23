@@ -45,7 +45,7 @@ export function EstadisticasView({ onNavigate }: Props) {
               transacciones={transacciones}
               desde={desdeAnio}
               hasta={hastaAnio}
-              titulo={`A repercutir agua y luz ${currentYear}`}
+              titulo={`A repercutir ${currentYear}`}
               onSelectPropiedad={(id) => onNavigate('propiedades', id)}
             />
           </div>

@@ -425,6 +425,7 @@ describe('desgloseRepercutible', () => {
     expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
       agua: 20,
       luz: 40,
+      porCategoria: { Agua: 20, Electricidad: 40 },
       total: 60,
     })
   })
@@ -442,6 +443,7 @@ describe('desgloseRepercutible', () => {
     expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
       agua: 10,
       luz: 20,
+      porCategoria: { Agua: 10, Electricidad: 20 },
       total: 30,
     })
   })
@@ -449,7 +451,39 @@ describe('desgloseRepercutible', () => {
   it('incluido: nada a repercutir', () => {
     const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'incluido' } } })
     const txs = [transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' })]
-    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({ agua: 0, luz: 0, total: 0 })
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
+      agua: 0,
+      luz: 0,
+      porCategoria: {},
+      total: 0,
+    })
+  })
+
+  it('incluye tasa de basuras no incluida en el total a repercutir', () => {
+    const p = propiedad({
+      id: 'p1',
+      nombre: 'Piso A',
+      reparto: { aguaLuz: { modo: 'incluido' }, basuras: { modo: 'no_incluido' } },
+    })
+    const txs = [
+      transaccion({ tipo: 'gasto', categoria: 'Agua', importe: 40, fecha: '2026-03-10' }),
+      transaccion({ tipo: 'gasto', categoria: 'Tasa de basuras', importe: 8, fecha: '2026-03-01' }),
+    ]
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03'))).toEqual({
+      agua: 0,
+      luz: 0,
+      porCategoria: { 'Tasa de basuras': 8 },
+      total: 8,
+    })
+  })
+
+  it('un gasto fijo de basuras sin marcar en el contrato cuenta como no incluido', () => {
+    const p = propiedad({
+      id: 'p1',
+      gastosRecurrentes: [{ id: 'g1', categoria: 'Tasa de basuras', importe: 8, creadoEn: '2026-01-01' }],
+    })
+    const txs = [transaccion({ tipo: 'gasto', categoria: 'Tasa de basuras', importe: 8, fecha: '2026-03-01' })]
+    expect(desgloseRepercutible(p, txs, ...rangoMes('2026-03')).total).toBe(8)
   })
 
   it('filasRepercutibles incluye propiedades con contrato que repercute aunque este mes vayan a 0', () => {
@@ -510,6 +544,20 @@ describe('desgloseSuministrosPorMes', () => {
   it('un mes sin facturas no aparece', () => {
     const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'no_incluido' } } })
     expect(desgloseSuministrosPorMes(p, [], ...rangoMes('2026-03'))).toEqual([])
+  })
+
+  it('incluye tasa de basuras no incluida junto a agua y luz', () => {
+    const p = propiedad({
+      id: 'p1',
+      reparto: { aguaLuz: { modo: 'no_incluido' }, basuras: { modo: 'no_incluido' } },
+    })
+    const txs = [
+      transaccion({ id: 'a', tipo: 'gasto', categoria: 'Agua', importe: 20, fecha: '2026-03-08' }),
+      transaccion({ id: 'b', tipo: 'gasto', categoria: 'Tasa de basuras', importe: 8, fecha: '2026-03-01' }),
+    ]
+    const meses = desgloseSuministrosPorMes(p, txs, ...rangoMes('2026-03'))
+    expect(meses[0].inquilino).toBe(28)
+    expect(meses[0].lineas.map((l) => l.categoria).sort()).toEqual(['Agua', 'Tasa de basuras'])
   })
 })
 
@@ -817,6 +865,36 @@ describe('generarGastosPendientes', () => {
     })
     const nuevas = generarGastosPendientes([p], [], new Date('2026-01-15'))
     expect(nuevas).toHaveLength(0)
+  })
+
+  it('tasa de basuras fija rellena todos los meses del año, no solo desde el alta', () => {
+    const p = propiedad({
+      gastosRecurrentes: [
+        { id: 'g1', categoria: 'Tasa de basuras', importe: 8, creadoEn: '2026-07-10' },
+      ],
+    })
+    const yaJulio = transaccion({
+      tipo: 'gasto',
+      categoria: 'Tasa de basuras',
+      fecha: '2026-07-01',
+      importe: 8,
+    })
+    const nuevas = generarGastosPendientes([p], [yaJulio], new Date('2026-09-23'))
+    const meses = nuevas.map((t) => t.fecha.slice(0, 7)).sort()
+    expect(meses).toEqual([
+      '2026-01',
+      '2026-02',
+      '2026-03',
+      '2026-04',
+      '2026-05',
+      '2026-06',
+      '2026-08',
+      '2026-09',
+      '2026-10',
+      '2026-11',
+      '2026-12',
+    ])
+    expect(nuevas.every((t) => t.importe === 8 && t.categoria === 'Tasa de basuras')).toBe(true)
   })
 })
 

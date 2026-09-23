@@ -48,27 +48,18 @@ export function RepercutirSuministros({
         {titulo}
       </p>
       <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-        {filas.map(({ propiedad, agua, luz, total: tot }) => {
+        {filas.map(({ propiedad, porCategoria, total: tot }) => {
+          const detalle = Object.entries(porCategoria)
+            .filter(([, n]) => n > 0.005)
+            .map(([cat, n]) => `${etiquetaCategoria(cat)} ${fmt(n)} €`)
+            .join(' · ')
           const inner = (
             <>
               <div className="min-w-0">
                 <p className="text-sm font-medium text-on-surface truncate">{propiedad.nombre}</p>
                 <p className="text-xs text-outline-variant truncate mt-0.5">
                   {propiedad.inquilinoNombre ?? 'Sin inquilino'}
-                  {agua > 0.005 || luz > 0.005 ? (
-                    <>
-                      {' · '}
-                      {agua > 0.005 && (
-                        <span>
-                          agua {fmt(agua)} €
-                          {luz > 0.005 ? ' · ' : ''}
-                        </span>
-                      )}
-                      {luz > 0.005 && <span>luz {fmt(luz)} €</span>}
-                    </>
-                  ) : (
-                    ' · sin facturas en el periodo'
-                  )}
+                  {detalle ? ` · ${detalle}` : ' · sin facturas en el periodo'}
                 </p>
               </div>
               <span className="text-sm font-bold text-primary tabular-nums flex-shrink-0">
@@ -102,6 +93,12 @@ export function RepercutirSuministros({
   )
 }
 
+function etiquetaCategoria(cat: string) {
+  if (cat === 'Electricidad') return 'luz'
+  if (cat === 'Tasa de basuras') return 'basuras'
+  return cat.toLowerCase()
+}
+
 function etiquetaMes(mes: string) {
   return format(parseISO(`${mes}-01`), 'MMMM yyyy', { locale: es })
 }
@@ -115,16 +112,14 @@ function periodoLinea(l: MesSuministrosDesglose['lineas'][number]) {
 
 function textoResumenTotal(
   inquilinoNombre: string | undefined,
-  agua: number,
-  luz: number,
+  porCategoria: Record<string, number>,
   total: number,
 ) {
   const quien = inquilinoNombre ? `${inquilinoNombre}\n` : ''
-  const partes = [
-    agua > 0.005 ? `Agua: ${fmt(agua)} €` : '',
-    luz > 0.005 ? `Luz: ${fmt(luz)} €` : '',
-  ].filter(Boolean)
-  return `${quien}Agua y luz a repercutir\n${partes.join('\n')}${partes.length ? '\n' : ''}Total: ${fmt(total)} €`
+  const partes = Object.entries(porCategoria)
+    .filter(([, n]) => n > 0.005)
+    .map(([cat, n]) => `${cat === 'Electricidad' ? 'Luz' : cat}: ${fmt(n)} €`)
+  return `${quien}A repercutir\n${partes.join('\n')}${partes.length ? '\n' : ''}Total: ${fmt(total)} €`
 }
 
 function rangoUltimos12Meses(hoy: Date = new Date()): [string, string] {
@@ -143,7 +138,7 @@ export function RepercutirSuministrosFicha({
 }) {
   const { showToast } = useToast()
   const [abierto, setAbierto] = useState(false)
-  if (!contratoRepercuteSuministros(propiedad.reparto)) return null
+  if (!contratoRepercuteSuministros(propiedad)) return null
 
   const [desde12, hasta12] = rangoUltimos12Meses()
   const anio = new Date().getFullYear().toString()
@@ -158,7 +153,7 @@ export function RepercutirSuministrosFicha({
     e.stopPropagation()
     try {
       await navigator.clipboard.writeText(
-        textoResumenTotal(propiedad.inquilinoNombre, esteAnio.agua, esteAnio.luz, esteAnio.total),
+        textoResumenTotal(propiedad.inquilinoNombre, esteAnio.porCategoria, esteAnio.total),
       )
       showToast('Copiado el resumen para repercutir', 'success')
     } catch {
@@ -178,7 +173,7 @@ export function RepercutirSuministrosFicha({
           >
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
-                A repercutir agua y luz
+                A repercutir
               </p>
               <p className="text-sm font-bold text-primary tabular-nums mt-0.5">
                 {fmt(esteAnio.total)} € este año
@@ -209,13 +204,17 @@ export function RepercutirSuministrosFicha({
           <div className="px-4 pb-4 flex flex-col gap-3 border-t border-surface-high pt-3">
             <p className="text-xs text-outline-variant">
               {inclusion?.modo === 'parcial_conjunto'
-                ? `${inclusion.importeMensual ?? 0} €/mes juntos incluidos en la renta`
-                : 'No incluido en la renta'}
+                ? `Agua y luz: ${inclusion.importeMensual ?? 0} €/mes juntos en la renta`
+                : inclusion?.modo === 'no_incluido'
+                  ? 'Agua y luz no incluidos en la renta'
+                  : inclusion?.modo === 'incluido'
+                    ? 'Agua y luz incluidos en la renta'
+                    : 'Gastos no incluidos en la renta'}
               {propiedad.inquilinoNombre ? ` · ${propiedad.inquilinoNombre}` : ''}
             </p>
             {meses.length === 0 ? (
               <p className="text-xs text-outline-variant">
-                Aún no hay facturas de agua o luz en los últimos 12 meses.
+                Aún no hay gastos a repercutir en los últimos 12 meses.
               </p>
             ) : (
               meses.map((m) => (
@@ -237,11 +236,11 @@ export function RepercutirSuministrosFicha({
                         <span className="text-on-surface flex items-center gap-1.5 min-w-0">
                           {l.categoria === 'Agua' ? (
                             <Droplet size={12} className="text-outline-variant flex-shrink-0" />
-                          ) : (
+                          ) : l.categoria === 'Electricidad' ? (
                             <Zap size={12} className="text-outline-variant flex-shrink-0" />
-                          )}
+                          ) : null}
                           <span className="truncate">
-                            {l.categoria === 'Agua' ? 'Agua' : 'Luz'} {fmt(l.facturadoMes)} €
+                            {l.categoria === 'Electricidad' ? 'Luz' : l.categoria} {fmt(l.facturadoMes)} €
                             <span className="text-outline-variant"> · {periodoLinea(l)}</span>
                           </span>
                         </span>
