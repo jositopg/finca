@@ -14,6 +14,7 @@ import {
   cuotaSuministro,
   desgloseRepercutible,
   desgloseSuministrosEnRango,
+  desgloseSuministrosPorMes,
   filasRepercutibles,
   gastosPorCategoriaEnRango,
   inclusionAguaLuz,
@@ -461,6 +462,54 @@ describe('desgloseRepercutible', () => {
     const filas = filasRepercutibles([p], [], ...rangoMes('2026-03'))
     expect(filas).toHaveLength(1)
     expect(filas[0].total).toBe(0)
+  })
+})
+
+describe('desgloseSuministrosPorMes', () => {
+  it('agrupa las facturas del mes y reparte el cupo a prorrata', () => {
+    const p = propiedad({
+      id: 'p1',
+      reparto: { aguaLuz: { modo: 'parcial_conjunto', importeMensual: 30 } },
+    })
+    const txs = [
+      transaccion({
+        id: 'a',
+        tipo: 'gasto',
+        categoria: 'Agua',
+        importe: 20,
+        fecha: '2026-03-08',
+        periodoInicio: '2026-03-01',
+        periodoFin: '2026-03-31',
+      }),
+      transaccion({
+        id: 'l',
+        tipo: 'gasto',
+        categoria: 'Electricidad',
+        importe: 40,
+        fecha: '2026-03-12',
+        periodoInicio: '2026-03-01',
+        periodoFin: '2026-03-31',
+      }),
+    ]
+    const meses = desgloseSuministrosPorMes(p, txs, ...rangoMes('2026-03'))
+    expect(meses).toHaveLength(1)
+    expect(meses[0].mes).toBe('2026-03')
+    expect(meses[0].inquilino).toBe(30)
+    expect(meses[0].lineas).toEqual([
+      expect.objectContaining({ txId: 'a', categoria: 'Agua', facturadoMes: 20, inquilino: 10, propietario: 10 }),
+      expect.objectContaining({
+        txId: 'l',
+        categoria: 'Electricidad',
+        facturadoMes: 40,
+        inquilino: 20,
+        propietario: 20,
+      }),
+    ])
+  })
+
+  it('un mes sin facturas no aparece', () => {
+    const p = propiedad({ id: 'p1', reparto: { aguaLuz: { modo: 'no_incluido' } } })
+    expect(desgloseSuministrosPorMes(p, [], ...rangoMes('2026-03'))).toEqual([])
   })
 })
 

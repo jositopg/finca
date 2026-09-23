@@ -1642,6 +1642,68 @@ export function filasRepercutibles(
     .sort((a, b) => b.total - a.total || a.propiedad.nombre.localeCompare(b.propiedad.nombre, 'es'))
 }
 
+export interface LineaSuministroMes {
+  txId: string
+  categoria: 'Agua' | 'Electricidad'
+  facturadoMes: number
+  propietario: number
+  inquilino: number
+  fecha: string
+  periodoInicio?: string
+  periodoFin?: string
+}
+
+export interface MesSuministrosDesglose {
+  mes: string
+  facturado: number
+  propietario: number
+  inquilino: number
+  lineas: LineaSuministroMes[]
+}
+
+// Facturas de agua/luz agrupadas por mes facturado, con la parte a
+// repercutir ya aplicada (cupo conjunto a prorrata). Para la ficha.
+export function desgloseSuministrosPorMes(
+  propiedad: Pick<Propiedad, 'id' | 'reparto'>,
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+): MesSuministrosDesglose[] {
+  const txs = txsDePropiedad(propiedad, transacciones)
+  const suministros = txs.filter((t) => t.tipo === 'gasto' && esAguaOLuz(t.categoria))
+  const meses: MesSuministrosDesglose[] = []
+  for (const mes of mesesEntre(desde.slice(0, 7), hasta.slice(0, 7))) {
+    const [md, mh] = rangoMes(mes)
+    const d = desgloseSuministrosEnRango(propiedad, txs, md, mh)
+    if (d.facturado <= 0.005) continue
+    const lineas: LineaSuministroMes[] = []
+    for (const t of suministros) {
+      const slice = importeEnRango(t, md, mh)
+      if (slice <= 0.005) continue
+      const frac = d.facturado !== 0 ? slice / d.facturado : 0
+      lineas.push({
+        txId: t.id,
+        categoria: t.categoria === 'Agua' ? 'Agua' : 'Electricidad',
+        facturadoMes: round2(slice),
+        propietario: round2(d.propietario * frac),
+        inquilino: round2(d.inquilino * frac),
+        fecha: t.fecha,
+        periodoInicio: t.periodoInicio,
+        periodoFin: t.periodoFin,
+      })
+    }
+    lineas.sort((a, b) => a.categoria.localeCompare(b.categoria, 'es') || a.fecha.localeCompare(b.fecha))
+    meses.push({
+      mes,
+      facturado: d.facturado,
+      propietario: d.propietario,
+      inquilino: d.inquilino,
+      lineas,
+    })
+  }
+  return meses.reverse()
+}
+
 export function gastosPorCategoriaEnRango(
   propiedad: Pick<Propiedad, 'id' | 'reparto' | 'porcentajePropiedad'>,
   transacciones: Transaccion[],

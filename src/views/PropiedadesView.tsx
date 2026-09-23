@@ -46,8 +46,6 @@ import {
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   gastosPorCategoriaEnRango,
-  inclusionAguaLuz,
-  INCLUSION_AGUA_LUZ_LABEL,
   parseImporte,
   rangoAnio,
   rangoMes,
@@ -562,7 +560,6 @@ function PropiedadesPanel({
     const resumenAnio = resumenEnRango(propiedad, txs, desdeAnioActual, hastaAnioActual)
     const ingresosAnioActual = resumenAnio.ingresos
     const gastosAnioActual = resumenAnio.gastos
-    const inclusionAL = inclusionAguaLuz(propiedad.reparto)
     const rentabilidadMercado = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
@@ -834,22 +831,10 @@ function PropiedadesPanel({
 
         {/* Gastos de suministros — acceso rápido, para cualquier propiedad */}
         <div className="px-5 mb-4">
-          {inclusionAL && (
-            <p className="text-xs text-outline-variant mb-2">
-              Agua y luz:{' '}
-              {inclusionAL.modo === 'parcial_conjunto'
-                ? `${inclusionAL.importeMensual ?? 0} €/mes incluidos en la renta`
-                : INCLUSION_AGUA_LUZ_LABEL[inclusionAL.modo].toLowerCase()}
-              {resumenAnio.suministros.inquilino > 0.005 && (
-                <span className="text-primary">
-                  {' '}
-                  · a repercutir {currentYearStr}: {fmt(resumenAnio.suministros.inquilino)} €
-                </span>
-              )}
-            </p>
-          )}
           <GastoSuministro propiedad={propiedad} />
         </div>
+
+        <RepercutirSuministrosFicha propiedad={propiedad} transacciones={txs} />
 
         {/* Contrato de alquiler */}
         {propiedad.estado === 'alquilado' && (
@@ -971,14 +956,6 @@ function PropiedadesPanel({
             </div>
           </div>
         </div>
-
-        <RepercutirSuministrosFicha
-          propiedad={propiedad}
-          transacciones={txs}
-          desde={rangoFicha[0]}
-          hasta={rangoFicha[1]}
-          etiqueta={filterMes ? 'este mes' : ''}
-        />
 
         {/* Rentabilidad */}
         {(rentabilidadMercado || rentabilidadReferencia) && (

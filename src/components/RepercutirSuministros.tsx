@@ -1,5 +1,19 @@
-import { Droplet, Zap } from 'lucide-react'
-import { filasRepercutibles, type Propiedad, type Transaccion } from '../types'
+import { Copy, Droplet, Zap } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
+import { useToast } from '../context/ToastContext'
+import {
+  contratoRepercuteSuministros,
+  desgloseRepercutible,
+  desgloseSuministrosPorMes,
+  filasRepercutibles,
+  inclusionAguaLuz,
+  rangoAnio,
+  rangoMes,
+  type MesSuministrosDesglose,
+  type Propiedad,
+  type Transaccion,
+} from '../types'
 
 interface Props {
   propiedades: Propiedad[]
@@ -87,50 +101,151 @@ export function RepercutirSuministros({
   )
 }
 
+function etiquetaMes(mes: string) {
+  return format(parseISO(`${mes}-01`), 'MMMM yyyy', { locale: es })
+}
+
+function periodoLinea(l: MesSuministrosDesglose['lineas'][number]) {
+  if (l.periodoInicio && l.periodoFin) {
+    return `${format(parseISO(l.periodoInicio), 'd MMM', { locale: es })}–${format(parseISO(l.periodoFin), 'd MMM', { locale: es })}`
+  }
+  return format(parseISO(l.fecha), 'd MMM', { locale: es })
+}
+
+function textoMes(mes: MesSuministrosDesglose, inquilinoNombre?: string) {
+  const lineas = mes.lineas
+    .map((l) => `${l.categoria === 'Agua' ? 'Agua' : 'Luz'}: ${fmt(l.facturadoMes)} € → ${fmt(l.inquilino)} €`)
+    .join('\n')
+  const quien = inquilinoNombre ? `${inquilinoNombre}\n` : ''
+  return `${quien}Agua y luz ${etiquetaMes(mes.mes)}\n${lineas}\nA repercutir: ${fmt(mes.inquilino)} €`
+}
+
+function rangoUltimos12Meses(hoy: Date = new Date()): [string, string] {
+  const hastaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const desdeDate = new Date(hoy.getFullYear(), hoy.getMonth() - 11, 1)
+  const desdeMes = `${desdeDate.getFullYear()}-${String(desdeDate.getMonth() + 1).padStart(2, '0')}`
+  return [rangoMes(desdeMes)[0], rangoMes(hastaMes)[1]]
+}
+
 export function RepercutirSuministrosFicha({
   propiedad,
   transacciones,
-  desde,
-  hasta,
-  etiqueta,
 }: {
   propiedad: Propiedad
   transacciones: Transaccion[]
-  desde: string
-  hasta: string
-  etiqueta: string
 }) {
-  const filas = filasRepercutibles([propiedad], transacciones, desde, hasta)
-  const f = filas[0]
-  if (!f) return null
+  const { showToast } = useToast()
+  if (!contratoRepercuteSuministros(propiedad.reparto)) return null
+
+  const [desde12, hasta12] = rangoUltimos12Meses()
+  const anio = new Date().getFullYear().toString()
+  const mesActual = `${anio}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  const meses = desgloseSuministrosPorMes(propiedad, transacciones, desde12, hasta12)
+  const esteMes = desgloseRepercutible(propiedad, transacciones, ...rangoMes(mesActual))
+  const esteAnio = desgloseRepercutible(propiedad, transacciones, ...rangoAnio(anio))
+  const inclusion = inclusionAguaLuz(propiedad.reparto)
+
+  async function copiar(mes: MesSuministrosDesglose) {
+    try {
+      await navigator.clipboard.writeText(textoMes(mes, propiedad.inquilinoNombre))
+      showToast('Copiado para repercutir', 'success')
+    } catch {
+      showToast('No se pudo copiar')
+    }
+  }
 
   return (
     <div className="px-5 mb-5">
-    <div className="bg-surface-lowest rounded-2xl shadow-soft p-4">
-      <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
-        A repercutir agua y luz {etiqueta}
-      </p>
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <p className="text-xs text-outline-variant mb-0.5 flex items-center gap-1">
-            <Droplet size={11} />
-            Agua
+      <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex flex-col gap-4">
+        <div>
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">
+            A repercutir agua y luz
           </p>
-          <p className="text-sm font-bold text-on-surface tabular-nums">{fmt(f.agua)} €</p>
-        </div>
-        <div className="flex-1">
-          <p className="text-xs text-outline-variant mb-0.5 flex items-center gap-1">
-            <Zap size={11} />
-            Luz
+          <p className="text-xs text-outline-variant mt-0.5">
+            {inclusion?.modo === 'parcial_conjunto'
+              ? `${inclusion.importeMensual ?? 0} €/mes juntos incluidos en la renta`
+              : 'No incluido en la renta'}
+            {propiedad.inquilinoNombre ? ` · ${propiedad.inquilinoNombre}` : ''}
           </p>
-          <p className="text-sm font-bold text-on-surface tabular-nums">{fmt(f.luz)} €</p>
         </div>
-        <div className="flex-1">
-          <p className="text-xs text-outline-variant mb-0.5">Total</p>
-          <p className="text-sm font-bold text-primary tabular-nums">{fmt(f.total)} €</p>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <p className="text-xs text-outline-variant mb-0.5">Este mes</p>
+            <p className="text-sm font-bold text-primary tabular-nums">{fmt(esteMes.total)} €</p>
+            {(esteMes.agua > 0.005 || esteMes.luz > 0.005) && (
+              <p className="text-xs text-outline-variant mt-0.5">
+                {esteMes.agua > 0.005 ? `agua ${fmt(esteMes.agua)} €` : ''}
+                {esteMes.agua > 0.005 && esteMes.luz > 0.005 ? ' · ' : ''}
+                {esteMes.luz > 0.005 ? `luz ${fmt(esteMes.luz)} €` : ''}
+              </p>
+            )}
+          </div>
+          <div className="flex-1">
+            <p className="text-xs text-outline-variant mb-0.5">Este año</p>
+            <p className="text-sm font-bold text-on-surface tabular-nums">{fmt(esteAnio.total)} €</p>
+            {(esteAnio.agua > 0.005 || esteAnio.luz > 0.005) && (
+              <p className="text-xs text-outline-variant mt-0.5">
+                {esteAnio.agua > 0.005 ? `agua ${fmt(esteAnio.agua)} €` : ''}
+                {esteAnio.agua > 0.005 && esteAnio.luz > 0.005 ? ' · ' : ''}
+                {esteAnio.luz > 0.005 ? `luz ${fmt(esteAnio.luz)} €` : ''}
+              </p>
+            )}
+          </div>
         </div>
+
+        {meses.length === 0 ? (
+          <p className="text-xs text-outline-variant">
+            Aún no hay facturas de agua o luz en los últimos 12 meses.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {meses.map((m) => (
+              <div key={m.mes} className="bg-surface-low rounded-xl p-3">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-on-surface capitalize">{etiquetaMes(m.mes)}</p>
+                    <p className="text-xs text-outline-variant mt-0.5">
+                      Facturado {fmt(m.facturado)} € · incluido {fmt(m.propietario)} €
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-sm font-bold text-primary tabular-nums">{fmt(m.inquilino)} €</span>
+                    {m.inquilino > 0.005 && (
+                      <button
+                        type="button"
+                        onClick={() => copiar(m)}
+                        title="Copiar desglose para el inquilino"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg text-outline-variant hover:text-primary hover:bg-primary-container transition-colors"
+                      >
+                        <Copy size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {m.lineas.map((l) => (
+                    <div key={`${l.txId}-${m.mes}`} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-on-surface flex items-center gap-1.5 min-w-0">
+                        {l.categoria === 'Agua' ? (
+                          <Droplet size={12} className="text-outline-variant flex-shrink-0" />
+                        ) : (
+                          <Zap size={12} className="text-outline-variant flex-shrink-0" />
+                        )}
+                        <span className="truncate">
+                          {l.categoria === 'Agua' ? 'Agua' : 'Luz'} {fmt(l.facturadoMes)} €
+                          <span className="text-outline-variant"> · {periodoLinea(l)}</span>
+                        </span>
+                      </span>
+                      <span className="tabular-nums text-primary flex-shrink-0">{fmt(l.inquilino)} €</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
-    </div>
     </div>
   )
 }
