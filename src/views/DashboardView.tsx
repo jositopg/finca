@@ -20,7 +20,6 @@ import { FacturasSuministros } from '../components/FacturasSuministros'
 import { PropiedadForm } from '../components/PropiedadForm'
 import { AvisosDashboard } from '../components/AvisosDashboard'
 import { CobrosPendientes } from '../components/CobrosPendientes'
-import { RepercutirSuministros } from '../components/RepercutirSuministros'
 import { TareasDashboard } from '../components/TareasDashboard'
 import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
@@ -287,17 +286,6 @@ export function DashboardView({ onNavigate }: Props) {
 
       <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">
         <CobrosPendientes propiedades={propiedades} transacciones={transacciones} />
-      </div>
-
-      <div className="px-5 mb-5 order-3 lg:order-none lg:px-0 lg:mb-0">
-        <RepercutirSuministros
-          propiedades={propiedadesJose}
-          transacciones={transacciones}
-          desde={desdeMes}
-          hasta={hastaMes}
-          titulo="A repercutir agua y luz este mes"
-          onSelectPropiedad={(id) => onNavigate('propiedades', id)}
-        />
       </div>
 
       {/* Tareas pendientes de todas las propiedades */}
