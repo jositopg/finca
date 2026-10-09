@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Wallet } from 'lucide-react'
 import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
@@ -14,19 +13,15 @@ import {
   deudaInquilino,
   mesAlquilerMasAntiguoPendiente,
   parseImporte,
-  rangoMesCivil,
   type Propiedad,
   type Transaccion,
 } from '../types'
+import { construirCobroRenta } from '../types/cobroRenta'
 
 interface Props {
   propiedad: Propiedad
   transacciones: Transaccion[]
   triggerLabel?: string
-}
-
-function uuid() {
-  return crypto.randomUUID()
 }
 
 function fmt(n: number) {
@@ -66,24 +61,7 @@ export function CobroRenta({ propiedad, transacciones, triggerLabel = 'Cobro de 
     if (saving) return
     setSaving(true)
     try {
-      const periodo = rangoMesCivil(mesPagado)
-      const mesTexto = format(new Date(`${periodo.inicio}T00:00:00`), "MMMM yyyy", { locale: es })
-      const descripcion = desglose
-        ? `${mesTexto} · Base ${fmt(desglose.base)} € · IGIC +${fmt(desglose.igic)} € · IRPF -${fmt(desglose.irpf)} €`
-        : mesTexto
-      const tx: Transaccion = {
-        id: uuid(),
-        propiedadId: propiedad.id,
-        fecha,
-        tipo: 'ingreso',
-        importe,
-        categoria: 'Alquiler mensual',
-        descripcion,
-        archivos: [],
-        creadoEn: new Date().toISOString(),
-        periodoInicio: periodo.inicio,
-        periodoFin: periodo.fin,
-      }
+      const tx = construirCobroRenta({ propiedad, mesPagado, fecha, rentaBruta })
       await addTx(tx)
       setOpen(false)
     } finally {

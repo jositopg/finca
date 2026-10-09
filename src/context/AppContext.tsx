@@ -100,6 +100,7 @@ interface AppContextValue {
   deleteProp: (id: string) => Promise<void>
   addTx: (t: Transaccion) => Promise<void>
   addTxs: (ts: Transaccion[]) => Promise<void>
+  leerTransaccionesServidor: () => Promise<Transaccion[]>
   updateTx: (t: Transaccion) => Promise<void>
   deleteTx: (id: string) => Promise<void>
   addIngreso: (i: IngresoExterno) => Promise<void>
@@ -500,6 +501,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [showToast],
   )
 
+  const leerTransaccionesServidor = useCallback(() => getTransacciones(), [])
+
   const updateTx = useCallback(
     async (t: Transaccion) => {
       const anterior = transacciones.find((x) => x.id === t.id)
@@ -692,6 +695,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         deleteProp,
         addTx,
         addTxs,
+        leerTransaccionesServidor,
         updateTx,
         deleteTx,
         addIngreso,
