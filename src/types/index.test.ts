@@ -701,6 +701,30 @@ describe('devengoIgicLocalTrimestre', () => {
     expect(d.igic).toBe(60.96)
   })
 
+  it('un trimestre ya cerrado suma el IGIC de cada mes, no el 7% del total', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 1741.66,
+      porcentajePropiedad: 50,
+      contratoInicio: '2022-04-01',
+      contratoFin: '2025-04-01',
+    })
+    const d = devengoIgicLocalTrimestre(p, '2026', 1, octubre)
+    expect(d.meses).toHaveLength(3)
+    expect(d.meses.every((m) => m.igic === 60.96)).toBe(true)
+    expect(d.igic).toBe(182.88)
+    const quimel = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 846.25,
+      contratoInicio: '2023-04-01',
+    })
+    const t1 = devengoIgicLocalTrimestre(quimel, '2026', 2, octubre)
+    expect(t1.meses.map((m) => m.igic)).toEqual([59.24, 59.24, 59.24])
+    expect(t1.igic).toBe(177.72)
+  })
+
   it('un alta a mitad de mes devenga ese mes entero y no el anterior', () => {
     const p = propiedad({
       tipo: 'local',

@@ -1882,6 +1882,7 @@ export function baseDesdeRentaNeta(rentaNeta: number): number {
 export interface MesIgicDevengado {
   mes: string // YYYY-MM
   base: number // parte de Jose, en céntimos
+  igic: number // 7% de esa base, redondeado a céntimos
 }
 
 export interface DevengoIgicTrimestre {
@@ -1973,10 +1974,14 @@ function rentaPactadaEnMes(propiedad: PropsRentaPactada, mes: string): number | 
   return undefined
 }
 
-// IGIC del Modelo 420: la renta pactada de cada mes del trimestre que ya ha
-// empezado, haya cobro o no. El impuesto se devenga cuando la renta es
-// exigible, no cuando entra en el banco. Un mes futuro no entra hasta que
-// llega. La base ya va a la parte de Jose.
+// IGIC del Modelo 420: la renta pactada de cada mes del trimestre, haya cobro
+// o no. Vale igual para un trimestre ya cerrado y para el que está en curso.
+// El impuesto se devenga cuando la renta es exigible, no cuando entra en el
+// banco. Un mes que todavía no ha empezado no entra. La cuota del trimestre
+// es la suma del IGIC de cada mes (cada uno redondeado a céntimos, como en
+// la factura), no el 7% del total: si no, un trimestre de tres meses se queda
+// un céntimo por debajo de la suma de las facturas. La base ya va a la parte
+// de Jose.
 export function devengoIgicLocalTrimestre(
   propiedad: PropsRentaPactada & Pick<Propiedad, 'porcentajePropiedad'>,
   anio: string,
@@ -1994,10 +1999,10 @@ export function devengoIgicLocalTrimestre(
     if (pactada == null) continue
     const base = round2(miParte(pactada, propiedad))
     if (base <= 0) continue
-    meses.push({ mes, base })
+    meses.push({ mes, base, igic: round2(base * (IGIC_LOCAL_PCT / 100)) })
   }
   const base = round2(meses.reduce((s, m) => s + m.base, 0))
-  const igic = round2(base * (IGIC_LOCAL_PCT / 100))
+  const igic = round2(meses.reduce((s, m) => s + m.igic, 0))
   return { base, igic, meses }
 }
 
