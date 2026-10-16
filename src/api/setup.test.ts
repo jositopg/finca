@@ -219,6 +219,23 @@ describe('exportarASheets', () => {
     expect(fila[5]).toBe('=D2*0,19')
   })
 
+  it('Modelo 420: el IGIC es la renta pactada aunque ese trimestre no haya cobros', async () => {
+    const p1 = propiedad({
+      id: 'p1',
+      nombre: 'Local Puerto',
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 1000,
+    })
+    const byTitle = await exportar([p1], [], [])
+    const modelo420 = byTitle.get('Modelo 420')!
+    expect(modelo420.rows.map((fila) => [fila[0], fila[1], fila[3], fila[4]])).toEqual([
+      ['2026', 'T1', 3000, 210],
+      ['2026', 'T2', 3000, 210],
+    ])
+    expect(modelo420.rows[0][5]).toBe('=IF(G2=0;0;G2/0,88*0,19)')
+  })
+
   it('Estimador Renta (resumen): cuota total (no solo la marginal de alquileres) y toda la retención', async () => {
     const byTitle = await exportar([propiedad({ id: 'p1', nombre: 'X', tipo: 'piso' })], [], [])
     const resumen = byTitle.get('Estimador Renta (resumen)')!

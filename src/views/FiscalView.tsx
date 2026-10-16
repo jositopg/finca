@@ -4,8 +4,10 @@ import { EstimadorRenta } from '../components/EstimadorRenta'
 import {
   baseDesdeRentaNeta,
   calcularRentaLocal,
+  devengoIgicLocalTrimestre,
   esDeAlquiler,
   esDeJose,
+  mesDelCobroAlquiler,
   miParte,
   rendimientoIrpfPropiedad,
 } from '../types'
@@ -14,9 +16,35 @@ function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const NOMBRE_MES = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+]
+
 function trimestreDe(fecha: string): number {
   const mes = parseInt(fecha.slice(5, 7), 10)
   return Math.ceil(mes / 3)
+}
+
+function nombreMes(yyyymm: string): string {
+  return NOMBRE_MES[Number(yyyymm.slice(5, 7)) - 1] ?? yyyymm
+}
+
+function listaMeses(meses: string[]): string {
+  const nombres = meses.map(nombreMes)
+  if (nombres.length <= 1) return nombres[0] ?? ''
+  if (nombres.length === 2) return `${nombres[0]} y ${nombres[1]}`
+  return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
 }
 
 export function FiscalView() {
@@ -58,13 +86,22 @@ export function FiscalView() {
     (t) => t.tipo === 'gasto' && t.categoria === 'Hipoteca / Financiación' && t.fecha.startsWith(anio),
   )
 
-  // ── Modelo 420 (IGIC trimestral): solo locales, solo renta de alquiler ────
-  // El importe guardado en cada transacción es la renta NETA (lo que
-  // realmente entra en el banco, ver CobroRenta) — aquí se reconstruye la
-  // base imponible a partir de esa neta para poder declarar el trimestre.
+  // ── Modelo 420 (IGIC trimestral): solo locales ───────────────────────────
+  // El IGIC se devenga con la renta pactada de cada mes que ya ha empezado,
+  // se haya cobrado o no. El Modelo 115 (IRPF) sí sigue el cobro: la
+  // retención la ingresa el inquilino cuando paga.
+  const hoy = new Date()
+  const mesHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const primeroTrimestre = (trimestre - 1) * 3 + 1
+  const mesesDelTrimestre = [0, 1, 2].map(
+    (i) => `${anio}-${String(primeroTrimestre + i).padStart(2, '0')}`,
+  )
+  const mesesAunNoEmpezados = mesesDelTrimestre.filter((m) => m > mesHoy)
+
   const locales = propiedades.filter((p) => p.tipo === 'local')
   const filasLocales = locales.map((p) => {
-    const netaTotal = txsAnio
+    const devengo = devengoIgicLocalTrimestre(p, anio, trimestre, hoy)
+    const netaCobrada = txsAnio
       .filter(
         (t) =>
           t.propiedadId === p.id &&
@@ -73,20 +110,40 @@ export function FiscalView() {
           trimestreDe(t.fecha) === trimestre,
       )
       .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
-    const base = baseDesdeRentaNeta(netaTotal)
-    const { igic, irpf } = calcularRentaLocal(base)
+    const irpf = calcularRentaLocal(baseDesdeRentaNeta(netaCobrada)).irpf
 
-    // IGIC soportado en gastos del local (deducible del repercutido) — solo
-    // se declara si el local computa este trimestre (tiene renta cobrada);
-    // si está vacío ese trimestre no hay actividad contra la que deducirlo.
+    const mesesSinCobrar = devengo.meses.filter((m) => {
+      const netaMes = transacciones
+        .filter(
+          (t) =>
+            t.propiedadId === p.id &&
+            t.tipo === 'ingreso' &&
+            t.categoria === 'Alquiler mensual' &&
+            mesDelCobroAlquiler(t) === m.mes,
+        )
+        .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
+      return baseDesdeRentaNeta(netaMes) + 0.02 < m.base
+    })
+
+    // IGIC soportado en gastos del local (deducible del repercutido). Solo
+    // si este trimestre hay renta devengada: un local vacío no tiene
+    // actividad contra la que deducirlo. No hace falta que esté cobrada.
     const igicSoportado =
-      netaTotal > 0
+      devengo.base > 0
         ? txsAnio
             .filter((t) => t.propiedadId === p.id && t.tipo === 'gasto' && trimestreDe(t.fecha) === trimestre)
             .reduce((s, t) => s + miParte(t.igicSoportado ?? 0, p, t.soloMio), 0)
         : 0
 
-    return { propiedad: p, base, igic, irpf, neta: netaTotal, igicSoportado, igicResultado: igic - igicSoportado }
+    return {
+      propiedad: p,
+      base: devengo.base,
+      igic: devengo.igic,
+      irpf,
+      igicSoportado,
+      igicResultado: devengo.igic - igicSoportado,
+      mesesSinCobrar: mesesSinCobrar.map((m) => m.mes),
+    }
   })
   const totalBaseTrimestre = filasLocales.reduce((s, f) => s + f.base, 0)
   const totalIgicTrimestre = filasLocales.reduce((s, f) => s + f.igic, 0)
@@ -196,9 +253,10 @@ export function FiscalView() {
           Modelo 420 — IGIC trimestral (locales)
         </p>
         <p className="text-xs text-outline-variant mb-3">
-          Base imponible e IGIC (7%) de la renta de locales del trimestre, a tu parte. El IRPF
-          retenido (19%) va en el Modelo 115, más abajo. El IGIC soportado en gastos del local
-          (solo si hubo renta ese trimestre) se descuenta del repercutido.
+          IGIC (7%) de la renta pactada de los locales, a tu parte, en los meses del trimestre que
+          ya han empezado. Se devenga aunque el inquilino no haya pagado. El IRPF retenido (19%) va
+          en el Modelo 115 y solo cuenta lo cobrado: lo ingresa el inquilino al pagar. El IGIC
+          soportado en gastos del local se descuenta si ese trimestre hay renta devengada.
         </p>
 
         <div className="flex gap-2 mb-3">
@@ -221,7 +279,7 @@ export function FiscalView() {
           </p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasLocales.map(({ propiedad, base, igic, igicSoportado, igicResultado }) => (
+            {filasLocales.map(({ propiedad, base, igic, igicSoportado, igicResultado, mesesSinCobrar }) => (
               <div key={propiedad.id} className="p-4">
                 <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
                 <div className="flex items-center gap-3 text-xs flex-wrap">
@@ -231,6 +289,14 @@ export function FiscalView() {
                   <span className="text-outline-variant/40">·</span>
                   <span className="text-success">IGIC +{fmt(igic)} €</span>
                 </div>
+                {mesesSinCobrar.length > 0 && (
+                  <p className="text-xs text-outline-variant mt-1">
+                    Sin cobrar: {listaMeses(mesesSinCobrar)}.{' '}
+                    {mesesSinCobrar.length === 1
+                      ? 'El IGIC de ese mes entra igual.'
+                      : 'El IGIC de esos meses entra igual.'}
+                  </p>
+                )}
                 {igicSoportado > 0 && (
                   <p className="text-xs text-outline-variant mt-1">
                     IGIC soportado en gastos -{fmt(igicSoportado)} € → IGIC a ingresar{' '}
@@ -245,6 +311,13 @@ export function FiscalView() {
         {locales.length > 0 && (
           <>
             <div className="flex flex-col gap-1 bg-surface-low rounded-xl px-4 py-3 mt-2">
+              {mesesAunNoEmpezados.length > 0 && (
+                <p className="text-xs text-outline-variant mb-1">
+                  {listaMeses(mesesAunNoEmpezados)} todavía no{' '}
+                  {mesesAunNoEmpezados.length === 1 ? 'ha empezado' : 'han empezado'}: su IGIC entra
+                  cuando {mesesAunNoEmpezados.length === 1 ? 'llegue ese mes' : 'lleguen'}.
+                </p>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-outline-variant">Base imponible T{trimestre} {anio}</span>
                 <span className="text-sm font-bold tabular-nums text-primary">
@@ -275,8 +348,8 @@ export function FiscalView() {
                 Modelo 115 — IRPF retenido (locales)
               </p>
               <p className="text-xs text-outline-variant mb-2">
-                Retención del 19% que el inquilino del local ingresa en Hacienda. Trimestral (115) y
-                resumen anual (180).
+                Retención del 19% que el inquilino ingresa en Hacienda cuando paga la renta.
+                Trimestral (115) y resumen anual (180). Solo entra la renta ya cobrada en el trimestre.
               </p>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-outline-variant">IRPF retenido T{trimestre} {anio}</span>
