@@ -9,6 +9,7 @@ import {
   amortizacionAnual,
   aplicarCambioCondiciones,
   baseDesdeRentaNeta,
+  devengoIgicLocalTrimestre,
   sustituirPorContratoNuevo,
   calcularReparto,
   cuotaSuministro,
@@ -605,6 +606,133 @@ describe('calcularRentaLocal / baseDesdeRentaNeta', () => {
     const base = 1000
     const neta = calcularRentaLocal(base).neta
     expect(baseDesdeRentaNeta(neta)).toBeCloseTo(base, 6)
+  })
+})
+
+describe('devengoIgicLocalTrimestre', () => {
+  const octubre = new Date(2026, 9, 16)
+
+  it('devenga los tres meses del trimestre aunque no haya ningún cobro', () => {
+    const p = propiedad({ tipo: 'local', estado: 'alquilado', alquilerMensual: 1000 })
+    const d = devengoIgicLocalTrimestre(p, '2026', 1, new Date(2026, 3, 1))
+    expect(d.meses.map((m) => m.mes)).toEqual(['2026-01', '2026-02', '2026-03'])
+    expect(d.base).toBe(3000)
+    expect(d.igic).toBe(210)
+  })
+
+  it('un mes que todavía no ha empezado no entra', () => {
+    const p = propiedad({ tipo: 'local', estado: 'alquilado', alquilerMensual: 900 })
+    const d = devengoIgicLocalTrimestre(p, '2026', 4, octubre)
+    expect(d.meses.map((m) => m.mes)).toEqual(['2026-10'])
+    expect(d.base).toBe(900)
+    expect(d.igic).toBe(63)
+  })
+
+  it('un trimestre futuro queda a cero', () => {
+    const p = propiedad({ tipo: 'local', estado: 'alquilado', alquilerMensual: 900 })
+    expect(devengoIgicLocalTrimestre(p, '2027', 1, octubre)).toEqual({ base: 0, igic: 0, meses: [] })
+  })
+
+  it('aplica el porcentaje de propiedad a la base', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 4500,
+      porcentajePropiedad: 50,
+    })
+    const d = devengoIgicLocalTrimestre(p, '2026', 4, octubre)
+    expect(d.base).toBe(2250)
+    expect(d.igic).toBe(157.5)
+  })
+
+  it('un local vacío usa el historial hasta el fin, y no los meses posteriores', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'vacio',
+      alquilerMensual: undefined,
+      historialContratos: [{ id: 'h1', fechaFin: '2026-07-30', alquilerMensual: 600 }],
+    })
+    const t2 = devengoIgicLocalTrimestre(p, '2026', 2, octubre)
+    expect(t2.base).toBe(1800)
+    expect(t2.igic).toBe(126)
+    const t3 = devengoIgicLocalTrimestre(p, '2026', 3, octubre)
+    expect(t3.meses.map((m) => m.mes)).toEqual(['2026-07'])
+    expect(t3.base).toBe(600)
+    expect(t3.igic).toBe(42)
+    expect(devengoIgicLocalTrimestre(p, '2026', 4, octubre).base).toBe(0)
+    expect(devengoIgicLocalTrimestre(p, '2025', 4, octubre).base).toBe(0)
+  })
+
+  it('antes del contrato nuevo usa la renta del historial, aunque sea otro inquilino', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 900,
+      contratoInicio: '2026-09-01',
+      contratoFin: '2027-08-31',
+      inquilinoNombre: 'Actual',
+      historialContratos: [
+        {
+          id: 'h1',
+          fechaInicio: '2023-04-01',
+          fechaFin: '2026-08-31',
+          alquilerMensual: 846.25,
+          inquilinoNombre: 'Anterior',
+        },
+      ],
+    })
+    const t3 = devengoIgicLocalTrimestre(p, '2026', 3, octubre)
+    expect(t3.meses.map((m) => m.base)).toEqual([846.25, 846.25, 900])
+    expect(t3.base).toBe(2592.5)
+    expect(t3.igic).toBe(181.48)
+  })
+
+  it('un contratoFin pasado no corta el devengo si sigue alquilado', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 1741.66,
+      porcentajePropiedad: 50,
+      contratoInicio: '2022-04-01',
+      contratoFin: '2025-04-01',
+    })
+    const d = devengoIgicLocalTrimestre(p, '2026', 4, octubre)
+    expect(d.base).toBe(870.83)
+    expect(d.igic).toBe(60.96)
+  })
+
+  it('un alta a mitad de mes devenga ese mes entero y no el anterior', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 1000,
+      contratoInicio: '2026-02-10',
+    })
+    const d = devengoIgicLocalTrimestre(p, '2026', 1, new Date(2026, 3, 1))
+    expect(d.meses.map((m) => m.mes)).toEqual(['2026-02', '2026-03'])
+    expect(d.base).toBe(2000)
+  })
+
+  it('un tramo cambia la renta desde el mes en que entra en vigor', () => {
+    const p = propiedad({
+      tipo: 'local',
+      estado: 'alquilado',
+      alquilerMensual: 900,
+      contratoInicio: '2026-01-01',
+      tramosContrato: [
+        { id: 'a', vigenteDesde: '2026-01-01', alquilerMensual: 800 },
+        { id: 'b', vigenteDesde: '2026-02-01', alquilerMensual: 900 },
+      ],
+    })
+    const d = devengoIgicLocalTrimestre(p, '2026', 1, new Date(2026, 3, 1))
+    expect(d.meses.map((m) => m.base)).toEqual([800, 900, 900])
+    expect(d.base).toBe(2600)
+    expect(d.igic).toBe(182)
+  })
+
+  it('un local vacío sin historial no devenga', () => {
+    const p = propiedad({ tipo: 'local', estado: 'vacio', alquilerMensual: 500 })
+    expect(devengoIgicLocalTrimestre(p, '2026', 1, octubre).base).toBe(0)
   })
 })
 

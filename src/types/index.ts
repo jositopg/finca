@@ -1872,10 +1872,133 @@ export function calcularRentaLocal(rentaBruta: number): DesgloseRentaLocal {
 }
 
 // Inversa: reconstruye la base imponible a partir del importe neto ya
-// guardado en una transacción (lo que se registra en la app) — para el
-// Modelo 420, que necesita la base, no la neta.
+// guardado en una transacción (lo que se registra en la app). La usan la
+// factura y el Modelo 115. El Modelo 420 no: el IGIC se devenga por la
+// renta pactada del mes, se haya cobrado o no (ver devengoIgicLocalTrimestre).
 export function baseDesdeRentaNeta(rentaNeta: number): number {
   return rentaNeta / (1 + IGIC_LOCAL_PCT / 100 - IRPF_LOCAL_PCT / 100)
+}
+
+export interface MesIgicDevengado {
+  mes: string // YYYY-MM
+  base: number // parte de Jose, en céntimos
+}
+
+export interface DevengoIgicTrimestre {
+  base: number
+  igic: number
+  meses: MesIgicDevengado[]
+}
+
+// El contrato en ficha cubre la fecha. Si sigue alquilado, un contratoFin
+// ya pasado no corta el devengo: en la app ese fin es orientativo mientras
+// no se archive el contrato (Local Avenida, San Clemente 41).
+function cubreContratoEnFicha(
+  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin'>,
+  fecha: string,
+): boolean {
+  if (!propiedad.contratoInicio || fecha < propiedad.contratoInicio) return false
+  if (propiedad.estado === 'alquilado') return true
+  return !!propiedad.contratoFin && fecha <= propiedad.contratoFin
+}
+
+// Un histórico sin fecha de inicio solo dice cuándo acabó. No se proyecta
+// hacia atrás de forma indefinida: cubre el año civil de fechaFin, hasta ese día.
+function historialCubreFecha(c: ContratoHistorico, fecha: string): boolean {
+  if (fecha > c.fechaFin) return false
+  if (c.fechaInicio) return fecha >= c.fechaInicio
+  return fecha.slice(0, 4) === c.fechaFin.slice(0, 4)
+}
+
+type PropsRentaPactada = Pick<
+  Propiedad,
+  | 'estado'
+  | 'alquilerMensual'
+  | 'contratoInicio'
+  | 'contratoFin'
+  | 'tramosContrato'
+  | 'fianzaImporte'
+  | 'historialContratos'
+>
+
+// Renta bruta pactada (base imponible del local) en una fecha. El contrato
+// en ficha manda; si la fecha es anterior, vale cualquier histórico que la
+// cubra, aunque el inquilino ya no sea el mismo. Sin fechas y alquilado, la
+// renta de la ficha.
+function rentaPactadaEnFecha(propiedad: PropsRentaPactada, fecha: string): number | undefined {
+  if (cubreContratoEnFicha(propiedad, fecha)) {
+    const tramo = tramoEnFecha(propiedad, fecha)
+    const renta = tramo?.alquilerMensual ?? propiedad.alquilerMensual
+    if (renta != null && renta > 0) return renta
+  }
+  const historico = (propiedad.historialContratos ?? [])
+    .filter((c) => historialCubreFecha(c, fecha))
+    .sort((a, b) => b.fechaFin.localeCompare(a.fechaFin))[0]
+  if (historico) {
+    const renta = alquilerDeHistorico(historico, fecha)
+    if (renta != null && renta > 0) return renta
+  }
+  if (
+    propiedad.estado === 'alquilado' &&
+    !propiedad.contratoInicio &&
+    !(propiedad.tramosContrato?.length) &&
+    !(propiedad.historialContratos?.length) &&
+    propiedad.alquilerMensual != null &&
+    propiedad.alquilerMensual > 0
+  ) {
+    return propiedad.alquilerMensual
+  }
+  return undefined
+}
+
+// Mes civil completo si algún día estuvo alquilado. La app no prorratea la
+// renta por días: un alta a mitad de mes devenga el mes entero, igual que
+// el cobro.
+function rentaPactadaEnMes(propiedad: PropsRentaPactada, mes: string): number | undefined {
+  const { inicio, fin } = rangoMesCivil(mes)
+  const alInicio = rentaPactadaEnFecha(propiedad, inicio)
+  if (alInicio != null) return alInicio
+  const dias: string[] = []
+  if (propiedad.contratoInicio && propiedad.contratoInicio > inicio && propiedad.contratoInicio <= fin) {
+    dias.push(propiedad.contratoInicio)
+  }
+  for (const h of propiedad.historialContratos ?? []) {
+    if (h.fechaInicio && h.fechaInicio > inicio && h.fechaInicio <= fin) dias.push(h.fechaInicio)
+  }
+  dias.sort()
+  for (const dia of dias) {
+    const renta = rentaPactadaEnFecha(propiedad, dia)
+    if (renta != null) return renta
+  }
+  return undefined
+}
+
+// IGIC del Modelo 420: la renta pactada de cada mes del trimestre que ya ha
+// empezado, haya cobro o no. El impuesto se devenga cuando la renta es
+// exigible, no cuando entra en el banco. Un mes futuro no entra hasta que
+// llega. La base ya va a la parte de Jose.
+export function devengoIgicLocalTrimestre(
+  propiedad: PropsRentaPactada & Pick<Propiedad, 'porcentajePropiedad'>,
+  anio: string,
+  trimestre: number,
+  hoy: Date = new Date(),
+): DevengoIgicTrimestre {
+  if (trimestre < 1 || trimestre > 4) return { base: 0, igic: 0, meses: [] }
+  const mesHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+  const primero = (trimestre - 1) * 3 + 1
+  const meses: MesIgicDevengado[] = []
+  for (let i = 0; i < 3; i++) {
+    const mes = `${anio}-${String(primero + i).padStart(2, '0')}`
+    if (mes > mesHoy) continue
+    const pactada = rentaPactadaEnMes(propiedad, mes)
+    if (pactada == null) continue
+    const base = round2(miParte(pactada, propiedad))
+    if (base <= 0) continue
+    meses.push({ mes, base })
+  }
+  const base = round2(meses.reduce((s, m) => s + m.base, 0))
+  const igic = round2(base * (IGIC_LOCAL_PCT / 100))
+  return { base, igic, meses }
 }
 
 export interface ResumenPropiedad {

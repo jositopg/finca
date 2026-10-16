@@ -3,6 +3,7 @@ import { apiPost, fetchConTimeout, getAccessToken } from './auth'
 import { deleteFile, findFileInFolder, getOrCreateFolder } from './drive'
 import { writeFormattedSheets, type SheetSpec } from './sheets'
 import {
+  devengoIgicLocalTrimestre,
   esDeAlquiler,
   esDeJose,
   ESTADO_LABELS,
@@ -405,24 +406,46 @@ function buildEvolucionAnual(propiedadesJose: Propiedad[], transacciones: Transa
   return { headers, rows, moneyCols }
 }
 
-// ─── Modelo 420: base/IGIC/IRPF de cada trimestre con renta cobrada ────────
-// Las filas (qué año/trimestre/local existen) se deciden en JS con los
-// datos actuales; los importes de cada celda son fórmulas.
+// ─── Modelo 420: IGIC devengado por la renta pactada; IRPF de lo cobrado ──
+// La base y el IGIC son valores (la renta del contrato de cada mes ya
+// empezado, cobrada o no). El IRPF y la neta siguen siendo fórmulas sobre
+// los cobros: la retención la ingresa el inquilino al pagar. Si no hay renta
+// pactada pero sí un cobro, la fila vuelve a la fórmula antigua para no
+// perder ese IGIC.
+function anosDelLocal(p: Propiedad, transacciones: Transaccion[]): string[] {
+  const set = new Set<string>()
+  set.add(String(new Date().getFullYear()))
+  for (const t of transacciones) {
+    if (t.propiedadId !== p.id) continue
+    set.add(t.fecha.slice(0, 4))
+    if (t.periodoInicio) set.add(t.periodoInicio.slice(0, 4))
+  }
+  return [...set].sort()
+}
+
 function buildModelo420(locales: Propiedad[], transacciones: Transaccion[]) {
   const headers = ['Año', 'Trimestre', 'Propiedad', 'Base imponible', 'IGIC (7%)', 'IRPF retenido (19%)', 'Renta neta cobrada']
   const rows: (string | number)[][] = []
+  const devengada: boolean[] = []
+  const hoy = new Date()
   for (const p of locales) {
     const txsAlquiler = transacciones.filter(
       (t) => t.propiedadId === p.id && t.tipo === 'ingreso' && t.categoria === 'Alquiler mensual',
     )
-    const anios = [...new Set(txsAlquiler.map((t) => t.fecha.slice(0, 4)))].sort()
-    for (const anio of anios) {
+    for (const anio of anosDelLocal(p, transacciones)) {
       for (let trimestre = 1; trimestre <= 4; trimestre++) {
+        const devengo = devengoIgicLocalTrimestre(p, anio, trimestre, hoy)
         const netaTotal = txsAlquiler
           .filter((t) => t.fecha.startsWith(anio) && trimestreDe(t.fecha) === trimestre)
           .reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)
-        if (netaTotal <= 0) continue
-        rows.push([anio, `T${trimestre}`, p.nombre, '', '', '', ''])
+        if (devengo.base <= 0 && netaTotal <= 0) continue
+        if (devengo.base > 0) {
+          rows.push([anio, `T${trimestre}`, p.nombre, devengo.base, devengo.igic, '', ''])
+          devengada.push(true)
+        } else {
+          rows.push([anio, `T${trimestre}`, p.nombre, '', '', '', ''])
+          devengada.push(false)
+        }
       }
     }
   }
@@ -431,9 +454,13 @@ function buildModelo420(locales: Propiedad[], transacciones: Transaccion[]) {
     const inicioTrimestre = `DATE($A${r};(VALUE(MID($B${r};2;1))-1)*3+1;1)`
     const netaF = `=SUMIFS('Movimientos'!$F:$F;'Movimientos'!$B:$B;$C${r};'Movimientos'!$D:$D;"Ingreso";'Movimientos'!$E:$E;"Alquiler mensual";'Movimientos'!$A:$A;">="&${inicioTrimestre};'Movimientos'!$A:$A;"<="&EOMONTH(${inicioTrimestre};2))*VLOOKUP($C${r};'Propiedades'!$A:$G;7;FALSE)/100`
     row[6] = netaF
-    row[3] = `=G${r}/${esNum(0.88)}`
-    row[4] = `=D${r}*${esNum(0.07)}`
-    row[5] = `=D${r}*${esNum(0.19)}`
+    if (devengada[i]) {
+      row[5] = `=IF(G${r}=0;0;G${r}/${esNum(0.88)}*${esNum(0.19)})`
+    } else {
+      row[3] = `=G${r}/${esNum(0.88)}`
+      row[4] = `=D${r}*${esNum(0.07)}`
+      row[5] = `=D${r}*${esNum(0.19)}`
+    }
   })
   return { headers, rows, moneyCols: [3, 4, 5, 6] }
 }
