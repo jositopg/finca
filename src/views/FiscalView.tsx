@@ -142,7 +142,8 @@ export function FiscalView() {
       irpf,
       igicSoportado,
       igicResultado: devengo.igic - igicSoportado,
-      mesesSinCobrar: mesesSinCobrar.map((m) => m.mes),
+      meses: devengo.meses,
+      mesesSinCobrar: new Set(mesesSinCobrar.map((m) => m.mes)),
     }
   })
   const totalBaseTrimestre = filasLocales.reduce((s, f) => s + f.base, 0)
@@ -253,10 +254,10 @@ export function FiscalView() {
           Modelo 420 — IGIC trimestral (locales)
         </p>
         <p className="text-xs text-outline-variant mb-3">
-          IGIC (7%) de la renta pactada de los locales, a tu parte, en los meses del trimestre que
-          ya han empezado. Se devenga aunque el inquilino no haya pagado. El IRPF retenido (19%) va
-          en el Modelo 115 y solo cuenta lo cobrado: lo ingresa el inquilino al pagar. El IGIC
-          soportado en gastos del local se descuenta si ese trimestre hay renta devengada.
+          IGIC (7%) de la renta pactada de los locales, a tu parte, mes a mes. En un trimestre ya
+          cerrado entran sus tres meses, se hayan cobrado o no. En el trimestre en curso, un mes
+          entra cuando empieza. El IRPF retenido (19%) va en el Modelo 115 y solo cuenta lo cobrado.
+          El IGIC soportado en gastos del local se descuenta si ese trimestre hay renta devengada.
         </p>
 
         <div className="flex gap-2 mb-3">
@@ -279,7 +280,7 @@ export function FiscalView() {
           </p>
         ) : (
           <div className="bg-surface-lowest rounded-2xl shadow-soft divide-y divide-surface-high">
-            {filasLocales.map(({ propiedad, base, igic, igicSoportado, igicResultado, mesesSinCobrar }) => (
+            {filasLocales.map(({ propiedad, base, igic, igicSoportado, igicResultado, meses, mesesSinCobrar }) => (
               <div key={propiedad.id} className="p-4">
                 <p className="text-sm font-medium text-on-surface mb-2">{propiedad.nombre}</p>
                 <div className="flex items-center gap-3 text-xs flex-wrap">
@@ -289,12 +290,14 @@ export function FiscalView() {
                   <span className="text-outline-variant/40">·</span>
                   <span className="text-success">IGIC +{fmt(igic)} €</span>
                 </div>
-                {mesesSinCobrar.length > 0 && (
+                {meses.length > 0 && (
                   <p className="text-xs text-outline-variant mt-1">
-                    Sin cobrar: {listaMeses(mesesSinCobrar)}.{' '}
-                    {mesesSinCobrar.length === 1
-                      ? 'El IGIC de ese mes entra igual.'
-                      : 'El IGIC de esos meses entra igual.'}
+                    {meses
+                      .map((m) => {
+                        const marca = mesesSinCobrar.has(m.mes) ? ', sin cobrar' : ''
+                        return `${nombreMes(m.mes)} ${fmt(m.base)} € (IGIC ${fmt(m.igic)} €${marca})`
+                      })
+                      .join(' · ')}
                   </p>
                 )}
                 {igicSoportado > 0 && (
