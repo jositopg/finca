@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { atender, CABECERAS_CORS } from '../scripts/mcp/atender.ts'
-import { cargarFoto } from '../scripts/mcp/foto.ts'
+import { atender, CABECERAS_CORS } from './atender.ts'
+import { cargarFoto } from './foto.ts'
 
 type Peticion = IncomingMessage & { body?: unknown }
 
