@@ -5,6 +5,7 @@ import { build } from 'vite'
 await build({
   configFile: false,
   plugins: [],
+  publicDir: false,
   build: {
     ssr: 'scripts/mcp/funcion.ts',
     outDir: 'api',

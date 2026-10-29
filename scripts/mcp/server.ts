@@ -10,7 +10,7 @@ function enviar(mensaje: unknown) {
 
 function mensajeSeguro(err: unknown): string {
   const texto = err instanceof Error ? err.message : 'Error'
-  return texto.replace(/postgres(?:ql)?:\/\/\S+/gi, 'postgres://…')
+  return texto.replace(/postgres(?:ql)?:\/\/\S+/gi, 'postgres://…').replace(/[\w.-]*supabase\.co/gi, '…')
 }
 
 entrada.on('line', (linea) => {

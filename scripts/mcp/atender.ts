@@ -33,7 +33,7 @@ function json(status: number, datos: unknown): RespuestaHttp {
 
 function mensajeSeguro(err: unknown): string {
   const texto = err instanceof Error ? err.message : 'Error'
-  return texto.replace(/postgres(?:ql)?:\/\/\S+/gi, 'postgres://…')
+  return texto.replace(/postgres(?:ql)?:\/\/\S+/gi, 'postgres://…').replace(/[\w.-]*supabase\.co/gi, '…')
 }
 
 export function tokenValido(autorizacion: string | undefined, esperado: string): boolean {
