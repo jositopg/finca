@@ -42,6 +42,16 @@ La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07
 - Para cualquier `ALTER TABLE`/columna nueva/índice: `node scripts/run-sql.mjs "<SQL>"` directamente. Jose pidió explícitamente no tener que entrar al SQL Editor de Supabase ni reenviar la contraseña.
 - Tras cada commit en este repo: `git push` sin preguntar.
 
+## Lectura para agentes (MCP)
+
+Solo lectura. `node scripts/mcp/server.ts` (o `npm run mcp`) habla MCP por stdin. Lee Postgres con `~/.finca-db.env` y no ejecuta SQL libre: cada herramienta llama a las funciones de `src/types/index.ts`, así que las cifras coinciden con la app. No devuelve DNI, email, teléfono, NIF ni ids de Drive.
+
+Herramientas: `listar_fincas`, `cobros_pendientes`, `huecos`, `avisos`, `resumen`, `modelo_420`, `rendimiento`, `repercutir`, `tareas`, `movimientos`.
+
+Los totales y la fiscalidad usan las fincas de Jose en alquiler (`esDeJose` y `esDeAlquiler`), igual que Inicio, Estadísticas y Fiscal. `listar_fincas`, `tareas` y `movimientos` sí ven las que gestiona para terceros.
+
+En Grok el servidor se llama `finca` (`.grok/config.toml`). No escribe: las altas siguen en la app. Si cambia el mapeo de filas en `src/api/db.ts`, actualiza `scripts/mcp/filas.ts` en el mismo commit.
+
 ## Convenciones de código importantes (`src/types/index.ts`)
 
 - **`parseImporte(raw)`**: único parser de importes en toda la app — admite formato español ("1.200,50", "1200", con o sin símbolo €). Nunca usar `parseFloat` suelto. Devuelve `NaN` ante texto inválido (comprobar con `Number.isNaN`, no `<= 0`).
