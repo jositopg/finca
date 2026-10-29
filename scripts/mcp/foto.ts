@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { Client, types as pgTypes } from 'pg'
 import type { IngresoExterno, Propiedad, Tarea, Transaccion } from '../../src/types/index.ts'
+import { cargarEnv } from './env.ts'
 import { filaAIngresoExterno, filaAPropiedad, filaATarea, filaATransaccion } from './filas.ts'
 
 // `date` y timestamps llegan como texto. El parser por defecto de node-pg
@@ -16,15 +14,6 @@ export interface Foto {
   transacciones: Transaccion[]
   tareas: Tarea[]
   ingresosExternos: IngresoExterno[]
-}
-
-function cargarEnv() {
-  const ruta = join(homedir(), '.finca-db.env')
-  if (!existsSync(ruta)) return
-  for (const linea of readFileSync(ruta, 'utf8').split('\n')) {
-    const coincidencia = /^([A-Z_][A-Z0-9_]*)=(.*)$/.exec(linea.trim())
-    if (coincidencia && !process.env[coincidencia[1]]) process.env[coincidencia[1]] = coincidencia[2]
-  }
 }
 
 export async function cargarFoto(): Promise<Foto> {

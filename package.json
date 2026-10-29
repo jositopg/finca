@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "mcp": "node scripts/mcp/server.ts"
+    "mcp": "node scripts/mcp/server.ts",
+    "mcp:http": "node scripts/mcp/http.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

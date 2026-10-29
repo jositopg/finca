@@ -44,13 +44,18 @@ La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07
 
 ## Lectura para agentes (MCP)
 
-Solo lectura. `node scripts/mcp/server.ts` (o `npm run mcp`) habla MCP por stdin. Lee Postgres con `~/.finca-db.env` y no ejecuta SQL libre: cada herramienta llama a las funciones de `src/types/index.ts`, así que las cifras coinciden con la app. No devuelve DNI, email, teléfono, NIF ni ids de Drive.
+Solo lectura. No ejecuta SQL libre: cada herramienta llama a las funciones de `src/types/index.ts`, así que las cifras coinciden con la app. No devuelve DNI, email, teléfono, NIF ni ids de Drive.
 
 Herramientas: `listar_fincas`, `cobros_pendientes`, `huecos`, `avisos`, `resumen`, `modelo_420`, `rendimiento`, `repercutir`, `tareas`, `movimientos`.
 
 Los totales y la fiscalidad usan las fincas de Jose en alquiler (`esDeJose` y `esDeAlquiler`), igual que Inicio, Estadísticas y Fiscal. `listar_fincas`, `tareas` y `movimientos` sí ven las que gestiona para terceros.
 
-En Grok el servidor se llama `finca` (`.grok/config.toml`). No escribe: las altas siguen en la app. Si cambia el mapeo de filas en `src/api/db.ts`, actualiza `scripts/mcp/filas.ts` en el mismo commit.
+Dos puertas, la misma lógica:
+
+- **stdio**, en este Mac: `node scripts/mcp/server.ts` (o `npm run mcp`). Grok lo arranca como servidor `finca` (`.grok/config.toml`). Sirve para clientes que lanzan un proceso local.
+- **HTTP**, para cualquier IA: `api/finca.ts` en Vercel y, en local, `npm run mcp:http` (solo `127.0.0.1:8787`). Hace falta `Authorization: Bearer <FINCA_MCP_TOKEN>`. El token vive en `~/.finca-db.env`, fuera del repo. GET lista las herramientas. POST acepta un mensaje MCP (`jsonrpc`) o `{ "herramienta", "argumentos" }`. Sin token válido responde 401 y no toca la base.
+
+No escribe: las altas siguen en la app. Si cambia el mapeo de filas en `src/api/db.ts`, actualiza `scripts/mcp/filas.ts` en el mismo commit.
 
 ## Convenciones de código importantes (`src/types/index.ts`)
 
