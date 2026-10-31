@@ -52,7 +52,7 @@ Los totales y la fiscalidad usan las fincas de Jose en alquiler (`esDeJose` y `e
 
 Dos puertas, la misma lógica:
 
-- **stdio**, en este Mac: `node scripts/mcp/server.ts` (o `npm run mcp`). Grok lo arranca como servidor `finca` (`.grok/config.toml`). Sirve para clientes que lanzan un proceso local.
+- **stdio**, en este Mac: `node scripts/mcp/server.ts` (o `npm run mcp`). Grok lo arranca como servidor `finca` con la ruta absoluta del script, así vale aunque la sesión no esté abierta dentro de este repo.
 - **HTTP**, para cualquier IA: `https://lasfincas.vercel.app/api/finca` (el build genera `api/finca.js` desde `scripts/mcp/funcion.ts`) y, en local, `npm run mcp:http` (solo `127.0.0.1:8787`). Hace falta `Authorization: Bearer <FINCA_MCP_TOKEN>`. El token vive en `~/.finca-db.env`, fuera del repo, y en Vercel como secreto. GET lista las herramientas. POST acepta un mensaje MCP (`jsonrpc`) o `{ "herramienta", "argumentos" }`. Sin token válido responde 401 y no toca la base.
 
 No escribe: las altas siguen en la app. Si cambia el mapeo de filas en `src/api/db.ts`, actualiza `scripts/mcp/filas.ts` en el mismo commit.
