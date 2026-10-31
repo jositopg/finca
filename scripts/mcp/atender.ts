@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
+import { aplicarEscritura } from './aplicar.ts'
 import { ConsultaError, ejecutar, herramientas } from './consultar.ts'
+import { esEscritura } from './escribir.ts'
 import type { Foto } from './foto.ts'
 import { fichasDe, responder } from './protocolo.ts'
 
@@ -63,6 +65,7 @@ export async function atender(peticion: PeticionHttp, deps: DependenciasHttp): P
   if (peticion.method === 'GET') {
     return json(200, {
       lectura: true,
+      escritura: true,
       herramientas: fichasDe(herramientas).map((h) => ({
         nombre: h.name,
         descripcion: h.description,
@@ -79,8 +82,10 @@ export async function atender(peticion: PeticionHttp, deps: DependenciasHttp): P
     const argumentos = (body as { argumentos?: unknown }).argumentos
     if (typeof nombre !== 'string') return json(400, { error: '"herramienta" tiene que ser texto.' })
     try {
+      const hoy = deps.hoy?.() ?? new Date()
       const foto = await deps.foto()
-      return json(200, ejecutar(nombre, argumentos, foto, deps.hoy?.() ?? new Date()))
+      if (esEscritura(nombre)) return json(200, await aplicarEscritura(nombre, argumentos, { foto, hoy }))
+      return json(200, ejecutar(nombre, argumentos, foto, hoy))
     } catch (err) {
       if (err instanceof ConsultaError) return json(400, { error: err.message })
       return json(500, { error: mensajeSeguro(err) })
@@ -88,7 +93,14 @@ export async function atender(peticion: PeticionHttp, deps: DependenciasHttp): P
   }
 
   try {
-    const rpc = await responder(body, { foto: deps.foto, hoy: deps.hoy })
+    const rpc = await responder(body, {
+      foto: deps.foto,
+      hoy: deps.hoy,
+      escribir: async (nombre, argumentos) => {
+        const foto = await deps.foto()
+        return aplicarEscritura(nombre, argumentos, { foto, hoy: deps.hoy?.() ?? new Date() })
+      },
+    })
     if (rpc == null) return { status: 202, contentType: 'application/json; charset=utf-8', body: '' }
     return json(200, rpc)
   } catch (err) {

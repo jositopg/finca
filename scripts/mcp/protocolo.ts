@@ -1,4 +1,5 @@
 import { ConsultaError, herramientas, ejecutar, type Herramienta } from './consultar.ts'
+import { esEscritura, fichasEscritura } from './escribir.ts'
 import type { Foto } from './foto.ts'
 
 const VERSION_POR_DEFECTO = '2024-11-05'
@@ -6,6 +7,7 @@ const VERSION_POR_DEFECTO = '2024-11-05'
 export interface ContextoMcp {
   foto: () => Promise<Foto>
   hoy?: () => Date
+  escribir?: (nombre: string, args: unknown) => Promise<unknown>
 }
 
 interface Mensaje {
@@ -43,7 +45,7 @@ function texto(datos: unknown, esError = false) {
 }
 
 export function fichasDe(lista: Herramienta[]) {
-  return lista.map((h) => ({ name: h.name, description: h.description, inputSchema: h.inputSchema }))
+  return [...lista, ...fichasEscritura].map((h) => ({ name: h.name, description: h.description, inputSchema: h.inputSchema }))
 }
 
 export async function responder(mensaje: unknown, ctx: ContextoMcp): Promise<Record<string, unknown> | null> {
@@ -61,7 +63,7 @@ export async function responder(mensaje: unknown, ctx: ContextoMcp): Promise<Rec
       capabilities: { tools: {} },
       serverInfo: { name: 'finca', version: '0.1.0' },
       instructions:
-        'Solo lectura de Las Fincas. Las cifras salen de las mismas funciones que la app. No escribe y no devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler.',
+        'Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler. registrar_cobro, registrar_gasto y cerrar_tarea no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar.',
     })
   }
 
@@ -79,6 +81,11 @@ export async function responder(mensaje: unknown, ctx: ContextoMcp): Promise<Rec
     const params = (msg.params ?? {}) as { name?: unknown; arguments?: unknown }
     if (typeof params.name !== 'string') return errorRpc(msg.id, -32602, 'Falta el nombre de la herramienta.')
     try {
+      if (esEscritura(params.name)) {
+        if (!ctx.escribir) return resultado(msg.id, texto('Esta sesión no puede escribir.', true))
+        const datos = await ctx.escribir(params.name, params.arguments)
+        return resultado(msg.id, texto(datos))
+      }
       const foto = await ctx.foto()
       const datos = ejecutar(params.name, params.arguments, foto, ctx.hoy?.() ?? new Date())
       return resultado(msg.id, texto(datos))

@@ -44,9 +44,11 @@ La base de datos vivía en Sheets y se migró por completo a Supabase el 2026-07
 
 ## Lectura para agentes (MCP)
 
-Solo lectura. No ejecuta SQL libre: cada herramienta llama a las funciones de `src/types/index.ts`, así que las cifras coinciden con la app. No devuelve DNI, email, teléfono, NIF ni ids de Drive.
+Lee y escribe con herramientas con nombre. No ejecuta SQL libre. Las cifras salen de `src/types/index.ts`, así que coinciden con la app. No devuelve DNI, email, teléfono, NIF ni ids de Drive.
 
-Herramientas: `listar_fincas`, `cobros_pendientes`, `huecos`, `avisos`, `resumen`, `modelo_420`, `rendimiento`, `repercutir`, `tareas`, `movimientos`.
+Lectura: `listar_fincas`, `cobros_pendientes`, `huecos`, `avisos`, `resumen`, `modelo_420`, `rendimiento`, `repercutir`, `tareas`, `movimientos`.
+
+Escritura: `registrar_cobro`, `registrar_gasto`, `cerrar_tarea`. Sin `confirmar: true` solo devuelven la vista previa. Al confirmar hace falta `clave` (8–80 caracteres estables): la misma clave no inserta otra fila (`agente_escrituras`). Un cobro de alquiler guarda el mes pagado en el periodo. En un local el importe es la neta. No genera factura ni adjunta archivos. El IGIC soportado solo se guarda en un local.
 
 Los totales y la fiscalidad usan las fincas de Jose en alquiler (`esDeJose` y `esDeAlquiler`), igual que Inicio, Estadísticas y Fiscal. `listar_fincas`, `tareas` y `movimientos` sí ven las que gestiona para terceros.
 

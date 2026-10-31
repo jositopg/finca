@@ -95,7 +95,7 @@ function entero(args: Record<string, unknown>, clave: string, defecto: number, m
   return n
 }
 
-function normalizar(texto: string): string {
+export function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim()
 }
 
@@ -103,7 +103,7 @@ export function fincasDeJose(propiedades: Propiedad[]): Propiedad[] {
   return propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
 }
 
-function resolverFinca(propiedades: Propiedad[], consulta: string): Propiedad {
+export function resolverFinca(propiedades: Propiedad[], consulta: string): Propiedad {
   const q = normalizar(consulta)
   const porId = propiedades.find((p) => p.id === consulta.trim())
   if (porId) return porId
@@ -486,6 +486,7 @@ const tareas: Herramienta = {
         prioridad: t.prioridad,
         fechaLimite: t.fechaLimite ?? null,
         vencida: tareaVencida(t, hoy),
+        id: t.id,
         descripcion: t.descripcion ? t.descripcion.slice(0, 200) : null,
       })),
     }

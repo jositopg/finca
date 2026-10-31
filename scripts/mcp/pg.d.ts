@@ -3,7 +3,7 @@ declare module 'pg' {
     constructor(config: { connectionString: string; ssl?: { rejectUnauthorized: boolean } })
     connect(): Promise<void>
     end(): Promise<void>
-    query(sql: string): Promise<{ rows: Record<string, unknown>[] }>
+    query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }>
   }
 
   export const types: {

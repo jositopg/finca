@@ -1,4 +1,5 @@
 import readline from 'node:readline'
+import { aplicarEscritura } from './aplicar.ts'
 import { cargarFoto } from './foto.ts'
 import { responder } from './protocolo.ts'
 
@@ -23,7 +24,10 @@ entrada.on('line', (linea) => {
     enviar({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })
     return
   }
-  void responder(mensaje, { foto: cargarFoto })
+  void responder(mensaje, {
+    foto: cargarFoto,
+    escribir: async (nombre, args) => aplicarEscritura(nombre, args, { foto: await cargarFoto() }),
+  })
     .then((respuesta) => {
       if (respuesta) enviar(respuesta)
     })
