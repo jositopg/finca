@@ -9,7 +9,6 @@ lerna-debug.log*
 
 node_modules
 .vercel
-api/finca.js
 dist
 dist-ssr
 *.local
