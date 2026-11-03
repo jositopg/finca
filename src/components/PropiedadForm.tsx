@@ -4,6 +4,7 @@ import { Button } from './Button'
 import { Input, Select, Textarea } from './Input'
 import type {
   ConceptoReparto,
+  Financiacion,
   GastoRecurrente,
   InclusionAguaLuz,
   InclusionAguaLuzModo,
@@ -13,19 +14,45 @@ import type {
   Reparto,
   RepartoConcepto,
   SuministroModo,
+  TipoAdquisicion,
 } from '../types'
 import {
   CATEGORIAS_GASTO,
   CONCEPTO_LABELS,
   corregirTramoVigente,
   ESTADO_LABELS,
+  fechaDeHoy,
+  FichaError,
   inclusionAguaLuz,
+  normalizarReferenciaCatastral,
   parseImporte,
   TIPO_LABELS,
+  textoCuota,
+  validarCopropietarios,
+  validarCuota,
+  validarFecha,
+  validarFechaNoFutura,
+  validarImporte,
+  validarReferenciaCatastral,
 } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function mensajeFicha(fn: () => void): string | undefined {
+  try {
+    fn()
+    return undefined
+  } catch (err) {
+    if (err instanceof FichaError) return err.message
+    throw err
+  }
+}
+
+interface CopropietarioBorrador {
+  nombre: string
+  porcentaje: string
 }
 
 interface Props {
@@ -329,6 +356,30 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
   const [valorConstruccion, setValorConstruccion] = useState(
     initial?.valorConstruccion != null ? initial.valorConstruccion.toString() : '',
   )
+  const [valorAdquisicion, setValorAdquisicion] = useState(
+    initial?.valorAdquisicion != null ? initial.valorAdquisicion.toString() : '',
+  )
+  const [fechaAdquisicion, setFechaAdquisicion] = useState(initial?.fechaAdquisicion ?? '')
+  const [tipoAdquisicion, setTipoAdquisicion] = useState<TipoAdquisicion | ''>(initial?.tipoAdquisicion ?? '')
+  const [metrosCuadrados, setMetrosCuadrados] = useState(
+    initial?.metrosCuadrados != null ? initial.metrosCuadrados.toString() : '',
+  )
+  const [fechaValorMercado, setFechaValorMercado] = useState(initial?.fechaValorMercado ?? '')
+  const [cuotaTexto, setCuotaTexto] = useState(initial?.cuotaPropiedad ? textoCuota(initial.cuotaPropiedad) : '')
+  const [sinRenta, setSinRenta] = useState(initial?.sinRenta ?? false)
+  const [capitalPendiente, setCapitalPendiente] = useState(
+    initial?.financiacion?.capitalPendiente != null ? initial.financiacion.capitalPendiente.toString() : '',
+  )
+  const [cuotaFinanciacion, setCuotaFinanciacion] = useState(
+    initial?.financiacion?.cuotaMensual != null ? initial.financiacion.cuotaMensual.toString() : '',
+  )
+  const [tipoInteres, setTipoInteres] = useState(
+    initial?.financiacion?.tipoInteres != null ? initial.financiacion.tipoInteres.toString() : '',
+  )
+  const [fechaFinFinanciacion, setFechaFinFinanciacion] = useState(initial?.financiacion?.fechaFin ?? '')
+  const [copropietarios, setCopropietarios] = useState<CopropietarioBorrador[]>(
+    (initial?.copropietarios ?? []).map((c) => ({ nombre: c.nombre, porcentaje: String(c.porcentaje) })),
+  )
   const [certificadoEnergeticoVencimiento, setCertificadoEnergeticoVencimiento] = useState(
     initial?.certificadoEnergeticoVencimiento ?? '',
   )
@@ -374,14 +425,56 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
     const e: Record<string, string> = {}
     if (!nombre.trim()) e.nombre = 'El nombre es obligatorio'
 
-    const valorReferenciaNum = valorReferencia ? parseImporte(valorReferencia) : undefined
-    if (valorReferencia && Number.isNaN(valorReferenciaNum)) e.valorReferencia = 'Valor inválido'
-
-    const valorMercadoNum = valorMercado ? parseImporte(valorMercado) : undefined
-    if (valorMercado && Number.isNaN(valorMercadoNum)) e.valorMercado = 'Valor inválido'
-
-    const valorConstruccionNum = valorConstruccion ? parseImporte(valorConstruccion) : undefined
-    if (valorConstruccion && Number.isNaN(valorConstruccionNum)) e.valorConstruccion = 'Valor inválido'
+    const hoy = fechaDeHoy()
+    const importeCampo = (raw: string, campo: string, permitirCero = false) => {
+      if (!raw.trim()) return
+      const error = mensajeFicha(() => validarImporte(raw, campo, permitirCero))
+      if (error) e[campo] = error
+    }
+    importeCampo(valorReferencia, 'valorReferencia')
+    importeCampo(valorMercado, 'valorMercado')
+    importeCampo(valorConstruccion, 'valorConstruccion')
+    importeCampo(valorAdquisicion, 'valorAdquisicion')
+    importeCampo(metrosCuadrados, 'metrosCuadrados')
+    importeCampo(capitalPendiente, 'capitalPendiente', true)
+    importeCampo(cuotaFinanciacion, 'cuotaMensual', true)
+    if (tipoInteres.trim()) {
+      const n = Number(tipoInteres.replace(',', '.'))
+      if (!Number.isFinite(n) || n < 0 || n > 100) e.tipoInteres = 'El tipo de interés tiene que estar entre 0 y 100.'
+    }
+    if (fechaAdquisicion) {
+      const error = mensajeFicha(() => validarFechaNoFutura(fechaAdquisicion, 'fechaAdquisicion', hoy))
+      if (error) e.fechaAdquisicion = error
+    }
+    if (fechaValorMercado) {
+      const error = mensajeFicha(() => validarFechaNoFutura(fechaValorMercado, 'fechaValorMercado', hoy))
+      if (error) e.fechaValorMercado = error
+    }
+    if (fechaFinFinanciacion) {
+      const error = mensajeFicha(() => validarFecha(fechaFinFinanciacion, 'fechaFin'))
+      if (error) e.fechaFin = error
+    }
+    if (referenciaCatastral.trim()) {
+      const normalizada = normalizarReferenciaCatastral(referenciaCatastral)
+      const inicial = normalizarReferenciaCatastral(initial?.referenciaCatastral ?? '')
+      if (normalizada !== inicial) {
+        const error = mensajeFicha(() => validarReferenciaCatastral(referenciaCatastral))
+        if (error) e.referenciaCatastral = error
+      }
+    }
+    if (cuotaTexto.trim()) {
+      const error = mensajeFicha(() => validarCuota(cuotaTexto))
+      if (error) e.cuotaPropiedad = error
+    }
+    const filasCopropietarios = copropietarios.filter((c) => c.nombre.trim() || c.porcentaje.trim())
+    if (filasCopropietarios.length > 0) {
+      const error = mensajeFicha(() =>
+        validarCopropietarios(
+          filasCopropietarios.map((c) => ({ nombre: c.nombre, porcentaje: c.porcentaje })),
+        ),
+      )
+      if (error) e.copropietarios = error
+    }
 
     const fianzaImporteNum = fianzaImporte ? parseImporte(fianzaImporte) : undefined
     if (fianzaImporte && Number.isNaN(fianzaImporteNum)) e.fianzaImporte = 'Importe inválido'
@@ -413,10 +506,43 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
       nombre: nombre.trim(),
       direccion: direccion.trim(),
       municipio: municipio.trim() || undefined,
-      referenciaCatastral: referenciaCatastral.trim() || undefined,
-      valorReferencia: valorReferencia ? parseImporte(valorReferencia) : undefined,
-      valorMercado: valorMercado ? parseImporte(valorMercado) : undefined,
-      valorConstruccion: valorConstruccion ? parseImporte(valorConstruccion) : undefined,
+      referenciaCatastral: (() => {
+        const raw = referenciaCatastral.trim()
+        if (!raw) return undefined
+        const normalizada = normalizarReferenciaCatastral(raw)
+        const inicial = normalizarReferenciaCatastral(initial?.referenciaCatastral ?? '')
+        if (initial?.referenciaCatastral && normalizada === inicial) return initial.referenciaCatastral
+        return validarReferenciaCatastral(raw)
+      })(),
+      valorReferencia: valorReferencia.trim() ? validarImporte(valorReferencia, 'valorReferencia') : undefined,
+      valorMercado: valorMercado.trim() ? validarImporte(valorMercado, 'valorMercado') : undefined,
+      valorConstruccion: valorConstruccion.trim() ? validarImporte(valorConstruccion, 'valorConstruccion') : undefined,
+      valorAdquisicion: valorAdquisicion.trim() ? validarImporte(valorAdquisicion, 'valorAdquisicion') : undefined,
+      fechaAdquisicion: fechaAdquisicion || undefined,
+      tipoAdquisicion: tipoAdquisicion || undefined,
+      metrosCuadrados: metrosCuadrados.trim() ? validarImporte(metrosCuadrados, 'metrosCuadrados') : undefined,
+      fechaValorMercado: fechaValorMercado || undefined,
+      cuotaPropiedad: cuotaTexto.trim() ? validarCuota(cuotaTexto) : undefined,
+      sinRenta: sinRenta || undefined,
+      financiacion: (() => {
+        const capital = capitalPendiente.trim() ? validarImporte(capitalPendiente, 'capitalPendiente', true) : undefined
+        const cuota = cuotaFinanciacion.trim() ? validarImporte(cuotaFinanciacion, 'cuotaMensual', true) : undefined
+        const interes = tipoInteres.trim() ? Number(tipoInteres.replace(',', '.')) : undefined
+        const fin = fechaFinFinanciacion || undefined
+        if (capital == null && cuota == null && interes == null && !fin) return undefined
+        const datos: Financiacion = {
+          capitalPendiente: capital,
+          cuotaMensual: cuota,
+          tipoInteres: interes,
+          fechaFin: fin,
+        }
+        return datos
+      })(),
+      copropietarios: (() => {
+        const filas = copropietarios.filter((c) => c.nombre.trim() || c.porcentaje.trim())
+        if (filas.length === 0) return undefined
+        return validarCopropietarios(filas.map((c) => ({ nombre: c.nombre, porcentaje: c.porcentaje })))
+      })(),
       certificadoEnergeticoVencimiento: certificadoEnergeticoVencimiento || undefined,
       fianzaImporte: fianzaImporte ? parseImporte(fianzaImporte) : undefined,
       propietarioNombre: propietarioNombre.trim() || undefined,
@@ -534,6 +660,7 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
           placeholder="1234567AB1234C0001DE"
           value={referenciaCatastral}
           onChange={(e) => setReferenciaCatastral(e.target.value)}
+          error={errors.referenciaCatastral}
         />
         <div className="flex gap-3">
           <div className="flex-1">
@@ -570,8 +697,125 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
         />
         <p className="text-xs text-outline-variant -mt-3">
           Del recibo del IBI (valor de la construcción, sin el suelo) — para estimar la amortización
-          deducible en el Estimador de Renta
+          deducible en el Estimador de Renta. Si la ficha es una cuota (1/12), la amortización usa esa parte.
         </p>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Input
+              label="Valor de adquisición (€, opcional)"
+              type="text"
+              inputMode="decimal"
+              placeholder="90000"
+              value={valorAdquisicion}
+              onChange={(e) => setValorAdquisicion(e.target.value)}
+              error={errors.valorAdquisicion}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              label="Fecha de adquisición"
+              type="date"
+              value={fechaAdquisicion}
+              onChange={(e) => setFechaAdquisicion(e.target.value)}
+              error={errors.fechaAdquisicion}
+            />
+          </div>
+        </div>
+        <Select
+          label="Cómo se adquirió (opcional)"
+          value={tipoAdquisicion}
+          onChange={(e) => setTipoAdquisicion(e.target.value as TipoAdquisicion | '')}
+        >
+          <option value="">Sin indicar</option>
+          <option value="herencia">Herencia</option>
+          <option value="donacion">Donación</option>
+          <option value="compra">Compra</option>
+        </Select>
+        <p className="text-xs text-outline-variant -mt-3">
+          El valor de la escritura (herencia, donación o compra) es el valor de adquisición. No hace falta otro importe.
+        </p>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <Input
+              label="Metros cuadrados (opcional)"
+              type="text"
+              inputMode="decimal"
+              placeholder="72"
+              value={metrosCuadrados}
+              onChange={(e) => setMetrosCuadrados(e.target.value)}
+              error={errors.metrosCuadrados}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              label="Fecha del valor de mercado"
+              type="date"
+              value={fechaValorMercado}
+              onChange={(e) => setFechaValorMercado(e.target.value)}
+              error={errors.fechaValorMercado}
+            />
+          </div>
+        </div>
+        <Input
+          label="Cuota de la finca (opcional, 1 si la dejas vacía)"
+          type="text"
+          placeholder="1/12"
+          value={cuotaTexto}
+          onChange={(e) => setCuotaTexto(e.target.value)}
+          error={errors.cuotaPropiedad}
+        />
+        <p className="text-xs text-outline-variant -mt-3">
+          Fracción de este inmueble. Una plaza de garaje de 1/12 guarda el valor del garaje entero y la parte se calcula sola.
+        </p>
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Financiación (opcional)</p>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                label="Capital pendiente (€)"
+                type="text"
+                inputMode="decimal"
+                placeholder="40000"
+                value={capitalPendiente}
+                onChange={(e) => setCapitalPendiente(e.target.value)}
+                error={errors.capitalPendiente}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Cuota mensual (€)"
+                type="text"
+                inputMode="decimal"
+                placeholder="350"
+                value={cuotaFinanciacion}
+                onChange={(e) => setCuotaFinanciacion(e.target.value)}
+                error={errors.cuotaMensual}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <Input
+                label="Tipo de interés (%)"
+                type="text"
+                inputMode="decimal"
+                placeholder="3,5"
+                value={tipoInteres}
+                onChange={(e) => setTipoInteres(e.target.value)}
+                error={errors.tipoInteres}
+              />
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Fin de la financiación"
+                type="date"
+                value={fechaFinFinanciacion}
+                onChange={(e) => setFechaFinFinanciacion(e.target.value)}
+                error={errors.fechaFin}
+              />
+            </div>
+          </div>
+        </div>
         <Input
           label="Vencimiento del certificado energético (opcional)"
           type="date"
@@ -659,6 +903,21 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
         </div>
       </div>
 
+      <label className="flex items-start gap-2 bg-surface-low rounded-xl px-4 py-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={sinRenta}
+          onChange={(e) => setSinRenta(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span className="text-xs text-on-surface">
+          Este inmueble no se alquila
+          <span className="block text-outline-variant mt-0.5">
+            Rústica, garaje sin alquilar u otro bien sin renta. No genera avisos de cobro, huecos ni rentabilidad, y sí cuenta en el patrimonio.
+          </span>
+        </span>
+      </label>
+
       <Input
         label="% de la propiedad que es tuyo (opcional, 100% si no lo rellenas)"
         type="text"
@@ -668,6 +927,56 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
         onChange={(e) => setPorcentajePropiedad(e.target.value)}
         error={errors.porcentajePropiedad}
       />
+
+      <div className="flex flex-col gap-3">
+        <div>
+          <p className="text-xs font-medium text-outline-variant uppercase tracking-wide">Copropietarios (opcional)</p>
+          <p className="text-xs text-outline-variant mt-0.5">Solo nombre y porcentaje. Tienen que sumar 100.</p>
+        </div>
+        {copropietarios.map((c, i) => (
+          <div key={i} className="flex gap-2 items-end">
+            <div className="flex-1">
+              <Input
+                label="Nombre"
+                value={c.nombre}
+                onChange={(e) =>
+                  setCopropietarios((lista) => lista.map((fila, j) => (j === i ? { ...fila, nombre: e.target.value } : fila)))
+                }
+              />
+            </div>
+            <div className="w-24">
+              <Input
+                label="%"
+                type="text"
+                inputMode="decimal"
+                value={c.porcentaje}
+                onChange={(e) =>
+                  setCopropietarios((lista) =>
+                    lista.map((fila, j) => (j === i ? { ...fila, porcentaje: e.target.value } : fila)),
+                  )
+                }
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setCopropietarios((lista) => lista.filter((_, j) => j !== i))}
+              className="mb-2 text-outline-variant"
+              aria-label="Quitar copropietario"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        ))}
+        {errors.copropietarios && <p className="text-xs text-error">{errors.copropietarios}</p>}
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => setCopropietarios((lista) => [...lista, { nombre: '', porcentaje: '' }])}
+        >
+          <Plus size={14} />
+          Añadir copropietario
+        </Button>
+      </div>
 
       {/* Inquilino — solo si está alquilado */}
       {esAlquiler && (

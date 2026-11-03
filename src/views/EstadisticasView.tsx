@@ -4,7 +4,7 @@ import { EvolucionAnual } from '../components/EvolucionAnual'
 import { GastosPorCategoria } from '../components/GastosPorCategoria'
 import { RankingRentabilidad } from '../components/RankingRentabilidad'
 import { RepercutirSuministros } from '../components/RepercutirSuministros'
-import { esDeAlquiler, esDeJose, rangoAnio } from '../types'
+import { esDeJose, esRendimientoAlquiler, rangoAnio } from '../types'
 import type { View } from '../components/Nav'
 
 interface Props {
@@ -17,10 +17,9 @@ export function EstadisticasView({ onNavigate }: Props) {
   const currentYear = format(new Date(), 'yyyy')
   const [desdeAnio, hastaAnio] = rangoAnio(currentYear)
 
-  // Mismo criterio que el Dashboard: solo propiedades de Jose (no las que
-  // gestiona por cuenta de otros) y que sean de alquiler (no uso
-  // propio/vivienda habitual).
-  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
+  // Mismo criterio que el Dashboard: solo propiedades de Jose en alquiler.
+  // Uso propio, vivienda habitual y bienes sin renta se quedan fuera.
+  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
 
   return (
     <div className="flex flex-col pb-24 lg:pb-10">

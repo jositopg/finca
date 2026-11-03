@@ -25,8 +25,8 @@ import { TransactionForm } from '../components/TransactionForm'
 import { Badge } from '../components/Badge'
 import { Button } from '../components/Button'
 import {
-  esDeAlquiler,
   esDeJose,
+  esRendimientoAlquiler,
   ESTADO_BADGE_VARIANT,
   ESTADO_LABELS,
   rangoAnio,
@@ -70,10 +70,9 @@ export function DashboardView({ onNavigate }: Props) {
   const [desdeMes, hastaMes] = rangoMes(currentMonth)
   const [desdeAnio, hastaAnio] = rangoAnio(currentYear)
 
-  // Totales personales de rendimiento de alquiler: solo propiedades que son
-  // de Jose (no las que gestiona por cuenta de otros) y que no sean de uso
-  // propio/vivienda habitual (esas se llevan aparte, no son alquiler).
-  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
+  // Totales personales de rendimiento de alquiler: solo propiedades de Jose
+  // que se alquilan. Uso propio, vivienda habitual y bienes sin renta no entran.
+  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
   const mesJose = resumenVariasEnRango(propiedadesJose, transacciones, desdeMes, hastaMes)
   const anioJose = resumenVariasEnRango(propiedadesJose, transacciones, desdeAnio, hastaAnio)
   const ingresosMes = mesJose.ingresos

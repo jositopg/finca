@@ -4,8 +4,9 @@ import { deleteFile, findFileInFolder, getOrCreateFolder } from './drive'
 import { writeFormattedSheets, type SheetSpec } from './sheets'
 import {
   devengoIgicLocalTrimestre,
-  esDeAlquiler,
   esDeJose,
+  esRendimientoAlquiler,
+  textoCuota,
   ESTADO_LABELS,
   inclusionAguaLuz,
   miParte,
@@ -105,6 +106,14 @@ function buildPropiedades(propiedades: Propiedad[]) {
     'Valor de referencia',
     'Valor de mercado',
     'Notas',
+    'Valor de adquisición',
+    'Fecha de adquisición',
+    'Tipo de adquisición',
+    'm²',
+    'Fecha valor de mercado',
+    'Cuota',
+    'Sin renta',
+    'Capital pendiente',
   ]
   const rows = propiedades.map((p) => [
     p.nombre,
@@ -125,8 +134,16 @@ function buildPropiedades(propiedades: Propiedad[]) {
     p.valorReferencia != null ? round2(p.valorReferencia) : '',
     p.valorMercado != null ? round2(p.valorMercado) : '',
     p.notas ?? '',
+    p.valorAdquisicion != null ? round2(p.valorAdquisicion) : '',
+    p.fechaAdquisicion ? fecha(p.fechaAdquisicion) : '',
+    p.tipoAdquisicion === 'herencia' ? 'Herencia' : p.tipoAdquisicion === 'donacion' ? 'Donación' : p.tipoAdquisicion === 'compra' ? 'Compra' : '',
+    p.metrosCuadrados != null ? round2(p.metrosCuadrados) : '',
+    p.fechaValorMercado ? fecha(p.fechaValorMercado) : '',
+    textoCuota(p.cuotaPropiedad),
+    p.sinRenta ? 'Sí' : '',
+    p.financiacion?.capitalPendiente != null ? round2(p.financiacion.capitalPendiente) : '',
   ])
-  return { headers, rows, moneyCols: [11, 15, 16] }
+  return { headers, rows, moneyCols: [11, 15, 16, 18, 25] }
 }
 
 // ─── Reparto de suministros (datos crudos, machine-readable) ──────────────
@@ -365,7 +382,7 @@ function buildRentabilidad(propiedades: Propiedad[], umbral: number) {
     'Mensaje',
   ]
   const umbralStr = esNum(umbral)
-  const candidatas = propiedades.filter((p) => (p.valorMercado ?? p.valorReferencia ?? 0) > 0)
+  const candidatas = propiedades.filter((p) => !p.sinRenta && (p.valorMercado ?? p.valorReferencia ?? 0) > 0)
   const rows = candidatas.map((p, i) => {
     const r = i + 2
     const valorF = `=IF(VLOOKUP($A${r};'Propiedades'!$A:$Q;17;FALSE)<>"";VLOOKUP($A${r};'Propiedades'!$A:$Q;17;FALSE);VLOOKUP($A${r};'Propiedades'!$A:$Q;16;FALSE))`
@@ -560,7 +577,7 @@ export async function exportarASheets(
     await deleteFile(existing.id)
   }
 
-  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
+  const propiedadesJose = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
   const locales = propiedadesJose.filter((p) => p.tipo === 'local')
   const anios = anosConDatos(transacciones)
   const anioActual = new Date().getFullYear().toString()

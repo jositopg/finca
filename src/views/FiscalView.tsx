@@ -5,8 +5,8 @@ import {
   baseDesdeRentaNeta,
   calcularRentaLocal,
   devengoIgicLocalTrimestre,
-  esDeAlquiler,
   esDeJose,
+  esRendimientoAlquiler,
   mesDelCobroAlquiler,
   miParte,
   rendimientoIrpfPropiedad,
@@ -50,9 +50,9 @@ function listaMeses(meses: string[]): string {
 export function FiscalView() {
   const { propiedades: todasLasPropiedades, transacciones } = useApp()
   // La Renta, el estimador y el Modelo 420 son fiscalmente de Jose — se
-  // excluyen las propiedades que solo gestiona por cuenta de otros, y las
-  // de uso propio/vivienda habitual (no generan rendimiento de alquiler).
-  const propiedades = todasLasPropiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
+  // excluyen las propiedades de terceros, las de uso propio o vivienda
+  // habitual, y los bienes sin renta.
+  const propiedades = todasLasPropiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
 
   const years = useMemo(() => {
     const set = new Set<string>()

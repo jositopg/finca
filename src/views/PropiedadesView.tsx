@@ -38,7 +38,9 @@ import { Button } from '../components/Button'
 import {
   alquilerVigente,
   calcularRentabilidad,
+  cuotaEfectiva,
   huecosMensuales,
+  parteDeCuota,
   contratoEstado,
   deudaInquilino,
   esDeAlquiler,
@@ -53,6 +55,7 @@ import {
   resumenEnRango,
   tareaVencida,
   TIPO_LABELS,
+  textoCuota,
   tocaRevisarRenta,
   valorarPropiedad,
   type Propiedad,
@@ -216,6 +219,10 @@ function PropiedadCard({
               variant={ESTADO_BADGE_VARIANT[p.estado]}
             />
           </div>
+          {p.sinRenta && <span className="text-xs text-outline-variant">Sin renta</span>}
+          {p.cuotaPropiedad && p.cuotaPropiedad.valor < 1 && (
+            <span className="text-xs text-outline-variant">{textoCuota(p.cuotaPropiedad)}</span>
+          )}
           {p.propietarioNombre ? (
             <span className="text-xs text-warning font-medium">De {p.propietarioNombre}</span>
           ) : (
@@ -560,15 +567,18 @@ function PropiedadesPanel({
     const resumenAnio = resumenEnRango(propiedad, txs, desdeAnioActual, hastaAnioActual)
     const ingresosAnioActual = resumenAnio.ingresos
     const gastosAnioActual = resumenAnio.gastos
+    const cuotaFicha = cuotaEfectiva(propiedad.cuotaPropiedad)
+    const valorParaRentabilidad = (total: number | undefined) =>
+      propiedad.sinRenta || total == null ? undefined : parteDeCuota(total, cuotaFicha)
     const rentabilidadMercado = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
-      propiedad.valorMercado,
+      valorParaRentabilidad(propiedad.valorMercado),
     )
     const rentabilidadReferencia = calcularRentabilidad(
       ingresosAnioActual,
       gastosAnioActual,
-      propiedad.valorReferencia,
+      valorParaRentabilidad(propiedad.valorReferencia),
     )
     const umbralNetaParseado = parseImporte(umbralNetaStr)
     const umbralNeta = Number.isNaN(umbralNetaParseado) ? 4 : umbralNetaParseado
@@ -626,6 +636,10 @@ function PropiedadesPanel({
               variant={ESTADO_BADGE_VARIANT[propiedad.estado]}
             />
             <Badge label={TIPO_LABELS[propiedad.tipo]} />
+            {propiedad.sinRenta && <Badge label="Sin renta" />}
+            {propiedad.cuotaPropiedad && propiedad.cuotaPropiedad.valor < 1 && (
+              <Badge label={`Cuota ${textoCuota(propiedad.cuotaPropiedad)}`} />
+            )}
             {propiedad.propietarioNombre ? (
               <Badge label={`De ${propiedad.propietarioNombre}`} variant="warning" />
             ) : (

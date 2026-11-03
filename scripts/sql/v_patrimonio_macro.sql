@@ -1,7 +1,8 @@
 -- Snapshot macro del patrimonio inmobiliario de Jose para fuckyoumoney.
 -- Sin PII (inquilinos, DNI, emails, Drive). Sin gestión.
 -- Solo propiedades esDeJose (propietario_nombre IS NULL).
--- Equity = valor: Finca no guarda principal de hipoteca.
+-- Equity = valor de la cuota × % de Jose. La ficha puede guardar financiación,
+-- pero el principal que usa FYM sigue fuera: mortgageOutstanding queda null.
 
 CREATE OR REPLACE VIEW public.v_patrimonio_propiedades AS
 SELECT
@@ -29,14 +30,19 @@ SELECT
         WHEN p.valor_mercado IS NOT NULL THEN p.valor_mercado
         ELSE p.valor_referencia
       END
-    ) * COALESCE(p.porcentaje_propiedad, 100) / 100.0
+    )
+    * COALESCE(p.cuota_numerador, 1)::numeric / COALESCE(p.cuota_denominador, 1)
+    * COALESCE(p.porcentaje_propiedad, 100) / 100.0
   , 2) AS owner_share_value,
   CASE
+    WHEN COALESCE(p.sin_renta, false) THEN 0
     WHEN p.estado = 'alquilado'
       THEN ROUND(COALESCE(p.alquiler_mensual, 0) * COALESCE(p.porcentaje_propiedad, 100) / 100.0, 2)
     ELSE 0
   END AS monthly_contracted_rent,
-  (p.estado = 'alquilado') AS occupied
+  (p.estado = 'alquilado' AND NOT COALESCE(p.sin_renta, false)) AS occupied,
+  COALESCE(p.cuota_numerador, 1)::numeric / COALESCE(p.cuota_denominador, 1) AS cuota,
+  COALESCE(p.sin_renta, false) AS sin_renta
 FROM public.propiedades p
 WHERE p.propietario_nombre IS NULL;
 
@@ -83,6 +89,7 @@ cf AS (
 rental AS (
   SELECT * FROM props
   WHERE estado NOT IN ('uso_propio', 'vivienda_habitual')
+    AND NOT sin_renta
 )
 SELECT jsonb_build_object(
   'source', 'finca',
@@ -98,7 +105,7 @@ SELECT jsonb_build_object(
     'propertyCount', (SELECT count(*) FROM props),
     'grossMarketValue', (SELECT COALESCE(sum(owner_share_value), 0) FROM props),
     'cadastralValue', (SELECT COALESCE(sum(
-      ROUND(COALESCE(valor_referencia, 0) * ownership_pct / 100.0, 2)
+      ROUND(COALESCE(valor_referencia, 0) * cuota * ownership_pct / 100.0, 2)
     ), 0) FROM props),
     'valueCoverage', jsonb_build_object(
       'withMarket', (SELECT count(*) FROM props WHERE value_source = 'mercado'),
@@ -134,6 +141,8 @@ SELECT jsonb_build_object(
       'status', p.estado,
       'municipio', p.municipio,
       'ownershipPct', p.ownership_pct,
+      'cuota', p.cuota,
+      'sinRenta', p.sin_renta,
       'grossValue', p.gross_value,
       'valueSource', p.value_source,
       'ownerShareValue', p.owner_share_value,
