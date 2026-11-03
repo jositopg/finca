@@ -1,11 +1,20 @@
 import { useState } from 'react'
 import { Droplet, Zap } from 'lucide-react'
 import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { cuotaSuministro, inclusionAguaLuz, parseImporte, type Propiedad, type Transaccion } from '../types'
+import {
+  cuotaSuministro,
+  facturaYaRegistrada,
+  inclusionAguaLuz,
+  interpretarNumeroFactura,
+  parseImporte,
+  type Propiedad,
+  type Transaccion,
+} from '../types'
 
 interface Props {
   propiedad: Propiedad
@@ -29,6 +38,7 @@ export function GastoSuministro({ propiedad }: Props) {
   const [mostrarPeriodo, setMostrarPeriodo] = useState(false)
   const [periodoInicio, setPeriodoInicio] = useState('')
   const [periodoFin, setPeriodoFin] = useState('')
+  const [numeroFactura, setNumeroFactura] = useState('')
   const [saving, setSaving] = useState(false)
 
   const inclusion = inclusionAguaLuz(propiedad.reparto)
@@ -49,6 +59,12 @@ export function GastoSuministro({ propiedad }: Props) {
       )
     : null
   const periodoValido = !mostrarPeriodo || (!!periodoInicio && !!periodoFin && periodoInicio <= periodoFin)
+  const numeroLeido = interpretarNumeroFactura(numeroFactura)
+  let errorNumero: string | undefined
+  if (numeroLeido.error) errorNumero = numeroLeido.error
+  else if (numeroLeido.numero && facturaYaRegistrada(transacciones, propiedad.id, numeroLeido.numero)) {
+    errorNumero = `Ya hay una factura ${numeroLeido.numero} en ${propiedad.nombre}.`
+  }
 
   function abrir(cat: CategoriaSuministro) {
     setCategoria(cat)
@@ -57,10 +73,11 @@ export function GastoSuministro({ propiedad }: Props) {
     setMostrarPeriodo(false)
     setPeriodoInicio('')
     setPeriodoFin('')
+    setNumeroFactura('')
   }
 
   async function handleConfirm() {
-    if (saving || !categoria || importe <= 0 || !periodoValido) return
+    if (saving || !categoria || importe <= 0 || !periodoValido || errorNumero) return
     setSaving(true)
     try {
       const tx: Transaccion = {
@@ -75,6 +92,7 @@ export function GastoSuministro({ propiedad }: Props) {
         creadoEn: new Date().toISOString(),
         periodoInicio: mostrarPeriodo && periodoInicio ? periodoInicio : undefined,
         periodoFin: mostrarPeriodo && periodoFin ? periodoFin : undefined,
+        numeroFactura: numeroLeido.numero,
       }
       await addTx(tx)
       setCategoria(null)
@@ -129,6 +147,13 @@ export function GastoSuministro({ propiedad }: Props) {
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
           />
+          <Input
+            label="Nº factura (opcional)"
+            placeholder="A-2026-014"
+            value={numeroFactura}
+            onChange={(e) => setNumeroFactura(e.target.value)}
+            error={errorNumero}
+          />
 
           {mostrarPeriodo ? (
             <div className="flex flex-col gap-2">
@@ -165,6 +190,13 @@ export function GastoSuministro({ propiedad }: Props) {
               {periodoInicio && periodoFin && periodoInicio > periodoFin && (
                 <p className="text-xs text-error">El fin del periodo no puede ser anterior al inicio.</p>
               )}
+              {periodoInicio && periodoFin && periodoInicio <= periodoFin && (
+                <p className="text-xs text-outline-variant">
+                  Periodo {format(new Date(`${periodoInicio}T00:00:00`), 'd MMM yyyy', { locale: es })}
+                  {' – '}
+                  {format(new Date(`${periodoFin}T00:00:00`), 'd MMM yyyy', { locale: es })}
+                </p>
+              )}
             </div>
           ) : (
             <button
@@ -197,7 +229,7 @@ export function GastoSuministro({ propiedad }: Props) {
             <Button variant="secondary" fullWidth onClick={() => setCategoria(null)}>
               Cancelar
             </Button>
-            <Button fullWidth onClick={handleConfirm} disabled={saving || importe <= 0 || !periodoValido}>
+            <Button fullWidth onClick={handleConfirm} disabled={saving || importe <= 0 || !periodoValido || !!errorNumero}>
               {saving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>

@@ -99,6 +99,9 @@ export function TransaccionesTable({
                           {format(new Date(tx.periodoFin + 'T00:00:00'), 'd MMM', { locale: es })}
                         </span>
                       )}
+                      {tx.numeroFactura && (
+                        <span className="block text-xs text-outline-variant/70">{tx.numeroFactura}</span>
+                      )}
                     </td>
                     {mostrarPropiedad && (
                       <td className="px-4 py-3 text-outline-variant">{prop?.nombre ?? '—'}</td>

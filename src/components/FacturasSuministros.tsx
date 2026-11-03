@@ -1,11 +1,20 @@
 import { useState } from 'react'
 import { Droplet, Zap } from 'lucide-react'
 import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { useApp } from '../context/AppContext'
 import { BottomSheet } from './BottomSheet'
 import { Button } from './Button'
 import { Input } from './Input'
-import { cuotaSuministro, inclusionAguaLuz, parseImporte, type Propiedad, type Transaccion } from '../types'
+import {
+  cuotaSuministro,
+  facturaYaRegistrada,
+  inclusionAguaLuz,
+  interpretarNumeroFactura,
+  parseImporte,
+  type Propiedad,
+  type Transaccion,
+} from '../types'
 
 interface Props {
   propiedades: Propiedad[]
@@ -15,7 +24,11 @@ interface Props {
 interface Importes {
   agua: string
   luz: string
+  numeroAgua: string
+  numeroLuz: string
 }
+
+const IMPORTES_VACIOS: Importes = { agua: '', luz: '', numeroAgua: '', numeroLuz: '' }
 
 function uuid() {
   return crypto.randomUUID()
@@ -53,13 +66,13 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
 
   function setImporte(propiedadId: string, campo: keyof Importes, value: string) {
     setImportes((prev) => {
-      const actual = prev[propiedadId] ?? { agua: '', luz: '' }
+      const actual = prev[propiedadId] ?? IMPORTES_VACIOS
       return { ...prev, [propiedadId]: { ...actual, [campo]: value } }
     })
   }
 
   const filas = propiedades.map((p) => {
-    const v = importes[p.id] ?? { agua: '', luz: '' }
+    const v = importes[p.id] ?? IMPORTES_VACIOS
     const aguaImporte = importeOCero(v.agua)
     const luzImporte = importeOCero(v.luz)
     const periodo =
@@ -104,8 +117,31 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
 
   const totalFacturas = filas.filter((f) => importeOCero(f.agua) > 0).length + filas.filter((f) => importeOCero(f.luz) > 0).length
 
+  const errorNumero = (() => {
+    const vistos = transacciones.map((t) => ({ propiedadId: t.propiedadId, numeroFactura: t.numeroFactura }))
+    for (const p of propiedades) {
+      const v = importes[p.id]
+      if (!v) continue
+      const lineas: [string, string][] = [
+        [v.agua, v.numeroAgua],
+        [v.luz, v.numeroLuz],
+      ]
+      for (const [importe, crudo] of lineas) {
+        if (importeOCero(importe) <= 0) continue
+        const leido = interpretarNumeroFactura(crudo)
+        if (leido.error) return leido.error
+        if (!leido.numero) continue
+        if (facturaYaRegistrada(vistos, p.id, leido.numero)) {
+          return `Ya hay una factura ${leido.numero} en ${p.nombre}.`
+        }
+        vistos.push({ propiedadId: p.id, numeroFactura: leido.numero })
+      }
+    }
+    return undefined
+  })()
+
   async function handleGuardar() {
-    if (saving || !periodoValido) return
+    if (saving || !periodoValido || errorNumero) return
     const periodo =
       mostrarPeriodo && periodoInicio && periodoFin
         ? { periodoInicio, periodoFin }
@@ -127,6 +163,7 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           descripcion: '',
           archivos: [],
           creadoEn: new Date().toISOString(),
+          numeroFactura: interpretarNumeroFactura(v.numeroAgua).numero,
           ...periodo,
         })
       }
@@ -141,6 +178,7 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
           descripcion: '',
           archivos: [],
           creadoEn: new Date().toISOString(),
+          numeroFactura: interpretarNumeroFactura(v.numeroLuz).numero,
           ...periodo,
         })
       }
@@ -210,6 +248,13 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
               {periodoInicio && periodoFin && periodoInicio > periodoFin && (
                 <p className="text-xs text-error">El fin del periodo no puede ser anterior al inicio.</p>
               )}
+              {periodoInicio && periodoFin && periodoInicio <= periodoFin && (
+                <p className="text-xs text-outline-variant">
+                  Periodo {format(new Date(`${periodoInicio}T00:00:00`), 'd MMM yyyy', { locale: es })}
+                  {' – '}
+                  {format(new Date(`${periodoFin}T00:00:00`), 'd MMM yyyy', { locale: es })}
+                </p>
+              )}
             </div>
           ) : (
             <button
@@ -234,26 +279,44 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
                   </p>
                 )}
                 <div className="flex gap-2">
-                  <div className="flex-1 flex items-center gap-2 bg-surface-lowest rounded-lg px-3 py-2">
-                    <Droplet size={14} className="text-outline-variant flex-shrink-0" />
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 bg-surface-lowest rounded-lg px-3 py-2">
+                      <Droplet size={14} className="text-outline-variant flex-shrink-0" />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={agua}
+                        onChange={(e) => setImporte(propiedad.id, 'agua', e.target.value)}
+                        className="w-full bg-transparent text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
+                      />
+                    </div>
                     <input
                       type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={agua}
-                      onChange={(e) => setImporte(propiedad.id, 'agua', e.target.value)}
-                      className="w-full bg-transparent text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
+                      placeholder="Nº agua"
+                      value={importes[propiedad.id]?.numeroAgua ?? ''}
+                      onChange={(e) => setImporte(propiedad.id, 'numeroAgua', e.target.value)}
+                      className="w-full bg-surface-lowest rounded-lg px-3 py-2 text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
                     />
                   </div>
-                  <div className="flex-1 flex items-center gap-2 bg-surface-lowest rounded-lg px-3 py-2">
-                    <Zap size={14} className="text-outline-variant flex-shrink-0" />
+                  <div className="flex-1 flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 bg-surface-lowest rounded-lg px-3 py-2">
+                      <Zap size={14} className="text-outline-variant flex-shrink-0" />
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
+                        value={luz}
+                        onChange={(e) => setImporte(propiedad.id, 'luz', e.target.value)}
+                        className="w-full bg-transparent text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
+                      />
+                    </div>
                     <input
                       type="text"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={luz}
-                      onChange={(e) => setImporte(propiedad.id, 'luz', e.target.value)}
-                      className="w-full bg-transparent text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
+                      placeholder="Nº luz"
+                      value={importes[propiedad.id]?.numeroLuz ?? ''}
+                      onChange={(e) => setImporte(propiedad.id, 'numeroLuz', e.target.value)}
+                      className="w-full bg-surface-lowest rounded-lg px-3 py-2 text-base text-on-surface placeholder:text-outline-variant focus:outline-none"
                     />
                   </div>
                 </div>
@@ -271,11 +334,13 @@ export function FacturasSuministros({ propiedades, trigger }: Props) {
             })}
           </div>
 
+          {errorNumero && <p className="text-xs text-error">{errorNumero}</p>}
+
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" fullWidth onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button fullWidth onClick={handleGuardar} disabled={saving || totalFacturas === 0 || !periodoValido}>
+            <Button fullWidth onClick={handleGuardar} disabled={saving || totalFacturas === 0 || !periodoValido || !!errorNumero}>
               {saving
                 ? 'Guardando...'
                 : totalFacturas === 0

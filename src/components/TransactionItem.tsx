@@ -74,6 +74,9 @@ export function TransactionItem({
                   {format(new Date(tx.periodoFin + 'T00:00:00'), 'd MMM yyyy', { locale: es })}
                 </span>
               )}
+              {tx.numeroFactura && (
+                <span className="text-xs text-outline-variant/70">· {tx.numeroFactura}</span>
+              )}
               {tx.soloMio && (
                 <span className="text-xs text-primary/70">· 100% tuyo</span>
               )}
