@@ -1,32 +1,32 @@
-// Parsea un importe tecleado en formato español: admite "1.200,50" (miles +
-// decimal), "1200,50", "1200.50" y "1200". Sin coma, un único punto seguido
-// de exactamente 3 dígitos se interpreta como separador de miles ("1.200" ->
-// 1200), no como decimal — es como se teclea normalmente en España sin
-// decimales. Devuelve NaN si el texto no es un número válido (usar
-// Number.isNaN en el llamante), en vez de deducir un 0 en silencio.
-export function parseImporte(raw: string): number {
-  // Valores de catastro/tasación suelen copiarse tal cual del documento
-  // oficial, con el símbolo del euro pegado (p.ej. "128.061,67 €") — sin
-  // esto, ese símbolo hacía que Number(...) devolviera NaN y bloqueara el
-  // guardado sin ningún indicio de por qué.
-  const s = raw.trim().replace(/€/g, '').trim()
-  if (!s) return NaN
-  if (s.includes(',')) {
-    return Number(s.replace(/\./g, '').replace(',', '.'))
-  }
-  const puntos = s.split('.').length - 1
-  if (puntos === 1) {
-    const dec = s.split('.')[1]
-    if (dec.length === 3) return Number(s.replace('.', ''))
-    return Number(s)
-  }
-  if (puntos > 1) {
-    return Number(s.replace(/\./g, ''))
-  }
-  return Number(s)
-}
+import { parseImporte } from './importe.ts'
+import type { Copropietario, CuotaPropiedad, Financiacion, TipoAdquisicion } from './ficha.ts'
+import { cuotaEfectiva, parteDeCuota } from './ficha.ts'
 
-export type PropiedadTipo = 'piso' | 'casa' | 'local' | 'garaje' | 'otro'
+export { parseImporte } from './importe.ts'
+export type { CamposFicha, Copropietario, CuotaPropiedad, Financiacion, TipoAdquisicion, ParcheFicha } from './ficha.ts'
+export {
+  CAMPOS_FICHA,
+  FichaError,
+  cambiosDeFicha,
+  cuotaEfectiva,
+  fechaDeHoy,
+  fusionarFicha,
+  interpretarCamposFicha,
+  normalizarReferenciaCatastral,
+  parteDeCuota,
+  textoCuota,
+  validarCopropietarios,
+  validarCuota,
+  validarFecha,
+  validarFechaNoFutura,
+  validarImporte,
+  validarReferenciaCatastral,
+  validarTipoAdquisicion,
+  valorPatrimonioJose,
+  valoresProporcionales,
+} from './ficha.ts'
+
+export type PropiedadTipo = 'piso' | 'casa' | 'local' | 'garaje' | 'rustica' | 'otro'
 export type PropiedadEstado =
   | 'alquilado'
   | 'vacio'
@@ -76,6 +76,15 @@ export interface Propiedad {
   porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
   gastosRecurrentes?: GastoRecurrente[] // gastos fijos que se repiten cada mes (comunidad, etc.)
   referenciaCatastral?: string
+  valorAdquisicion?: number // valor escriturado (herencia, donación o compra): valor de adquisición fiscal
+  fechaAdquisicion?: string // YYYY-MM-DD, no futura
+  tipoAdquisicion?: TipoAdquisicion
+  metrosCuadrados?: number
+  fechaValorMercado?: string // YYYY-MM-DD, no futura
+  cuotaPropiedad?: CuotaPropiedad // fracción del inmueble (p.ej. 1/12 de una plaza). Sin definir = 1
+  sinRenta?: boolean // rústica, garaje u otro bien que no se alquila
+  financiacion?: Financiacion
+  copropietarios?: Copropietario[] // solo nombre y porcentaje
   municipio?: string
   valorReferencia?: number // valor de referencia del Catastro (uso fiscal)
   valorMercado?: number // estimación de valor de mercado, para calcular rentabilidad
@@ -115,6 +124,15 @@ export function esDeAlquiler(propiedad: Pick<Propiedad, 'estado'>): boolean {
   return propiedad.estado !== 'uso_propio' && propiedad.estado !== 'vivienda_habitual'
 }
 
+// Entra en cobros, huecos, rentabilidad y totales de alquiler. Un inmueble
+// sin renta (rústica, garaje sin alquilar) se queda en el patrimonio y en
+// el listado, pero no en esas cuentas.
+export function esRendimientoAlquiler(
+  propiedad: Pick<Propiedad, 'estado'> & { sinRenta?: boolean },
+): boolean {
+  return esDeAlquiler(propiedad) && !propiedad.sinRenta
+}
+
 export interface Rentabilidad {
   bruta: number // % anual sobre el valor, solo ingresos
   neta: number // % anual sobre el valor, ingresos - gastos
@@ -146,12 +164,20 @@ export const AMORTIZACION_PCT = 3
 export function amortizacionAnual(
   propiedad: Pick<
     Propiedad,
-    'valorConstruccion' | 'porcentajePropiedad' | 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'
+    | 'valorConstruccion'
+    | 'porcentajePropiedad'
+    | 'cuotaPropiedad'
+    | 'sinRenta'
+    | 'estado'
+    | 'contratoInicio'
+    | 'contratoFin'
+    | 'historialContratos'
   >,
   anio?: string,
 ): number {
-  if (!propiedad.valorConstruccion) return 0
-  const anual = miParte(propiedad.valorConstruccion, propiedad) * (AMORTIZACION_PCT / 100)
+  if (!propiedad.valorConstruccion || propiedad.sinRenta) return 0
+  const base = parteDeCuota(propiedad.valorConstruccion, cuotaEfectiva(propiedad.cuotaPropiedad))
+  const anual = miParte(base, propiedad) * (AMORTIZACION_PCT / 100)
   if (!anio) return anual
   const meses = mesesAlquiladosEnAnio(propiedad, anio)
   return Math.round(anual * (meses / 12) * 100) / 100
@@ -225,13 +251,23 @@ export interface ValoracionPropiedad {
 export function valorarPropiedad(
   propiedad: Pick<
     Propiedad,
-    'id' | 'tipo' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad' | 'valorMercado' | 'valorReferencia'
+    | 'id'
+    | 'tipo'
+    | 'reparto'
+    | 'gastosRecurrentes'
+    | 'porcentajePropiedad'
+    | 'valorMercado'
+    | 'valorReferencia'
+    | 'cuotaPropiedad'
+    | 'sinRenta'
   >,
   transacciones: Transaccion[],
   umbralNetaPct: number,
   hoy: Date = new Date(),
 ): ValoracionPropiedad | null {
-  const valor = propiedad.valorMercado ?? propiedad.valorReferencia
+  if (propiedad.sinRenta) return null
+  const bruto = propiedad.valorMercado ?? propiedad.valorReferencia
+  const valor = bruto != null && bruto > 0 ? parteDeCuota(bruto, cuotaEfectiva(propiedad.cuotaPropiedad)) : 0
   if (!valor || valor <= 0) return null
 
   const ventana = ultimosNMeses(hoy, 12)
@@ -476,10 +512,12 @@ export function alquilerVigente(
     | 'historialContratos'
     | 'inquilinoNombre'
     | 'inquilinoDni'
+    | 'sinRenta'
   >,
   fecha?: string,
   hoy: Date = new Date(),
 ): number | undefined {
+  if (propiedad.sinRenta) return undefined
   const dia = fecha ?? fechaISO(hoy)
   if (propiedad.contratoInicio && dia >= propiedad.contratoInicio) {
     const tramo = tramoEnFecha(propiedad, dia)
@@ -949,11 +987,12 @@ export function rentaPendiente(
     | 'historialContratos'
     | 'inquilinoNombre'
     | 'inquilinoDni'
+    | 'sinRenta'
   >,
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): boolean {
-  if (propiedad.estado !== 'alquilado') return false
+  if (propiedad.sinRenta || propiedad.estado !== 'alquilado') return false
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
   const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy)
   if (!esperado) return false
@@ -968,7 +1007,7 @@ export function rentaDelMesIncompleta(
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): boolean {
-  if (propiedad.estado !== 'alquilado') return false
+  if (propiedad.sinRenta || propiedad.estado !== 'alquilado') return false
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
   const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy)
   if (!esperado) return false
@@ -1164,7 +1203,7 @@ export function huecosMensuales(
   transacciones: Transaccion[],
   hoy: Date = new Date(),
 ): HuecoMensual[] {
-  if (propiedad.estado !== 'alquilado') return []
+  if (propiedad.sinRenta || propiedad.estado !== 'alquilado') return []
   const omitidos = new Set(
     (propiedad.huecosMensualesOmitidos ?? []).map((h) => `${h.tipo}:${h.mes}`),
   )
@@ -1211,7 +1250,7 @@ export function avisosDePropiedad(
 ): AvisoPropiedad[] {
   const avisos: AvisoPropiedad[] = []
   const base = { propiedadId: propiedad.id, nombre: propiedad.nombre }
-  const huecos = huecosMensuales(propiedad, transacciones, hoy)
+  const huecos = propiedad.sinRenta ? [] : huecosMensuales(propiedad, transacciones, hoy)
   if (huecos.length > 0) {
     const resumen = huecos
       .slice(0, 4)
@@ -1225,16 +1264,17 @@ export function avisosDePropiedad(
   }
   const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
   if (
+    !propiedad.sinRenta &&
     rentaPendiente(propiedad, transacciones, hoy) &&
     !huecos.some((h) => h.tipo === 'renta' && h.mes === mesActual)
   ) {
     avisos.push({ ...base, tipo: 'renta', mensaje: 'Renta sin cobrar este mes' })
   }
-  if (propiedad.estado === 'alquilado' && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) {
+  if (!propiedad.sinRenta && propiedad.estado === 'alquilado' && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) {
     avisos.push({ ...base, tipo: 'fianza', mensaje: 'Fianza pendiente de depositar (ICAVI)' })
   }
   const estadoC = contratoEstado(propiedad.contratoFin, hoy)
-  if (propiedad.estado === 'alquilado' && estadoC?.alerta) {
+  if (!propiedad.sinRenta && propiedad.estado === 'alquilado' && estadoC?.alerta) {
     avisos.push({
       ...base,
       tipo: 'contrato',
@@ -1243,7 +1283,7 @@ export function avisosDePropiedad(
         : `Contrato vence en ${estadoC.dias} días`,
     })
   }
-  if (tocaRevisarRenta(propiedad, hoy)) {
+  if (!propiedad.sinRenta && tocaRevisarRenta(propiedad, hoy)) {
     avisos.push({ ...base, tipo: 'revision', mensaje: 'Toca revisar la renta (IPC/IGC)' })
   }
   const cee = contratoEstado(propiedad.certificadoEnergeticoVencimiento, hoy)
@@ -1920,6 +1960,7 @@ type PropsRentaPactada = Pick<
   | 'tramosContrato'
   | 'fianzaImporte'
   | 'historialContratos'
+  | 'sinRenta'
 >
 
 // Renta bruta pactada (base imponible del local) en una fecha. El contrato
@@ -1927,6 +1968,7 @@ type PropsRentaPactada = Pick<
 // cubra, aunque el inquilino ya no sea el mismo. Sin fechas y alquilado, la
 // renta de la ficha.
 function rentaPactadaEnFecha(propiedad: PropsRentaPactada, fecha: string): number | undefined {
+  if (propiedad.sinRenta) return undefined
   if (cubreContratoEnFicha(propiedad, fecha)) {
     const tramo = tramoEnFecha(propiedad, fecha)
     const renta = tramo?.alquilerMensual ?? propiedad.alquilerMensual
@@ -2055,6 +2097,7 @@ export const TIPO_LABELS: Record<PropiedadTipo, string> = {
   casa: 'Casa',
   local: 'Local',
   garaje: 'Garaje',
+  rustica: 'Rústica',
   otro: 'Otro',
 }
 
@@ -2158,6 +2201,17 @@ export function rendimientoIrpfPropiedad(
   anio: string,
   reduccionViviendaPct: number,
 ): EstimacionPropiedad {
+  if (propiedad.sinRenta) {
+    return {
+      propiedad,
+      ingresos: 0,
+      gastos: 0,
+      amortizacion: 0,
+      rendimientoNeto: 0,
+      reducible: false,
+      rendimientoComputable: 0,
+    }
+  }
   const [desde, hasta] = rangoAnio(anio)
   const txs = transacciones.filter((t) => t.propiedadId === propiedad.id)
   const ingresos = sumIngresosEnRango(propiedad, txs, desde, hasta, { irpf: true })

@@ -27,8 +27,15 @@ import {
   cuotaIRPF,
   datosFacturacionCompletos,
   deudaInquilino,
+  avisosDePropiedad,
   esDeAlquiler,
   estaAlDia,
+  FichaError,
+  validarCuota,
+  validarReferenciaCatastral,
+  valorarPropiedad,
+  valorPatrimonioJose,
+  valoresProporcionales,
   estimarAhorroRenta,
   generarGastosPendientes,
   importeEnRango,
@@ -1746,5 +1753,58 @@ describe('siguienteNumeroFactura', () => {
   it('ignora transacciones sin numeroFactura', () => {
     const txs = [{ numeroFactura: undefined }, { numeroFactura: 'R-2026-002' }]
     expect(siguienteNumeroFactura(txs, 'R', '2026')).toBe('R-2026-003')
+  })
+})
+
+describe('ficha de escritura', () => {
+  const hoy = new Date(2026, 9, 31)
+
+  it('normaliza la referencia y rechaza una longitud que no sea 20', () => {
+    expect(validarReferenciaCatastral(' 7837301 vg8173b 0001 tt ')).toBe('7837301VG8173B0001TT')
+    expect(() => validarReferenciaCatastral('1234567890123456789')).toThrow(FichaError)
+    expect(() => validarReferenciaCatastral('123456789012345678901')).toThrow(/20 caracteres/)
+    expect(() => validarReferenciaCatastral('7837301VG8173B0001NN')).toThrow(/control/)
+  })
+
+  it('una cuota 1/12 deja 2.000 € de un garaje de 24.000 €', () => {
+    const cuota = validarCuota('1/12')
+    expect(cuota).toEqual({ numerador: 1, denominador: 12, valor: 0.083333 })
+    expect(() => validarCuota(0)).toThrow(/cuota/)
+    expect(() => validarCuota(1.5)).toThrow(/cuota/)
+    expect(() => validarCuota('1/0')).toThrow(/denominador/)
+    const valores = valoresProporcionales({ valorMercado: 24000, cuotaPropiedad: cuota })
+    expect(valores.mercado).toEqual({ total: 24000, parteJose: 2000 })
+    expect(amortizacionAnual(propiedad({ valorConstruccion: 24000, cuotaPropiedad: cuota }))).toBeCloseTo(60, 6)
+  })
+
+  it('sin cuota el patrimonio sigue siendo el valor entero', () => {
+    expect(valorPatrimonioJose(propiedad({ valorMercado: 1000 }))).toBe(1000)
+    expect(valoresProporcionales(propiedad({ valorMercado: 1000 })).cuota).toEqual({
+      numerador: 1,
+      denominador: 1,
+      valor: 1,
+    })
+  })
+
+  it('un rústico sin renta no genera cobros, huecos ni rentabilidad, y sí patrimonio', () => {
+    const rustica = propiedad({
+      nombre: 'Finca rústica',
+      tipo: 'rustica',
+      estado: 'alquilado',
+      sinRenta: true,
+      alquilerMensual: 400,
+      contratoInicio: '2020-01-01',
+      valorMercado: 24000,
+      cuotaPropiedad: validarCuota('1/12'),
+      fianzaImporte: 400,
+    })
+    expect(huecosMensuales(rustica, [], hoy)).toEqual([])
+    expect(rentaPendiente(rustica, [], hoy)).toBe(false)
+    expect(rentaDelMesIncompleta(rustica, [], hoy)).toBe(false)
+    expect(avisosDePropiedad(rustica, [], hoy).map((a) => a.tipo)).not.toContain('renta')
+    expect(avisosDePropiedad(rustica, [], hoy).map((a) => a.tipo)).not.toContain('registro')
+    expect(valorarPropiedad(rustica, [], 4, hoy)).toBeNull()
+    expect(valorPatrimonioJose(rustica)).toBe(2000)
+    expect(valorPatrimonioJose({ ...rustica, propietarioNombre: 'Martín' })).toBeNull()
   })
 })
