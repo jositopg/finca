@@ -7,8 +7,12 @@ import type {
   HuecoMensual,
   IngresoExterno,
   Propiedad,
+  Copropietario,
+  CuotaPropiedad,
+  Financiacion,
   Reparto,
   Tarea,
+  TipoAdquisicion,
   TareaEstado,
   TareaPrioridad,
   TramoContrato,
@@ -42,6 +46,14 @@ function json<T>(fila: Fila, clave: string): T | undefined {
   return valor as T
 }
 
+function cuotaDeFila(fila: Fila): CuotaPropiedad | undefined {
+  const numerador = numero(fila, 'cuota_numerador')
+  const denominador = numero(fila, 'cuota_denominador')
+  if (numerador == null || denominador == null || denominador <= 0) return undefined
+  const valor = numero(fila, 'cuota_valor') ?? numerador / denominador
+  return { numerador, denominador, valor }
+}
+
 export function filaAPropiedad(fila: Fila): Propiedad {
   return {
     id: texto(fila, 'id') ?? '',
@@ -67,6 +79,15 @@ export function filaAPropiedad(fila: Fila): Propiedad {
     porcentajePropiedad: numero(fila, 'porcentaje_propiedad'),
     gastosRecurrentes: json<GastoRecurrente[]>(fila, 'gastos_recurrentes'),
     referenciaCatastral: texto(fila, 'referencia_catastral'),
+    valorAdquisicion: numero(fila, 'valor_adquisicion'),
+    fechaAdquisicion: dia(fila, 'fecha_adquisicion'),
+    tipoAdquisicion: texto(fila, 'tipo_adquisicion') as TipoAdquisicion | undefined,
+    metrosCuadrados: numero(fila, 'metros_cuadrados'),
+    fechaValorMercado: dia(fila, 'fecha_valor_mercado'),
+    cuotaPropiedad: cuotaDeFila(fila),
+    sinRenta: fila.sin_renta == null ? undefined : Boolean(fila.sin_renta),
+    financiacion: json<Financiacion>(fila, 'financiacion'),
+    copropietarios: json<Copropietario[]>(fila, 'copropietarios'),
     municipio: texto(fila, 'municipio'),
     valorReferencia: numero(fila, 'valor_referencia'),
     valorMercado: numero(fila, 'valor_mercado'),

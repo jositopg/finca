@@ -12,6 +12,10 @@ import type {
   HuecoMensual,
   TramoContrato,
   Transaccion,
+  Copropietario,
+  CuotaPropiedad,
+  Financiacion,
+  TipoAdquisicion,
 } from '../types'
 
 // ─── Row <-> tipo mapping ───────────────────────────────────────────────────
@@ -40,6 +44,17 @@ interface PropiedadRow {
   porcentaje_propiedad: number | string | null
   gastos_recurrentes: GastoRecurrente[] | null
   referencia_catastral: string | null
+  valor_adquisicion: number | string | null
+  fecha_adquisicion: string | null
+  tipo_adquisicion: string | null
+  metros_cuadrados: number | string | null
+  fecha_valor_mercado: string | null
+  cuota_numerador: number | string | null
+  cuota_denominador: number | string | null
+  cuota_valor: number | string | null
+  sin_renta: boolean | null
+  financiacion: Financiacion | null
+  copropietarios: Copropietario[] | null
   municipio: string | null
   valor_referencia: number | string | null
   valor_mercado: number | string | null
@@ -83,6 +98,15 @@ interface TransaccionRow {
   gasto_recurrente_id: string | null
 }
 
+function cuotaDeFila(row: PropiedadRow): CuotaPropiedad | undefined {
+  if (row.cuota_numerador == null || row.cuota_denominador == null) return undefined
+  const numerador = Number(row.cuota_numerador)
+  const denominador = Number(row.cuota_denominador)
+  if (!Number.isInteger(numerador) || !Number.isInteger(denominador) || denominador <= 0) return undefined
+  const valor = row.cuota_valor != null ? Number(row.cuota_valor) : numerador / denominador
+  return { numerador, denominador, valor }
+}
+
 function rowToPropiedad(row: PropiedadRow): Propiedad {
   return {
     id: row.id,
@@ -108,6 +132,15 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     porcentajePropiedad: row.porcentaje_propiedad != null ? Number(row.porcentaje_propiedad) : undefined,
     gastosRecurrentes: row.gastos_recurrentes ?? undefined,
     referenciaCatastral: row.referencia_catastral ?? undefined,
+    valorAdquisicion: row.valor_adquisicion != null ? Number(row.valor_adquisicion) : undefined,
+    fechaAdquisicion: row.fecha_adquisicion ?? undefined,
+    tipoAdquisicion: (row.tipo_adquisicion as TipoAdquisicion | null) ?? undefined,
+    metrosCuadrados: row.metros_cuadrados != null ? Number(row.metros_cuadrados) : undefined,
+    fechaValorMercado: row.fecha_valor_mercado ?? undefined,
+    cuotaPropiedad: cuotaDeFila(row),
+    sinRenta: row.sin_renta ?? undefined,
+    financiacion: row.financiacion ?? undefined,
+    copropietarios: row.copropietarios ?? undefined,
     municipio: row.municipio ?? undefined,
     valorReferencia: row.valor_referencia != null ? Number(row.valor_referencia) : undefined,
     valorMercado: row.valor_mercado != null ? Number(row.valor_mercado) : undefined,
@@ -158,6 +191,17 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     porcentaje_propiedad: p.porcentajePropiedad ?? null,
     gastos_recurrentes: p.gastosRecurrentes ?? null,
     referencia_catastral: p.referenciaCatastral ?? null,
+    valor_adquisicion: p.valorAdquisicion ?? null,
+    fecha_adquisicion: p.fechaAdquisicion ?? null,
+    tipo_adquisicion: p.tipoAdquisicion ?? null,
+    metros_cuadrados: p.metrosCuadrados ?? null,
+    fecha_valor_mercado: p.fechaValorMercado ?? null,
+    cuota_numerador: p.cuotaPropiedad?.numerador ?? null,
+    cuota_denominador: p.cuotaPropiedad?.denominador ?? null,
+    cuota_valor: p.cuotaPropiedad?.valor ?? null,
+    sin_renta: p.sinRenta ?? null,
+    financiacion: p.financiacion ?? null,
+    copropietarios: p.copropietarios ?? null,
     municipio: p.municipio ?? null,
     valor_referencia: p.valorReferencia ?? null,
     valor_mercado: p.valorMercado ?? null,
