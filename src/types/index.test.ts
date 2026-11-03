@@ -9,6 +9,7 @@ import {
   amortizacionAnual,
   aplicarCambioCondiciones,
   baseDesdeRentaNeta,
+  calcularRentabilidad,
   devengoIgicLocalTrimestre,
   sustituirPorContratoNuevo,
   calcularReparto,
@@ -40,6 +41,8 @@ import {
   generarGastosPendientes,
   importeEnRango,
   inicioPeriodoAlDia,
+  mesesAlquiladosEnAnio,
+  mesesVaciosEnRango,
   miParte,
   ordenarTareas,
   parseFilasImportadas,
@@ -48,7 +51,10 @@ import {
   quitarTramoContrato,
   rangoAnio,
   rangoMes,
+  rangoUltimosMeses,
   rentaPendiente,
+  rentabilidadCartera,
+  rentabilidadEnRango,
   siguienteNumeroFactura,
   tareaVencida,
   tipoDocumentoAlquiler,
@@ -1806,5 +1812,170 @@ describe('ficha de escritura', () => {
     expect(valorarPropiedad(rustica, [], 4, hoy)).toBeNull()
     expect(valorPatrimonioJose(rustica)).toBe(2000)
     expect(valorPatrimonioJose({ ...rustica, propietarioNombre: 'Martín' })).toBeNull()
+  })
+})
+
+const HOY_RENTABILIDAD = new Date(2026, 10, 3)
+
+describe('rentabilidad sobre valor de mercado', () => {
+  it('sin valor de mercado devuelve null y el motivo, aunque haya referencia', () => {
+    const p = propiedad({
+      estado: 'vacio',
+      valorMercado: undefined,
+      valorReferencia: 80000,
+      contratoInicio: '2026-01-01',
+      contratoFin: '2026-06-30',
+    })
+    const cifra = rentabilidadEnRango(p, [], '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)
+    expect(cifra.bruta).toBeNull()
+    expect(cifra.neta).toBeNull()
+    expect(cifra.motivo).toBe('Sin valor de mercado.')
+    expect(cifra.mesesVacios).toBe(5)
+  })
+
+  it('sin rentas la bruta es cero y la neta resta los gastos', () => {
+    const p = propiedad({
+      valorMercado: 80000,
+      estado: 'vacio',
+      contratoInicio: '2026-01-01',
+      contratoFin: '2026-12-31',
+    })
+    const vacia = rentabilidadEnRango(p, [], '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)
+    expect(vacia.bruta).toBe(0)
+    expect(vacia.neta).toBe(0)
+    expect(vacia.motivo).toBeUndefined()
+    expect(vacia.mesesVacios).toBe(0)
+    const conGasto = rentabilidadEnRango(
+      p,
+      [transaccion({ tipo: 'gasto', categoria: 'Seguro hogar', importe: 400, fecha: '2026-02-01' })],
+      '2026-01-01',
+      '2026-12-31',
+      HOY_RENTABILIDAD,
+    )
+    expect(conGasto.bruta).toBe(0)
+    expect(conGasto.neta).toBeCloseTo(-0.5, 6)
+  })
+
+  it('cuenta los meses ya empezados sin contrato y no los futuros', () => {
+    const p = propiedad({
+      estado: 'vacio',
+      valorMercado: 120000,
+      contratoInicio: undefined,
+      historialContratos: [{ id: 'h1', fechaInicio: '2026-01-01', fechaFin: '2026-06-30' }],
+    })
+    expect(mesesVaciosEnRango(p, '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)).toEqual([
+      '2026-07',
+      '2026-08',
+      '2026-09',
+      '2026-10',
+      '2026-11',
+    ])
+    expect(mesesAlquiladosEnAnio(p, '2026')).toBe(6)
+    const alquilado = propiedad({ estado: 'alquilado', contratoInicio: '2026-01-01', valorMercado: 120000 })
+    expect(mesesVaciosEnRango(alquilado, '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)).toEqual([])
+    expect(mesesAlquiladosEnAnio(alquilado, '2026')).toBe(12)
+  })
+
+  it('un contrato que aún no empieza deja vacíos, y la amortización sigue contando el año', () => {
+    const p = propiedad({ estado: 'alquilado', contratoInicio: '2027-01-01', valorConstruccion: 100000 })
+    expect(mesesAlquiladosEnAnio(p, '2026')).toBe(12)
+    expect(mesesVaciosEnRango(p, '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)).toHaveLength(11)
+    expect(mesesVaciosEnRango(propiedad({ estado: 'alquilado' }), '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)).toEqual(
+      [],
+    )
+  })
+
+  it('una fianza no entra en la rentabilidad de mercado', () => {
+    const p = propiedad({ valorMercado: 100000, contratoInicio: '2026-01-01' })
+    const txs = [
+      transaccion({ categoria: 'Alquiler mensual', importe: 5000, fecha: '2026-03-05' }),
+      transaccion({ categoria: 'Fianza recibida', tipo: 'ingreso', importe: 5000, fecha: '2026-01-05' }),
+    ]
+    const [desde, hasta] = rangoAnio('2026')
+    const cifra = rentabilidadEnRango(p, txs, desde, hasta, HOY_RENTABILIDAD)
+    const antigua = calcularRentabilidad(resumenEnRango(p, txs, desde, hasta).ingresos, 0, 100000)
+    expect(cifra.rentas).toBe(5000)
+    expect(cifra.bruta).toBeCloseTo(5, 6)
+    expect(antigua?.bruta).toBeCloseTo(10, 6)
+  })
+
+  it('en un local usa el importe cobrado y el valor por la cuota', () => {
+    const p = propiedad({
+      tipo: 'local',
+      valorMercado: 120000,
+      cuotaPropiedad: validarCuota('1/12'),
+      contratoInicio: '2026-01-01',
+    })
+    const cifra = rentabilidadEnRango(
+      p,
+      [transaccion({ importe: 500, fecha: '2026-03-05' })],
+      '2026-01-01',
+      '2026-12-31',
+      HOY_RENTABILIDAD,
+    )
+    expect(cifra.valorMercado).toBe(10000)
+    expect(cifra.rentas).toBe(500)
+    expect(cifra.bruta).toBeCloseTo(5, 6)
+    expect(baseDesdeRentaNeta(500)).not.toBeCloseTo(500, 2)
+  })
+
+  it('el total pondera por valor y deja fuera a quien no tiene mercado', () => {
+    const alta = propiedad({ id: 'alta', nombre: 'Alta', valorMercado: 100000, contratoInicio: '2026-01-01' })
+    const baja = propiedad({ id: 'baja', nombre: 'Baja', valorMercado: 300000, contratoInicio: '2026-01-01' })
+    const sinValor = propiedad({
+      id: 'sv',
+      nombre: 'Sin valor',
+      estado: 'vacio',
+      valorMercado: undefined,
+      valorReferencia: 50000,
+    })
+    const rustica = propiedad({ id: 'r', nombre: 'Rústica', sinRenta: true, valorMercado: 40000 })
+    const ajena = propiedad({
+      id: 'aj',
+      nombre: 'De Martín',
+      propietarioNombre: 'Martín',
+      valorMercado: 100000,
+    })
+    const txs = [transaccion({ propiedadId: 'alta', importe: 10000, fecha: '2026-03-05' })]
+    const periodo = rentabilidadCartera([baja, rustica, alta, sinValor, ajena], txs, '2026-01-01', '2026-12-31', HOY_RENTABILIDAD)
+    expect(periodo.porFinca.map((f) => f.nombre)).toEqual(['Alta', 'Baja', 'Sin valor'])
+    expect(periodo.porFinca[0].bruta).toBeCloseTo(10, 6)
+    expect(periodo.porFinca[1].bruta).toBe(0)
+    expect(periodo.porFinca[2]).toMatchObject({ bruta: null, motivo: 'Sin valor de mercado.' })
+    expect(periodo.total.rentas).toBe(10000)
+    expect(periodo.total.valorMercado).toBe(400000)
+    expect(periodo.total.bruta).toBeCloseTo(2.5, 6)
+    expect(periodo.total.neta).toBeCloseTo(2.5, 6)
+  })
+
+  it('el ranking sigue el orden de valorarPropiedad aunque no haya valor de mercado', () => {
+    const alta = propiedad({
+      id: 'alta',
+      nombre: 'Alta',
+      valorMercado: undefined,
+      valorReferencia: 50000,
+      contratoInicio: '2020-01-01',
+    })
+    const baja = propiedad({
+      id: 'baja',
+      nombre: 'Baja',
+      valorMercado: 200000,
+      contratoInicio: '2020-01-01',
+    })
+    const txs = [
+      transaccion({ propiedadId: 'alta', fecha: '2026-11-01', importe: 1000 }),
+      transaccion({ propiedadId: 'baja', fecha: '2026-11-01', importe: 1000 }),
+    ]
+    const orden = [baja, alta]
+      .map((p) => ({ nombre: p.nombre, valoracion: valorarPropiedad(p, txs, 4, HOY_RENTABILIDAD)! }))
+      .sort((a, b) => b.valoracion.rentabilidadNeta - a.valoracion.rentabilidadNeta)
+      .map((f) => f.nombre)
+    expect(orden).toEqual(['Alta', 'Baja'])
+    const [desde, hasta] = rangoAnio('2026')
+    expect(rentabilidadEnRango(alta, txs, desde, hasta, HOY_RENTABILIDAD).bruta).toBeNull()
+    expect(rentabilidadEnRango(baja, txs, desde, hasta, HOY_RENTABILIDAD).bruta).not.toBeNull()
+    const ventana = rangoUltimosMeses(HOY_RENTABILIDAD)
+    expect(ventana.desde).toBe('2025-12-01')
+    expect(ventana.hasta).toBe('2026-11-30')
   })
 })

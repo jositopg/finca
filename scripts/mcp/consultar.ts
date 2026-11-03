@@ -27,8 +27,10 @@ import {
   ordenarTareas,
   rangoAnio,
   rangoMes,
+  rangoUltimosMeses,
   rentaDelMesIncompleta,
   rendimientoIrpfPropiedad,
+  rentabilidadCartera,
   valoresProporcionales,
   repartoEfectivo,
   resumenEnRango,
@@ -556,6 +558,36 @@ const rendimiento: Herramienta = {
   },
 }
 
+const rentabilidad: Herramienta = {
+  name: 'rentabilidad',
+  description:
+    'Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. No es el ranking de la app.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      anio: {
+        type: 'string',
+        description: 'Año natural YYYY. Por defecto el año actual. Los últimos 12 meses no dependen de este año.',
+      },
+    },
+    additionalProperties: false,
+  },
+  ejecutar: (args, foto, hoy) => {
+    const anio = anioDe(args, hoy)
+    const [desdeAnio, hastaAnio] = rangoAnio(anio)
+    const ventana = rangoUltimosMeses(hoy, 12)
+    return {
+      ambito: AMBITO,
+      hoy: fechaISO(hoy),
+      ultimos12Meses: rentabilidadCartera(foto.propiedades, foto.transacciones, ventana.desde, ventana.hasta, hoy),
+      anio: {
+        anio,
+        ...rentabilidadCartera(foto.propiedades, foto.transacciones, desdeAnio, hastaAnio, hoy),
+      },
+    }
+  },
+}
+
 const repercutir: Herramienta = {
   name: 'repercutir',
   description:
@@ -680,6 +712,7 @@ export const herramientas: Herramienta[] = [
   resumen,
   modelo420,
   rendimiento,
+  rentabilidad,
   repercutir,
   tareas,
   movimientos,

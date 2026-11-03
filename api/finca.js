@@ -313,8 +313,49 @@ function amortizacionAnual(propiedad, anio) {
 	return Math.round(anual * (meses / 12) * 100) / 100;
 }
 function mesesAlquiladosEnAnio(propiedad, anio) {
-	const desde = `${anio}-01-01`;
-	const hasta = `${anio}-12-31`;
+	const meses = mesesOcupados(propiedad, `${anio}-01-01`, `${anio}-12-31`);
+	if (meses.length > 0) return meses.length;
+	if (propiedad.estado === "alquilado") return 12;
+	return 0;
+}
+function ultimosNMeses(hoy, n) {
+	const meses = [];
+	let y = hoy.getFullYear();
+	let m = hoy.getMonth() + 1;
+	for (let i = 0; i < n; i++) {
+		meses.unshift(`${y}-${String(m).padStart(2, "0")}`);
+		m--;
+		if (m < 1) {
+			m = 12;
+			y--;
+		}
+	}
+	return meses;
+}
+function rangoUltimosMeses(hoy, n = 12) {
+	const meses = ultimosNMeses(hoy, n);
+	const [desde] = rangoMes(meses[0]);
+	const [, hasta] = rangoMes(meses[meses.length - 1]);
+	return {
+		desde,
+		hasta
+	};
+}
+function mesesEntre(desdeYYYYMM, hastaYYYYMM) {
+	const meses = [];
+	let [y, m] = desdeYYYYMM.split("-").map(Number);
+	const [yHasta, mHasta] = hastaYYYYMM.split("-").map(Number);
+	while (y < yHasta || y === yHasta && m <= mHasta) {
+		meses.push(`${y}-${String(m).padStart(2, "0")}`);
+		m++;
+		if (m > 12) {
+			m = 1;
+			y++;
+		}
+	}
+	return meses;
+}
+function mesesOcupados(propiedad, desde, hasta) {
 	const periodos = [];
 	for (const h of propiedad.historialContratos ?? []) periodos.push({
 		ini: h.fechaInicio ?? h.fechaFin,
@@ -335,37 +376,22 @@ function mesesAlquiladosEnAnio(propiedad, anio) {
 		if (a > b) continue;
 		for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m);
 	}
-	if (meses.size > 0) return meses.size;
-	if (propiedad.estado === "alquilado") return 12;
-	return 0;
+	return [...meses].sort();
 }
-function ultimosNMeses(hoy, n) {
-	const meses = [];
-	let y = hoy.getFullYear();
-	let m = hoy.getMonth() + 1;
-	for (let i = 0; i < n; i++) {
-		meses.unshift(`${y}-${String(m).padStart(2, "0")}`);
-		m--;
-		if (m < 1) {
-			m = 12;
-			y--;
-		}
-	}
-	return meses;
+function mesYaEmpezado(mes, hoy) {
+	const [y, m] = mes.split("-").map(Number);
+	return y < hoy.getFullYear() || y === hoy.getFullYear() && m <= hoy.getMonth() + 1;
 }
-function mesesEntre(desdeYYYYMM, hastaYYYYMM) {
-	const meses = [];
-	let [y, m] = desdeYYYYMM.split("-").map(Number);
-	const [yHasta, mHasta] = hastaYYYYMM.split("-").map(Number);
-	while (y < yHasta || y === yHasta && m <= mHasta) {
-		meses.push(`${y}-${String(m).padStart(2, "0")}`);
-		m++;
-		if (m > 12) {
-			m = 1;
-			y++;
-		}
-	}
-	return meses;
+function hayFechasDeContrato(propiedad) {
+	if (propiedad.contratoInicio) return true;
+	return (propiedad.historialContratos ?? []).some((h) => h.fechaInicio || h.fechaFin);
+}
+function mesesVaciosEnRango(propiedad, desde, hasta, hoy = /* @__PURE__ */ new Date()) {
+	if (propiedad.sinRenta) return [];
+	const ventana = mesesEntre(desde.slice(0, 7), hasta.slice(0, 7)).filter((mes) => mesYaEmpezado(mes, hoy));
+	const ocupados = new Set(mesesOcupados(propiedad, desde, hasta));
+	if (ocupados.size === 0 && propiedad.estado === "alquilado" && !hayFechasDeContrato(propiedad)) return [];
+	return ventana.filter((mes) => !ocupados.has(mes));
 }
 function miParte(importe, propiedad, soloMio) {
 	if (soloMio) return importe;
@@ -796,6 +822,12 @@ function sumIngresosEnRango(propiedad, transacciones, desde, hasta, opts) {
 		return s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio);
 	}, 0);
 }
+function sumRentasEnRango(propiedad, transacciones, desde, hasta) {
+	return txsDePropiedad(propiedad, transacciones).reduce((s, t) => {
+		if (t.tipo !== "ingreso" || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return s;
+		return s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio);
+	}, 0);
+}
 function cuotaOtrosEnRango(t, propiedad, desde, hasta) {
 	const enRango = importeEnRango(t, desde, hasta);
 	if (enRango === 0) return {
@@ -841,6 +873,75 @@ function resumenVariasEnRango(propiedades, transacciones, desde, hasta) {
 		ingresos: round2(ingresos),
 		gastos: round2(gastos),
 		inquilino: round2(inquilino)
+	};
+}
+function rentabilidadEnRango(propiedad, transacciones, desde, hasta, hoy = /* @__PURE__ */ new Date()) {
+	if (propiedad.sinRenta) return {
+		bruta: null,
+		neta: null,
+		rentas: 0,
+		gastos: 0,
+		valorMercado: null,
+		mesesVacios: 0,
+		motivo: "Sin renta."
+	};
+	const mesesVacios = mesesVaciosEnRango(propiedad, desde, hasta, hoy).length;
+	const rentas = round2(sumRentasEnRango(propiedad, transacciones, desde, hasta));
+	const gastos = sumGastosEnRango(propiedad, transacciones, desde, hasta);
+	const bruto = propiedad.valorMercado;
+	const valor = bruto != null && bruto > 0 ? round2(parteDeCuota(bruto, cuotaEfectiva(propiedad.cuotaPropiedad))) : 0;
+	if (valor <= 0) return {
+		bruta: null,
+		neta: null,
+		rentas,
+		gastos,
+		valorMercado: null,
+		mesesVacios,
+		motivo: "Sin valor de mercado."
+	};
+	return {
+		bruta: rentas / valor * 100,
+		neta: (rentas - gastos) / valor * 100,
+		rentas,
+		gastos,
+		valorMercado: valor,
+		mesesVacios
+	};
+}
+function totalRentabilidad(filas) {
+	const conValor = filas.filter((f) => f.valorMercado != null && f.valorMercado > 0 && f.bruta != null);
+	const mesesVacios = filas.reduce((s, f) => s + f.mesesVacios, 0);
+	const rentas = round2(conValor.reduce((s, f) => s + f.rentas, 0));
+	const gastos = round2(conValor.reduce((s, f) => s + f.gastos, 0));
+	const valor = round2(conValor.reduce((s, f) => s + (f.valorMercado ?? 0), 0));
+	if (valor <= 0) return {
+		bruta: null,
+		neta: null,
+		rentas: 0,
+		gastos: 0,
+		valorMercado: null,
+		mesesVacios,
+		motivo: "Sin valor de mercado."
+	};
+	return {
+		bruta: rentas / valor * 100,
+		neta: (rentas - gastos) / valor * 100,
+		rentas,
+		gastos,
+		valorMercado: valor,
+		mesesVacios
+	};
+}
+function rentabilidadCartera(propiedades, transacciones, desde, hasta, hoy = /* @__PURE__ */ new Date()) {
+	const porFinca = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p)).map((p) => ({
+		nombre: p.nombre,
+		...rentabilidadEnRango(p, transacciones, desde, hasta, hoy)
+	})).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+	return {
+		desde,
+		hasta,
+		porFinca,
+		total: totalRentabilidad(porFinca)
 	};
 }
 function desgloseRepercutible(propiedad, transacciones, desde, hasta) {
@@ -1690,6 +1791,32 @@ var herramientas = [
 					cuotaTotal: r2(estimacion.cuotaTotal),
 					retenido: r2(estimacion.totalRetenido),
 					aGuardar: r2(estimacion.aGuardar)
+				}
+			};
+		}
+	},
+	{
+		name: "rentabilidad",
+		description: "Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. No es el ranking de la app.",
+		inputSchema: {
+			type: "object",
+			properties: { anio: {
+				type: "string",
+				description: "Año natural YYYY. Por defecto el año actual. Los últimos 12 meses no dependen de este año."
+			} },
+			additionalProperties: false
+		},
+		ejecutar: (args, foto, hoy) => {
+			const anio = anioDe(args, hoy);
+			const [desdeAnio, hastaAnio] = rangoAnio(anio);
+			const ventana = rangoUltimosMeses(hoy, 12);
+			return {
+				ambito: AMBITO,
+				hoy: fechaISO(hoy),
+				ultimos12Meses: rentabilidadCartera(foto.propiedades, foto.transacciones, ventana.desde, ventana.hasta, hoy),
+				anio: {
+					anio,
+					...rentabilidadCartera(foto.propiedades, foto.transacciones, desdeAnio, hastaAnio, hoy)
 				}
 			};
 		}

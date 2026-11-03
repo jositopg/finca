@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ejecutar } from './consultar.ts'
 import type { Foto } from './foto.ts'
-import type { Propiedad, Transaccion } from '../../src/types/index.ts'
+import {
+  rangoAnio,
+  rangoUltimosMeses,
+  rentabilidadCartera,
+  rentabilidadEnRango,
+  type Propiedad,
+  type RentabilidadPeriodo,
+  type Transaccion,
+} from '../../src/types/index.ts'
 
 const HOY = new Date(2026, 9, 29)
 
@@ -404,5 +412,86 @@ describe('consultar', () => {
 
     expect(porNombre['Revisión hecha']).toMatchObject({ revisionRenta: { fecha: '2027-03-01', tipo: 'anual' } })
     expect(porNombre['Revisión hecha']).not.toHaveProperty('avisosVencimiento')
+  })
+
+  it('la rentabilidad coincide con la app y no lleva datos personales', () => {
+    const hoy = new Date(2026, 10, 3)
+    const piso = propiedad({
+      estado: 'vacio',
+      contratoInicio: '2026-01-01',
+      contratoFin: '2026-06-30',
+      valorMercado: 100000,
+      valorReferencia: 50000,
+    })
+    const sinValor = propiedad({
+      id: 'sv',
+      nombre: 'Sin valor',
+      estado: 'vacio',
+      valorMercado: undefined,
+      valorReferencia: 80000,
+      contratoInicio: undefined,
+    })
+    const ajena = propiedad({
+      id: 'aj',
+      nombre: 'De Martín',
+      propietarioNombre: 'Martín',
+      valorMercado: 90000,
+    })
+    const txs = [
+      transaccion({ importe: 6000, fecha: '2026-03-05', periodoInicio: undefined, periodoFin: undefined }),
+      transaccion({
+        id: 'fianza',
+        categoria: 'Fianza recibida',
+        importe: 6000,
+        fecha: '2026-01-05',
+        periodoInicio: undefined,
+        periodoFin: undefined,
+      }),
+      transaccion({
+        id: 'gasto',
+        tipo: 'gasto',
+        categoria: 'Comunidad de propietarios',
+        importe: 1000,
+        fecha: '2026-04-02',
+        periodoInicio: undefined,
+        periodoFin: undefined,
+      }),
+    ]
+    const datos = ejecutar('rentabilidad', { anio: '2026' }, foto({ propiedades: [piso, sinValor, ajena], transacciones: txs }), hoy) as {
+      hoy: string
+      anio: RentabilidadPeriodo & { anio: string }
+      ultimos12Meses: RentabilidadPeriodo
+    }
+    const [desde, hasta] = rangoAnio('2026')
+    const anio = rentabilidadCartera([piso, sinValor, ajena], txs, desde, hasta, hoy)
+    const ventana = rangoUltimosMeses(hoy)
+    const ultimos = rentabilidadCartera([piso, sinValor, ajena], txs, ventana.desde, ventana.hasta, hoy)
+    expect(datos.hoy).toBe('2026-11-03')
+    expect(datos.anio.anio).toBe('2026')
+    expect(datos.anio.porFinca).toEqual(anio.porFinca)
+    expect(datos.anio.total).toEqual(anio.total)
+    expect(datos.ultimos12Meses.porFinca).toEqual(ultimos.porFinca)
+    expect(datos.ultimos12Meses.total).toEqual(ultimos.total)
+    const fila = anio.porFinca.find((f) => f.nombre === 'Piso test')!
+    const directa = rentabilidadEnRango(piso, txs, desde, hasta, hoy)
+    expect(fila.bruta).toBe(directa.bruta)
+    expect(fila.neta).toBe(directa.neta)
+    expect(fila.mesesVacios).toBe(5)
+    expect(fila.rentas).toBe(6000)
+    expect(fila.gastos).toBe(1000)
+    expect(fila.bruta).toBeCloseTo(6, 6)
+    expect(fila.neta).toBeCloseTo(5, 6)
+    expect(anio.porFinca.find((f) => f.nombre === 'Sin valor')).toMatchObject({
+      bruta: null,
+      neta: null,
+      motivo: 'Sin valor de mercado.',
+    })
+    expect(anio.porFinca.map((f) => f.nombre)).not.toContain('De Martín')
+    const json = JSON.stringify(datos)
+    expect(json).not.toContain('12345678Z')
+    expect(json).not.toContain('ana@example.com')
+    expect(json).not.toContain('600000000')
+    expect(json).not.toContain('drive')
+    expect(json).not.toContain('nif')
   })
 })

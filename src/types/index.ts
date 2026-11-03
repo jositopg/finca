@@ -185,32 +185,15 @@ export function amortizacionAnual(
 
 // Meses del año civil con ocupación de alquiler (contrato en vigor o
 // historial). Sin fechas, un inmueble que sigue `alquilado` cuenta 12;
-// vacío/reforma/venta sin historial ese año, 0.
+// vacío/reforma/venta sin historial ese año, 0. La ocupación mes a mes
+// está en `mesesOcupados`. Ese relleno de 12 meses no se usa para los
+// meses vacíos: ahí un contrato que no cubre el año deja el hueco.
 export function mesesAlquiladosEnAnio(
   propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'>,
   anio: string,
 ): number {
-  const desde = `${anio}-01-01`
-  const hasta = `${anio}-12-31`
-  const periodos: { ini: string; fin: string }[] = []
-  for (const h of propiedad.historialContratos ?? []) {
-    periodos.push({ ini: h.fechaInicio ?? h.fechaFin, fin: h.fechaFin })
-  }
-  if (propiedad.contratoInicio) {
-    let fin = propiedad.contratoFin ?? hasta
-    if (propiedad.estado === 'alquilado' && (!propiedad.contratoFin || propiedad.contratoFin < hasta)) {
-      fin = hasta
-    }
-    periodos.push({ ini: propiedad.contratoInicio, fin })
-  }
-  const meses = new Set<string>()
-  for (const per of periodos) {
-    const a = per.ini > desde ? per.ini : desde
-    const b = per.fin < hasta ? per.fin : hasta
-    if (a > b) continue
-    for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m)
-  }
-  if (meses.size > 0) return meses.size
+  const meses = mesesOcupados(propiedad, `${anio}-01-01`, `${anio}-12-31`)
+  if (meses.length > 0) return meses.length
   if (propiedad.estado === 'alquilado') return 12
   return 0
 }
@@ -235,6 +218,15 @@ function ultimosNMeses(hoy: Date, n: number): string[] {
     }
   }
   return meses
+}
+
+// Desde el día 1 del mes más antiguo hasta el último día del mes de `hoy`.
+// La misma ventana que usa `valorarPropiedad` para los últimos 12 meses.
+export function rangoUltimosMeses(hoy: Date, n = 12): { desde: string; hasta: string } {
+  const meses = ultimosNMeses(hoy, n)
+  const [desde] = rangoMes(meses[0])
+  const [, hasta] = rangoMes(meses[meses.length - 1])
+  return { desde, hasta }
 }
 
 export interface ValoracionPropiedad {
@@ -351,6 +343,64 @@ function mesesEntre(desdeYYYYMM: string, hastaYYYYMM: string): string[] {
     }
   }
   return meses
+}
+
+// Meses YYYY-MM con contrato vigente entre dos fechas, inclusive.
+// Si sigue `alquilado` y el fin falta o cae antes del cierre del rango,
+// la ocupación llega hasta ese cierre (tácita). No rellena el rango cuando
+// no hay ninguna fecha: de eso se ocupa `mesesAlquiladosEnAnio`.
+export function mesesOcupados(
+  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'>,
+  desde: string,
+  hasta: string,
+): string[] {
+  const periodos: { ini: string; fin: string }[] = []
+  for (const h of propiedad.historialContratos ?? []) {
+    periodos.push({ ini: h.fechaInicio ?? h.fechaFin, fin: h.fechaFin })
+  }
+  if (propiedad.contratoInicio) {
+    let fin = propiedad.contratoFin ?? hasta
+    if (propiedad.estado === 'alquilado' && (!propiedad.contratoFin || propiedad.contratoFin < hasta)) {
+      fin = hasta
+    }
+    periodos.push({ ini: propiedad.contratoInicio, fin })
+  }
+  const meses = new Set<string>()
+  for (const per of periodos) {
+    const a = per.ini > desde ? per.ini : desde
+    const b = per.fin < hasta ? per.fin : hasta
+    if (a > b) continue
+    for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m)
+  }
+  return [...meses].sort()
+}
+
+function mesYaEmpezado(mes: string, hoy: Date): boolean {
+  const [y, m] = mes.split('-').map(Number)
+  return y < hoy.getFullYear() || (y === hoy.getFullYear() && m <= hoy.getMonth() + 1)
+}
+
+function hayFechasDeContrato(
+  propiedad: Pick<Propiedad, 'contratoInicio' | 'historialContratos'>,
+): boolean {
+  if (propiedad.contratoInicio) return true
+  return (propiedad.historialContratos ?? []).some((h) => h.fechaInicio || h.fechaFin)
+}
+
+// Meses del rango sin contrato vigente. Un mes que todavía no ha empezado
+// no cuenta. Sin ninguna fecha y estado `alquilado`, no hay vacíos. No son
+// los huecos de renta, agua o luz sin registrar.
+export function mesesVaciosEnRango(
+  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos' | 'sinRenta'>,
+  desde: string,
+  hasta: string,
+  hoy: Date = new Date(),
+): string[] {
+  if (propiedad.sinRenta) return []
+  const ventana = mesesEntre(desde.slice(0, 7), hasta.slice(0, 7)).filter((mes) => mesYaEmpezado(mes, hoy))
+  const ocupados = new Set(mesesOcupados(propiedad, desde, hasta))
+  if (ocupados.size === 0 && propiedad.estado === 'alquilado' && !hayFechasDeContrato(propiedad)) return []
+  return ventana.filter((mes) => !ocupados.has(mes))
 }
 
 // Tasa de basuras fija: cubre el año civil entero (los meses de 2026 que
@@ -1620,6 +1670,20 @@ export function sumIngresosEnRango(
   }, 0)
 }
 
+// Alquiler y otros ingresos, a la parte de Jose. La fianza no es renta.
+// En un local es el importe cobrado, no la base de IRPF.
+export function sumRentasEnRango(
+  propiedad: Pick<Propiedad, 'id' | 'porcentajePropiedad'>,
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+): number {
+  return txsDePropiedad(propiedad, transacciones).reduce((s, t) => {
+    if (t.tipo !== 'ingreso' || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return s
+    return s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+  }, 0)
+}
+
 function cuotaOtrosEnRango(
   t: Transaccion,
   propiedad: Pick<Propiedad, 'reparto' | 'gastosRecurrentes'>,
@@ -1687,6 +1751,135 @@ export function resumenVariasEnRango(
     inquilino += r.suministros.inquilino
   }
   return { ingresos: round2(ingresos), gastos: round2(gastos), inquilino: round2(inquilino) }
+}
+
+export interface CifraRentabilidad {
+  bruta: number | null // % del periodo, sin anualizar
+  neta: number | null
+  rentas: number
+  gastos: number
+  valorMercado: number | null // parte de la cuota; es el denominador
+  mesesVacios: number
+  motivo?: string
+}
+
+export interface RentabilidadFinca extends CifraRentabilidad {
+  nombre: string
+}
+
+export interface RentabilidadPeriodo {
+  desde: string
+  hasta: string
+  porFinca: RentabilidadFinca[]
+  total: CifraRentabilidad
+}
+
+type PropiedadRentable = Pick<
+  Propiedad,
+  | 'id'
+  | 'tipo'
+  | 'estado'
+  | 'reparto'
+  | 'gastosRecurrentes'
+  | 'porcentajePropiedad'
+  | 'valorMercado'
+  | 'cuotaPropiedad'
+  | 'sinRenta'
+  | 'contratoInicio'
+  | 'contratoFin'
+  | 'historialContratos'
+>
+
+// Rentabilidad del periodo sobre el valor de mercado × cuota. No anualiza
+// y no usa el valor de referencia: eso sigue siendo `valorarPropiedad`.
+export function rentabilidadEnRango(
+  propiedad: PropiedadRentable,
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+  hoy: Date = new Date(),
+): CifraRentabilidad {
+  if (propiedad.sinRenta) {
+    return {
+      bruta: null,
+      neta: null,
+      rentas: 0,
+      gastos: 0,
+      valorMercado: null,
+      mesesVacios: 0,
+      motivo: 'Sin renta.',
+    }
+  }
+  const mesesVacios = mesesVaciosEnRango(propiedad, desde, hasta, hoy).length
+  const rentas = round2(sumRentasEnRango(propiedad, transacciones, desde, hasta))
+  const gastos = sumGastosEnRango(propiedad, transacciones, desde, hasta)
+  const bruto = propiedad.valorMercado
+  const valor =
+    bruto != null && bruto > 0 ? round2(parteDeCuota(bruto, cuotaEfectiva(propiedad.cuotaPropiedad))) : 0
+  if (valor <= 0) {
+    return {
+      bruta: null,
+      neta: null,
+      rentas,
+      gastos,
+      valorMercado: null,
+      mesesVacios,
+      motivo: 'Sin valor de mercado.',
+    }
+  }
+  return {
+    bruta: (rentas / valor) * 100,
+    neta: ((rentas - gastos) / valor) * 100,
+    rentas,
+    gastos,
+    valorMercado: valor,
+    mesesVacios,
+  }
+}
+
+function totalRentabilidad(filas: RentabilidadFinca[]): CifraRentabilidad {
+  const conValor = filas.filter((f) => f.valorMercado != null && f.valorMercado > 0 && f.bruta != null)
+  const mesesVacios = filas.reduce((s, f) => s + f.mesesVacios, 0)
+  const rentas = round2(conValor.reduce((s, f) => s + f.rentas, 0))
+  const gastos = round2(conValor.reduce((s, f) => s + f.gastos, 0))
+  const valor = round2(conValor.reduce((s, f) => s + (f.valorMercado ?? 0), 0))
+  if (valor <= 0) {
+    return {
+      bruta: null,
+      neta: null,
+      rentas: 0,
+      gastos: 0,
+      valorMercado: null,
+      mesesVacios,
+      motivo: 'Sin valor de mercado.',
+    }
+  }
+  return {
+    bruta: (rentas / valor) * 100,
+    neta: ((rentas - gastos) / valor) * 100,
+    rentas,
+    gastos,
+    valorMercado: valor,
+    mesesVacios,
+  }
+}
+
+// Solo las fincas de Jose en alquiler. El total pondera por valor de mercado.
+export function rentabilidadCartera(
+  propiedades: readonly (PropiedadRentable & Pick<Propiedad, 'nombre' | 'propietarioNombre'>)[],
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+  hoy: Date = new Date(),
+): RentabilidadPeriodo {
+  const porFinca = propiedades
+    .filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
+    .map((p) => ({
+      nombre: p.nombre,
+      ...rentabilidadEnRango(p, transacciones, desde, hasta, hoy),
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  return { desde, hasta, porFinca, total: totalRentabilidad(porFinca) }
 }
 
 export interface DesgloseRepercutible {

@@ -51,7 +51,9 @@ import {
   parseImporte,
   rangoAnio,
   rangoMes,
+  rangoUltimosMeses,
   rentaPendiente,
+  rentabilidadEnRango,
   resumenEnRango,
   tareaVencida,
   TIPO_LABELS,
@@ -150,6 +152,15 @@ function PropiedadesSidebar({
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function CifrasPct({ bruta, neta }: { bruta: number; neta: number }) {
+  return (
+    <span className="tabular-nums text-on-surface">
+      {bruta.toFixed(2)}% bruta ·{' '}
+      <span className={neta >= 0 ? 'text-success' : 'text-error'}>{neta.toFixed(2)}% neta</span>
+    </span>
+  )
 }
 
 function groupByMonth(txs: Transaccion[]): { mes: string; items: Transaccion[] }[] {
@@ -561,25 +572,31 @@ function PropiedadesPanel({
     const alquilerHoy = alquilerVigente(propiedad)
     const tareasVencidas = tareas.filter((t) => t.propiedadId === propiedad.id && tareaVencida(t)).length
 
-    // Rentabilidad anual (sobre el año en curso, independiente del filtro de mes)
-    // Prorrateada por periodo facturado (agua/luz), no por fecha de pago.
+    // Misma cifra que la herramienta `rentabilidad`: año en curso y últimos
+    // 12 meses sobre el valor de mercado. La fila de referencia sigue el
+    // resumen del año, fianza incluida. El ranking no usa este cálculo.
+    const hoyFicha = new Date()
     const [desdeAnioActual, hastaAnioActual] = rangoAnio(currentYearStr)
     const resumenAnio = resumenEnRango(propiedad, txs, desdeAnioActual, hastaAnioActual)
-    const ingresosAnioActual = resumenAnio.ingresos
-    const gastosAnioActual = resumenAnio.gastos
     const cuotaFicha = cuotaEfectiva(propiedad.cuotaPropiedad)
-    const valorParaRentabilidad = (total: number | undefined) =>
-      propiedad.sinRenta || total == null ? undefined : parteDeCuota(total, cuotaFicha)
-    const rentabilidadMercado = calcularRentabilidad(
-      ingresosAnioActual,
-      gastosAnioActual,
-      valorParaRentabilidad(propiedad.valorMercado),
-    )
     const rentabilidadReferencia = calcularRentabilidad(
-      ingresosAnioActual,
-      gastosAnioActual,
-      valorParaRentabilidad(propiedad.valorReferencia),
+      resumenAnio.ingresos,
+      resumenAnio.gastos,
+      propiedad.sinRenta || propiedad.valorReferencia == null
+        ? undefined
+        : parteDeCuota(propiedad.valorReferencia, cuotaFicha),
     )
+    const rentabilidadAnio = rentabilidadEnRango(propiedad, txs, desdeAnioActual, hastaAnioActual, hoyFicha)
+    const ventana12 = rangoUltimosMeses(hoyFicha)
+    const rentabilidad12 = rentabilidadEnRango(propiedad, txs, ventana12.desde, ventana12.hasta, hoyFicha)
+    const mercadoAnio =
+      rentabilidadAnio.bruta != null && rentabilidadAnio.neta != null
+        ? { bruta: rentabilidadAnio.bruta, neta: rentabilidadAnio.neta }
+        : null
+    const mercado12 =
+      rentabilidad12.bruta != null && rentabilidad12.neta != null
+        ? { bruta: rentabilidad12.bruta, neta: rentabilidad12.neta }
+        : null
     const umbralNetaParseado = parseImporte(umbralNetaStr)
     const umbralNeta = Number.isNaN(umbralNetaParseado) ? 4 : umbralNetaParseado
     const valoracion = valorarPropiedad(propiedad, transacciones, umbralNeta)
@@ -972,33 +989,44 @@ function PropiedadesPanel({
         </div>
 
         {/* Rentabilidad */}
-        {(rentabilidadMercado || rentabilidadReferencia) && (
+        {!propiedad.sinRenta && (mercadoAnio || rentabilidadAnio.motivo || rentabilidadReferencia) && (
           <div className="px-5 mb-5">
             <div className="bg-surface-lowest rounded-2xl shadow-soft p-4">
               <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-3">
                 Rentabilidad {currentYearStr}
               </p>
               <div className="flex flex-col gap-2">
-                {rentabilidadMercado && (
-                  <div className="flex items-center justify-between text-xs">
+                {(mercadoAnio || rentabilidadAnio.motivo) && (
+                  <div className="flex items-center justify-between gap-3 text-xs">
                     <span className="text-outline-variant">Sobre valor de mercado</span>
-                    <span className="tabular-nums text-on-surface">
-                      {rentabilidadMercado.bruta.toFixed(2)}% bruta ·{' '}
-                      <span className={rentabilidadMercado.neta >= 0 ? 'text-success' : 'text-error'}>
-                        {rentabilidadMercado.neta.toFixed(2)}% neta
-                      </span>
+                    {mercadoAnio ? (
+                      <CifrasPct bruta={mercadoAnio.bruta} neta={mercadoAnio.neta} />
+                    ) : (
+                      <span className="text-outline-variant text-right">{rentabilidadAnio.motivo}</span>
+                    )}
+                  </div>
+                )}
+                {esDeAlquiler(propiedad) && (
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-outline-variant">Meses vacíos</span>
+                    <span className="tabular-nums text-on-surface">{rentabilidadAnio.mesesVacios}</span>
+                  </div>
+                )}
+                {mercado12 && (
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-outline-variant">Últimos 12 meses</span>
+                    <span className="text-right">
+                      <CifrasPct bruta={mercado12.bruta} neta={mercado12.neta} />
+                      {esDeAlquiler(propiedad) && (
+                        <span className="text-outline-variant"> · {rentabilidad12.mesesVacios} vacíos</span>
+                      )}
                     </span>
                   </div>
                 )}
                 {rentabilidadReferencia && (
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between gap-3 text-xs">
                     <span className="text-outline-variant">Sobre valor de referencia</span>
-                    <span className="tabular-nums text-on-surface">
-                      {rentabilidadReferencia.bruta.toFixed(2)}% bruta ·{' '}
-                      <span className={rentabilidadReferencia.neta >= 0 ? 'text-success' : 'text-error'}>
-                        {rentabilidadReferencia.neta.toFixed(2)}% neta
-                      </span>
-                    </span>
+                    <CifrasPct bruta={rentabilidadReferencia.bruta} neta={rentabilidadReferencia.neta} />
                   </div>
                 )}
               </div>
