@@ -5,12 +5,19 @@ import { randomUUID } from 'node:crypto'
 import {
   CATEGORIAS_GASTO,
   CATEGORIAS_INGRESO,
+  FichaError,
+  cambiosDeFicha,
+  fechaDeHoy,
+  fusionarFicha,
+  interpretarCamposFicha,
   parseImporte,
+  type CamposFicha,
+  type ParcheFicha,
   type Propiedad,
   type Tarea,
   type Transaccion,
 } from '../../src/types/index.ts'
-import { ConsultaError, normalizar, resolverFinca } from './consultar.ts'
+import { ConsultaError, fichaPublica, normalizar, resolverFinca } from './consultar.ts'
 import type { Foto } from './foto.ts'
 
 export interface FichaEscritura {
@@ -28,7 +35,7 @@ export interface Orden {
   resultado: Record<string, unknown>
 }
 
-const CLAVES = new Set(['registrar_cobro', 'registrar_gasto', 'cerrar_tarea'])
+const CLAVES = new Set(['registrar_cobro', 'registrar_gasto', 'cerrar_tarea', 'fijar_ficha'])
 
 export function esEscritura(nombre: string): boolean {
   return CLAVES.has(nombre)
@@ -84,6 +91,41 @@ export const fichasEscritura: FichaEscritura[] = [
         ...esquemaComun,
       },
       required: ['finca', 'importe', 'categoria'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'fijar_ficha',
+    description:
+      'Actualiza la ficha de escritura de un inmueble que ya existe: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Sin confirmar:true no escribe y devuelve el antes y el después. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        finca: { type: 'string', description: 'Nombre o id de un inmueble que ya existe.' },
+        campos: {
+          type: 'object',
+          description:
+            'Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100. null borra el campo.',
+          properties: {
+            referenciaCatastral: { type: 'string' },
+            valorAdquisicion: { type: 'number' },
+            fechaAdquisicion: { type: 'string' },
+            tipoAdquisicion: { type: 'string' },
+            metrosCuadrados: { type: 'number' },
+            valorMercado: { type: 'number' },
+            fechaValorMercado: { type: 'string' },
+            valorReferencia: { type: 'number' },
+            valorConstruccion: { type: 'number' },
+            cuotaPropiedad: {},
+            sinRenta: { type: 'boolean' },
+            financiacion: { type: 'object' },
+            copropietarios: { type: 'array' },
+          },
+          additionalProperties: false,
+        },
+        ...esquemaComun,
+      },
+      required: ['finca', 'campos'],
       additionalProperties: false,
     },
   },
@@ -204,6 +246,69 @@ const INSERT_MOVIMIENTO = `insert into transacciones (
   periodo_inicio, periodo_fin, solo_mio, igic_soportado
 ) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12)`
 
+const COLUMNAS_FICHA: Partial<Record<keyof CamposFicha, string>> = {
+  referenciaCatastral: 'referencia_catastral',
+  valorAdquisicion: 'valor_adquisicion',
+  fechaAdquisicion: 'fecha_adquisicion',
+  tipoAdquisicion: 'tipo_adquisicion',
+  metrosCuadrados: 'metros_cuadrados',
+  valorMercado: 'valor_mercado',
+  fechaValorMercado: 'fecha_valor_mercado',
+  valorReferencia: 'valor_referencia',
+  valorConstruccion: 'valor_construccion',
+  sinRenta: 'sin_renta',
+}
+
+function sqlFicha(id: string, parche: ParcheFicha): { sql: string; params: unknown[] } {
+  const sets: string[] = []
+  const params: unknown[] = []
+  const add = (columna: string, valor: unknown, cast = '') => {
+    params.push(valor)
+    sets.push(`${columna} = $${params.length}${cast}`)
+  }
+  for (const campo of Object.keys(COLUMNAS_FICHA) as (keyof CamposFicha)[]) {
+    if (!(campo in parche)) continue
+    add(COLUMNAS_FICHA[campo] as string, parche[campo] ?? null)
+  }
+  if ('cuotaPropiedad' in parche) {
+    const cuota = parche.cuotaPropiedad
+    add('cuota_numerador', cuota?.numerador ?? null)
+    add('cuota_denominador', cuota?.denominador ?? null)
+    add('cuota_valor', cuota?.valor ?? null)
+  }
+  if ('financiacion' in parche) {
+    add('financiacion', parche.financiacion ? JSON.stringify(parche.financiacion) : null, '::jsonb')
+  }
+  if ('copropietarios' in parche) {
+    const lista = parche.copropietarios
+    add('copropietarios', lista && lista.length > 0 ? JSON.stringify(lista) : null, '::jsonb')
+  }
+  params.push(id)
+  return { sql: `update propiedades set ${sets.join(', ')} where id = $${params.length}`, params }
+}
+
+function ordenFicha(finca: Propiedad, entrada: unknown, confirmar: boolean, clave: string | undefined, hoy: Date): Orden {
+  let parche: ParcheFicha
+  try {
+    parche = interpretarCamposFicha(entrada, fechaDeHoy(hoy))
+  } catch (err) {
+    if (err instanceof FichaError) throw new ConsultaError(err.message)
+    throw err
+  }
+  const cambios = cambiosDeFicha(finca, parche)
+  const siguiente = fusionarFicha(finca, parche)
+  const ficha = fichaPublica(siguiente, hoy)
+  const sentencia = sqlFicha(finca.id, parche)
+  return {
+    herramienta: 'fijar_ficha',
+    confirmar,
+    clave,
+    vista: { escrito: false, vistaPrevia: true, finca: finca.nombre, cambios, ficha },
+    sentencias: [sentencia],
+    resultado: { escrito: true, repetida: false, finca: finca.nombre, cambios, ficha },
+  }
+}
+
 function ordenMovimiento(herramienta: string, t: Transaccion, finca: Propiedad, confirmar: boolean, clave?: string): Orden {
   const movimiento = movimientoDe(t, finca)
   const resultado = { escrito: true, repetida: false, movimiento }
@@ -281,6 +386,10 @@ export function planificar(nombre: string, args: unknown, foto: Foto, hoy: Date 
   const nombreFinca = texto(datos, 'finca')
   if (!nombreFinca) throw new ConsultaError('Falta "finca".')
   const finca = resolverFinca(foto.propiedades, nombreFinca)
+
+  if (nombre === 'fijar_ficha') {
+    return ordenFicha(finca, datos.campos, confirmar, clave, hoy)
+  }
   const fecha = fechaDe(datos, hoy)
   const mes = mesDe(datos, fecha)
   const importe = euros(datos, 'importe')

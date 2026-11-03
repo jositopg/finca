@@ -102,7 +102,12 @@ describe('aplicarEscritura', () => {
           db.guardado = estado.guardado
           return { rows: [], rowCount: 1 }
         }
-        if (sql.startsWith('insert into transacciones') || sql.startsWith('update tareas') || sql.startsWith('create table')) {
+        if (
+          sql.startsWith('insert into transacciones') ||
+          sql.startsWith('update tareas') ||
+          sql.startsWith('update propiedades') ||
+          sql.startsWith('create table')
+        ) {
           return { rows: [], rowCount: 1 }
         }
         throw new Error(`sql inesperada: ${sql}`)
@@ -123,5 +128,88 @@ describe('aplicarEscritura', () => {
     const segunda = await aplicarEscritura('registrar_cobro', args, { foto, hoy, db })
     expect(primera).toMatchObject({ escrito: true, repetida: false })
     expect(segunda).toMatchObject({ escrito: true, repetida: true, movimiento: (primera as { movimiento: unknown }).movimiento })
+  })
+
+  it('fijar_ficha sin confirmar no escribe, y confirmar sin clave falla', async () => {
+    const db: ConsultaSql = {
+      async query() {
+        throw new Error('no debía abrir la base')
+      },
+    }
+    const previa = await aplicarEscritura(
+      'fijar_ficha',
+      { finca: 'Quimel', campos: { metrosCuadrados: 40, tipoAdquisicion: 'herencia' } },
+      { foto, hoy, db },
+    )
+    expect(previa).toMatchObject({
+      escrito: false,
+      vistaPrevia: true,
+      cambios: [
+        { campo: 'tipoAdquisicion', antes: null, despues: 'herencia' },
+        { campo: 'metrosCuadrados', antes: null, despues: 40 },
+      ],
+    })
+    expect(() =>
+      planificar('fijar_ficha', { finca: 'Quimel', campos: { metrosCuadrados: 40 }, confirmar: true }, foto, hoy),
+    ).toThrow(/clave/)
+  })
+
+  it('la misma clave no actualiza la ficha dos veces', async () => {
+    let updates = 0
+    const db = memoria()
+    const original = db.query.bind(db)
+    db.query = async (sql, params) => {
+      if (sql.startsWith('update propiedades')) updates += 1
+      return original(sql, params)
+    }
+    const args = {
+      finca: 'Quimel',
+      confirmar: true,
+      clave: 'ficha-quimel-herencia',
+      campos: {
+        referenciaCatastral: ' 7837301 vg8173b 0001 tt ',
+        tipoAdquisicion: 'herencia',
+        fechaAdquisicion: '2018-04-02',
+        valorAdquisicion: '90.000,00',
+        metrosCuadrados: 80,
+        valorMercado: 120000,
+        cuotaPropiedad: '1/12',
+      },
+    }
+    const primera = await aplicarEscritura('fijar_ficha', args, { foto, hoy, db })
+    const segunda = await aplicarEscritura('fijar_ficha', args, { foto, hoy, db })
+    expect(updates).toBe(1)
+    expect(primera).toMatchObject({
+      escrito: true,
+      repetida: false,
+      ficha: {
+        referenciaCatastral: '7837301VG8173B0001TT',
+        tipoAdquisicion: 'herencia',
+        fechaAdquisicion: '2018-04-02',
+        valorAdquisicion: 90000,
+        cuota: { numerador: 1, denominador: 12, valor: 0.083333 },
+        valores: { mercado: { total: 120000, parteJose: 10000 }, adquisicion: { total: 90000, parteJose: 7500 } },
+      },
+    })
+    expect(segunda).toMatchObject({ escrito: true, repetida: true, ficha: (primera as { ficha: unknown }).ficha })
+  })
+
+  it('rechaza un campo fuera de la lista, una referencia corta y una cuota imposible', () => {
+    expect(() => planificar('fijar_ficha', { finca: 'Quimel', campos: { dni: '123' } }, foto, hoy)).toThrow(
+      /no es un campo/,
+    )
+    expect(() =>
+      planificar('fijar_ficha', { finca: 'Quimel', campos: { referenciaCatastral: '1234567890123456789' } }, foto, hoy),
+    ).toThrow(/20 caracteres/)
+    expect(() =>
+      planificar('fijar_ficha', { finca: 'Quimel', campos: { referenciaCatastral: '123456789012345678901' } }, foto, hoy),
+    ).toThrow(/20 caracteres/)
+    expect(() => planificar('fijar_ficha', { finca: 'Quimel', campos: { cuotaPropiedad: 0 } }, foto, hoy)).toThrow(/cuota/)
+    expect(() => planificar('fijar_ficha', { finca: 'Quimel', campos: { cuotaPropiedad: '3/2' } }, foto, hoy)).toThrow(
+      /cuota/,
+    )
+    expect(() =>
+      planificar('fijar_ficha', { finca: 'Quimel', campos: { copropietarios: [{ nombre: 'Ana', porcentaje: 40, dni: '1' }] } }, foto, hoy),
+    ).toThrow(/nombre y porcentaje/)
   })
 })

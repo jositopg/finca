@@ -3,7 +3,7 @@ import { Client, types } from "pg";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-//#region src/types/index.ts
+//#region src/types/importe.ts
 function parseImporte(raw) {
 	const s = raw.trim().replace(/€/g, "").trim();
 	if (!s) return NaN;
@@ -16,15 +16,298 @@ function parseImporte(raw) {
 	if (puntos > 1) return Number(s.replace(/\./g, ""));
 	return Number(s);
 }
+//#endregion
+//#region src/types/ficha.ts
+var FichaError = class extends Error {};
+var LISTA = /* @__PURE__ */ new Set([
+	"referenciaCatastral",
+	"valorAdquisicion",
+	"fechaAdquisicion",
+	"tipoAdquisicion",
+	"metrosCuadrados",
+	"valorMercado",
+	"fechaValorMercado",
+	"valorReferencia",
+	"valorConstruccion",
+	"cuotaPropiedad",
+	"sinRenta",
+	"financiacion",
+	"copropietarios"
+]);
+var TIPOS_ADQUISICION = /* @__PURE__ */ new Set([
+	"herencia",
+	"donacion",
+	"compra"
+]);
+var ALFABETO = "ABCDEFGHIJKLMNÑOPQRSTUVWXYZ0123456789";
+var PESOS_DC = [
+	13,
+	15,
+	12,
+	5,
+	4,
+	17,
+	9,
+	21,
+	3,
+	7,
+	1
+];
+var LETRAS_DC = "MQWERTYUIOPASDFGHJKLBZX";
+var CUOTA_ENTERA = {
+	numerador: 1,
+	denominador: 1,
+	valor: 1
+};
+function fechaDeHoy(hoy = /* @__PURE__ */ new Date()) {
+	const mes = String(hoy.getMonth() + 1).padStart(2, "0");
+	const dia = String(hoy.getDate()).padStart(2, "0");
+	return `${hoy.getFullYear()}-${mes}-${dia}`;
+}
+function normalizarReferenciaCatastral(raw) {
+	return raw.replace(/[\s-]/g, "").toUpperCase();
+}
+function digitoControl(trozo) {
+	let suma = 0;
+	for (let i = 0; i < trozo.length; i++) {
+		const c = trozo[i];
+		const valor = c >= "0" && c <= "9" ? c.charCodeAt(0) - 48 : ALFABETO.indexOf(c) + 1;
+		suma += PESOS_DC[i] * valor;
+	}
+	return LETRAS_DC[suma % 23];
+}
+function validarReferenciaCatastral(raw) {
+	const ref = normalizarReferenciaCatastral(raw);
+	if (ref.length !== 20) throw new FichaError("La referencia catastral tiene que tener 20 caracteres.");
+	if (![...ref].every((c) => ALFABETO.includes(c))) throw new FichaError("La referencia catastral solo admite letras y números.");
+	if (digitoControl(ref.slice(0, 7) + ref.slice(14, 18)) + digitoControl(ref.slice(7, 14) + ref.slice(14, 18)) !== ref.slice(18)) throw new FichaError("La referencia catastral no cuadra: los dígitos de control no son válidos.");
+	return ref;
+}
+function gcd(a, b) {
+	let x = Math.abs(a);
+	let y = Math.abs(b);
+	while (y) {
+		const t = y;
+		y = x % y;
+		x = t;
+	}
+	return x || 1;
+}
+function reducir(numerador, denominador) {
+	if (!Number.isInteger(numerador) || !Number.isInteger(denominador)) throw new FichaError("La cuota tiene que ser una fracción de enteros, como 1/12.");
+	if (denominador === 0) throw new FichaError("La cuota no puede tener denominador 0.");
+	if (denominador < 0) {
+		numerador = -numerador;
+		denominador = -denominador;
+	}
+	if (numerador <= 0 || numerador > denominador) throw new FichaError("La cuota tiene que ser mayor que 0 y como máximo 1.");
+	const g = gcd(numerador, denominador);
+	numerador /= g;
+	denominador /= g;
+	return {
+		numerador,
+		denominador,
+		valor: Number((numerador / denominador).toFixed(6))
+	};
+}
+function fraccionDeDecimal(valor) {
+	let x = valor;
+	let h0 = 0;
+	let h1 = 1;
+	let k0 = 1;
+	let k1 = 0;
+	for (let i = 0; i < 30; i++) {
+		const a = Math.floor(x + 1e-12);
+		const h2 = a * h1 + h0;
+		const k2 = a * k1 + k0;
+		if (k2 > 1e5) break;
+		h0 = h1;
+		h1 = h2;
+		k0 = k1;
+		k1 = k2;
+		const resto = x - a;
+		if (resto < 1e-10) break;
+		x = 1 / resto;
+	}
+	return reducir(h1, k1);
+}
+function validarCuota(raw) {
+	if (typeof raw === "number") {
+		if (!Number.isFinite(raw) || raw <= 0 || raw > 1) throw new FichaError("La cuota tiene que ser mayor que 0 y como máximo 1.");
+		return fraccionDeDecimal(raw);
+	}
+	if (typeof raw !== "string") throw new FichaError("La cuota tiene que ser un número o una fracción como 1/12.");
+	const texto = raw.trim().replace(",", ".");
+	const fraccion = /^(\d+)\s*\/\s*(\d+)$/.exec(texto);
+	if (fraccion) return reducir(Number(fraccion[1]), Number(fraccion[2]));
+	const n = Number(texto);
+	if (!Number.isFinite(n) || n <= 0 || n > 1) throw new FichaError("La cuota tiene que ser mayor que 0 y como máximo 1.");
+	return fraccionDeDecimal(n);
+}
+function cuotaEfectiva(cuota) {
+	return cuota ?? CUOTA_ENTERA;
+}
+function parteDeCuota(total, cuota) {
+	return Math.round(total * cuota.numerador * 100 / cuota.denominador) / 100;
+}
+function valorDe(total, cuota) {
+	if (total == null || !Number.isFinite(total)) return {
+		total: null,
+		parteJose: null
+	};
+	const redondo = Math.round(total * 100) / 100;
+	return {
+		total: redondo,
+		parteJose: parteDeCuota(redondo, cuota)
+	};
+}
+function valoresProporcionales(p) {
+	const cuota = cuotaEfectiva(p.cuotaPropiedad);
+	return {
+		cuota,
+		mercado: valorDe(p.valorMercado, cuota),
+		referencia: valorDe(p.valorReferencia, cuota),
+		construccion: valorDe(p.valorConstruccion, cuota),
+		adquisicion: valorDe(p.valorAdquisicion, cuota)
+	};
+}
+function validarFecha(raw, campo) {
+	if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw new FichaError(`"${campo}" tiene que ser YYYY-MM-DD.`);
+	const [anio, mes, dia] = raw.split("-").map(Number);
+	const comprobada = new Date(Date.UTC(anio, mes - 1, dia));
+	if (comprobada.getUTCFullYear() !== anio || comprobada.getUTCMonth() !== mes - 1 || comprobada.getUTCDate() !== dia) throw new FichaError(`"${campo}" no existe.`);
+	return raw;
+}
+function validarFechaNoFutura(raw, campo, hoy) {
+	const fecha = validarFecha(raw, campo);
+	if (fecha > hoy) throw new FichaError(`"${campo}" no puede ser futura.`);
+	return fecha;
+}
+function validarImporte(raw, campo, permitirCero = false) {
+	const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseImporte(raw) : NaN;
+	if (!Number.isFinite(n)) throw new FichaError(`"${campo}" tiene que ser un importe.`);
+	const redondo = Math.round(n * 100) / 100;
+	if (redondo < 0) throw new FichaError(`"${campo}" no puede ser negativo.`);
+	if (!permitirCero && redondo === 0) throw new FichaError(`"${campo}" tiene que ser mayor que cero.`);
+	return redondo;
+}
+function validarTipoAdquisicion(raw) {
+	if (typeof raw !== "string" || !TIPOS_ADQUISICION.has(raw)) throw new FichaError("\"tipoAdquisicion\" tiene que ser herencia, donacion o compra.");
+	return raw;
+}
+function validarBandera(raw, campo) {
+	if (raw === true || raw === "true") return true;
+	if (raw === false || raw === "false") return false;
+	throw new FichaError(`"${campo}" tiene que ser true o false.`);
+}
+function validarFinanciacion(raw) {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new FichaError("\"financiacion\" tiene que ser un objeto.");
+	const datos = raw;
+	const permitidas = /* @__PURE__ */ new Set([
+		"capitalPendiente",
+		"cuotaMensual",
+		"tipoInteres",
+		"fechaFin"
+	]);
+	for (const clave of Object.keys(datos)) if (!permitidas.has(clave)) throw new FichaError(`"${clave}" no es un dato de la financiación.`);
+	const out = {};
+	if (datos.capitalPendiente != null && datos.capitalPendiente !== "") out.capitalPendiente = validarImporte(datos.capitalPendiente, "capitalPendiente", true);
+	if (datos.cuotaMensual != null && datos.cuotaMensual !== "") out.cuotaMensual = validarImporte(datos.cuotaMensual, "cuotaMensual", true);
+	if (datos.tipoInteres != null && datos.tipoInteres !== "") {
+		const n = typeof datos.tipoInteres === "number" ? datos.tipoInteres : Number(datos.tipoInteres);
+		if (!Number.isFinite(n) || n < 0 || n > 100) throw new FichaError("\"tipoInteres\" tiene que estar entre 0 y 100.");
+		out.tipoInteres = Math.round(n * 1e4) / 1e4;
+	}
+	if (datos.fechaFin != null && datos.fechaFin !== "") out.fechaFin = validarFecha(datos.fechaFin, "fechaFin");
+	if (Object.keys(out).length === 0) throw new FichaError("\"financiacion\" no trae ningún dato.");
+	return out;
+}
+function validarCopropietarios(raw) {
+	if (!Array.isArray(raw)) throw new FichaError("\"copropietarios\" tiene que ser una lista.");
+	if (raw.length === 0) return [];
+	const lista = [];
+	for (const item of raw) {
+		if (!item || typeof item !== "object" || Array.isArray(item)) throw new FichaError("Cada copropietario tiene que tener nombre y porcentaje.");
+		const fila = item;
+		for (const clave of Object.keys(fila)) if (clave !== "nombre" && clave !== "porcentaje") throw new FichaError("\"copropietarios\" solo admite nombre y porcentaje.");
+		if (typeof fila.nombre !== "string" || !fila.nombre.trim()) throw new FichaError("Cada copropietario tiene que tener nombre.");
+		const porcentaje = validarImporte(fila.porcentaje, "porcentaje", false);
+		if (porcentaje > 100) throw new FichaError("El porcentaje de un copropietario no puede pasar de 100.");
+		lista.push({
+			nombre: fila.nombre.trim(),
+			porcentaje
+		});
+	}
+	const suma = Math.round(lista.reduce((s, c) => s + c.porcentaje, 0) * 100) / 100;
+	if (Math.abs(suma - 100) > .01) throw new FichaError("Los porcentajes de los copropietarios tienen que sumar 100.");
+	return lista;
+}
+function asignar(parche, clave, valor) {
+	parche[clave] = valor;
+}
+function interpretarCamposFicha(entrada, hoy) {
+	if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) throw new FichaError("\"campos\" tiene que ser un objeto.");
+	const datos = entrada;
+	const claves = Object.keys(datos);
+	if (claves.length === 0) throw new FichaError("No hay ningún campo que guardar.");
+	for (const clave of claves) {
+		if (clave === "valorDeclaradoHerencia") throw new FichaError("\"valorDeclaradoHerencia\" no es un campo. Usa valorAdquisicion.");
+		if (!LISTA.has(clave)) throw new FichaError(`"${clave}" no es un campo de la ficha.`);
+	}
+	const parche = {};
+	const leer = (clave, convertir) => {
+		if (!(clave in datos)) return;
+		const valor = datos[clave];
+		asignar(parche, clave, valor == null ? null : convertir(valor));
+	};
+	leer("referenciaCatastral", (valor) => {
+		if (typeof valor !== "string") throw new FichaError("\"referenciaCatastral\" tiene que ser texto.");
+		return validarReferenciaCatastral(valor);
+	});
+	leer("valorAdquisicion", (valor) => validarImporte(valor, "valorAdquisicion"));
+	leer("fechaAdquisicion", (valor) => validarFechaNoFutura(valor, "fechaAdquisicion", hoy));
+	leer("tipoAdquisicion", (valor) => validarTipoAdquisicion(valor));
+	leer("metrosCuadrados", (valor) => validarImporte(valor, "metrosCuadrados"));
+	leer("valorMercado", (valor) => validarImporte(valor, "valorMercado"));
+	leer("fechaValorMercado", (valor) => validarFechaNoFutura(valor, "fechaValorMercado", hoy));
+	leer("valorReferencia", (valor) => validarImporte(valor, "valorReferencia"));
+	leer("valorConstruccion", (valor) => validarImporte(valor, "valorConstruccion"));
+	leer("cuotaPropiedad", (valor) => validarCuota(valor));
+	leer("sinRenta", (valor) => validarBandera(valor, "sinRenta"));
+	leer("financiacion", (valor) => validarFinanciacion(valor));
+	leer("copropietarios", (valor) => validarCopropietarios(valor));
+	return parche;
+}
+function fusionarFicha(actual, parche) {
+	const siguiente = { ...actual };
+	for (const clave of Object.keys(parche)) {
+		const valor = parche[clave];
+		if (valor == null) delete siguiente[clave];
+		else siguiente[clave] = valor;
+	}
+	return siguiente;
+}
+function cambiosDeFicha(actual, parche) {
+	return Object.keys(parche).map((campo) => ({
+		campo,
+		antes: actual[campo] ?? null,
+		despues: parche[campo] ?? null
+	}));
+}
+//#endregion
+//#region src/types/index.ts
 function esDeJose(propiedad) {
 	return !propiedad.propietarioNombre;
 }
 function esDeAlquiler(propiedad) {
 	return propiedad.estado !== "uso_propio" && propiedad.estado !== "vivienda_habitual";
 }
+function esRendimientoAlquiler(propiedad) {
+	return esDeAlquiler(propiedad) && !propiedad.sinRenta;
+}
 function amortizacionAnual(propiedad, anio) {
-	if (!propiedad.valorConstruccion) return 0;
-	const anual = miParte(propiedad.valorConstruccion, propiedad) * (3 / 100);
+	if (!propiedad.valorConstruccion || propiedad.sinRenta) return 0;
+	const anual = miParte(parteDeCuota(propiedad.valorConstruccion, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad) * (3 / 100);
 	if (!anio) return anual;
 	const meses = mesesAlquiladosEnAnio(propiedad, anio);
 	return Math.round(anual * (meses / 12) * 100) / 100;
@@ -111,6 +394,7 @@ function tramoEnFecha(propiedad, fecha) {
 	return vigente;
 }
 function alquilerVigente(propiedad, fecha, hoy = /* @__PURE__ */ new Date()) {
+	if (propiedad.sinRenta) return void 0;
 	const dia = fecha ?? fechaISO(hoy);
 	if (propiedad.contratoInicio && dia >= propiedad.contratoInicio) {
 		const tramo = tramoEnFecha(propiedad, dia);
@@ -190,7 +474,7 @@ function alquilerACobrar(propiedad, fecha, hoy = /* @__PURE__ */ new Date()) {
 	return bruta;
 }
 function rentaPendiente(propiedad, transacciones, hoy = /* @__PURE__ */ new Date()) {
-	if (propiedad.estado !== "alquilado") return false;
+	if (propiedad.sinRenta || propiedad.estado !== "alquilado") return false;
 	const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
 	const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy);
 	if (!esperado) return false;
@@ -199,7 +483,7 @@ function rentaPendiente(propiedad, transacciones, hoy = /* @__PURE__ */ new Date
 	return cobradoAlquilerEnMes(propiedad.id, transacciones, mesActual) + .005 < esperado;
 }
 function rentaDelMesIncompleta(propiedad, transacciones, hoy = /* @__PURE__ */ new Date()) {
-	if (propiedad.estado !== "alquilado") return false;
+	if (propiedad.sinRenta || propiedad.estado !== "alquilado") return false;
 	const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
 	const esperado = alquilerACobrar(propiedad, `${mesActual}-01`, hoy);
 	if (!esperado) return false;
@@ -282,7 +566,7 @@ function mesesSeguimientoAlquiler(propiedad, hoy = /* @__PURE__ */ new Date()) {
 	return mesesEntre(desde, mesActual);
 }
 function huecosMensuales(propiedad, transacciones, hoy = /* @__PURE__ */ new Date()) {
-	if (propiedad.estado !== "alquilado") return [];
+	if (propiedad.sinRenta || propiedad.estado !== "alquilado") return [];
 	const omitidos = new Set((propiedad.huecosMensualesOmitidos ?? []).map((h) => `${h.tipo}:${h.mes}`));
 	const txs = transacciones.filter((t) => t.propiedadId === propiedad.id);
 	const huecos = [];
@@ -311,7 +595,7 @@ function avisosDePropiedad(propiedad, transacciones, hoy = /* @__PURE__ */ new D
 		propiedadId: propiedad.id,
 		nombre: propiedad.nombre
 	};
-	const huecos = huecosMensuales(propiedad, transacciones, hoy);
+	const huecos = propiedad.sinRenta ? [] : huecosMensuales(propiedad, transacciones, hoy);
 	if (huecos.length > 0) {
 		const resumen = huecos.slice(0, 4).map((h) => `${HUECO_MENSUAL_LABEL[h.tipo].toLowerCase()} ${h.mes.slice(5, 7)}/${h.mes.slice(0, 4)}`).join(" · ");
 		avisos.push({
@@ -321,23 +605,23 @@ function avisosDePropiedad(propiedad, transacciones, hoy = /* @__PURE__ */ new D
 		});
 	}
 	const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`;
-	if (rentaPendiente(propiedad, transacciones, hoy) && !huecos.some((h) => h.tipo === "renta" && h.mes === mesActual)) avisos.push({
+	if (!propiedad.sinRenta && rentaPendiente(propiedad, transacciones, hoy) && !huecos.some((h) => h.tipo === "renta" && h.mes === mesActual)) avisos.push({
 		...base,
 		tipo: "renta",
 		mensaje: "Renta sin cobrar este mes"
 	});
-	if (propiedad.estado === "alquilado" && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) avisos.push({
+	if (!propiedad.sinRenta && propiedad.estado === "alquilado" && propiedad.fianzaImporte && !propiedad.fianzaDepositadaDesde) avisos.push({
 		...base,
 		tipo: "fianza",
 		mensaje: "Fianza pendiente de depositar (ICAVI)"
 	});
 	const estadoC = contratoEstado(propiedad.contratoFin, hoy);
-	if (propiedad.estado === "alquilado" && estadoC?.alerta) avisos.push({
+	if (!propiedad.sinRenta && propiedad.estado === "alquilado" && estadoC?.alerta) avisos.push({
 		...base,
 		tipo: "contrato",
 		mensaje: estadoC.vencido ? "Contrato en tácita reconducción" : `Contrato vence en ${estadoC.dias} días`
 	});
-	if (tocaRevisarRenta(propiedad, hoy)) avisos.push({
+	if (!propiedad.sinRenta && tocaRevisarRenta(propiedad, hoy)) avisos.push({
 		...base,
 		tipo: "revision",
 		mensaje: "Toca revisar la renta (IPC/IGC)"
@@ -736,6 +1020,7 @@ function historialCubreFecha(c, fecha) {
 	return fecha.slice(0, 4) === c.fechaFin.slice(0, 4);
 }
 function rentaPactadaEnFecha(propiedad, fecha) {
+	if (propiedad.sinRenta) return void 0;
 	if (cubreContratoEnFicha(propiedad, fecha)) {
 		const renta = tramoEnFecha(propiedad, fecha)?.alquilerMensual ?? propiedad.alquilerMensual;
 		if (renta != null && renta > 0) return renta;
@@ -870,6 +1155,15 @@ function ingresoIrpfDeTx(t, propiedad, desde, hasta) {
 	return bruto;
 }
 function rendimientoIrpfPropiedad(propiedad, transacciones, anio, reduccionViviendaPct) {
+	if (propiedad.sinRenta) return {
+		propiedad,
+		ingresos: 0,
+		gastos: 0,
+		amortizacion: 0,
+		rendimientoNeto: 0,
+		reducible: false,
+		rendimientoComputable: 0
+	};
 	const [desde, hasta] = rangoAnio(anio);
 	const txs = transacciones.filter((t) => t.propiedadId === propiedad.id);
 	const ingresos = sumIngresosEnRango(propiedad, txs, desde, hasta, { irpf: true });
@@ -985,7 +1279,7 @@ function normalizar(texto) {
 	return texto.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().trim();
 }
 function fincasDeJose(propiedades) {
-	return propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p));
+	return propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p));
 }
 function resolverFinca(propiedades, consulta) {
 	const q = normalizar(consulta);
@@ -999,11 +1293,12 @@ function resolverFinca(propiedades, consulta) {
 	if (elegidas.length === 0) throw new ConsultaError(`No hay ninguna finca que coincida con "${consulta}".`);
 	throw new ConsultaError(`"${consulta}" coincide con varias fincas: ${elegidas.map((p) => p.nombre).join(", ")}. Usa el nombre completo.`);
 }
-function fichaCorta(p, hoy) {
+function fichaPublica(p, hoy) {
 	const inclusion = inclusionAguaLuz(repartoEfectivo(p));
 	let aguaLuz = "sin configurar";
 	if (inclusion?.modo === "parcial_conjunto") aguaLuz = `cupo ${inclusion.importeMensual ?? 30} €/mes`;
 	else if (inclusion) aguaLuz = INCLUSION_AGUA_LUZ_LABEL[inclusion.modo];
+	const valores = valoresProporcionales(p);
 	return {
 		id: p.id,
 		nombre: p.nombre,
@@ -1016,7 +1311,24 @@ function fichaCorta(p, hoy) {
 		aguaLuz,
 		porcentaje: p.porcentajePropiedad ?? 100,
 		deJose: esDeJose(p),
-		propietario: p.propietarioNombre ?? null
+		propietario: p.propietarioNombre ?? null,
+		sinRenta: p.sinRenta ?? false,
+		referenciaCatastral: p.referenciaCatastral ?? null,
+		valorAdquisicion: p.valorAdquisicion ?? null,
+		fechaAdquisicion: p.fechaAdquisicion ?? null,
+		tipoAdquisicion: p.tipoAdquisicion ?? null,
+		metrosCuadrados: p.metrosCuadrados ?? null,
+		valorMercado: p.valorMercado ?? null,
+		fechaValorMercado: p.fechaValorMercado ?? null,
+		valorReferencia: p.valorReferencia ?? null,
+		valorConstruccion: p.valorConstruccion ?? null,
+		cuota: valores.cuota,
+		valores,
+		financiacion: p.financiacion ?? null,
+		copropietarios: (p.copropietarios ?? []).map((c) => ({
+			nombre: c.nombre,
+			porcentaje: c.porcentaje
+		}))
 	};
 }
 function trimestreDeFecha(fecha) {
@@ -1035,9 +1347,9 @@ var sinParametros = {
 var herramientas = [
 	{
 		name: "listar_fincas",
-		description: "Lista todas las fincas, también las de terceros y las de uso propio. No incluye DNI, email ni teléfono. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
+		description: "Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura (referencia, adquisición, cuota y valores proporcionales). No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
 		inputSchema: sinParametros,
-		ejecutar: (_args, foto, hoy) => ({ fincas: [...foto.propiedades].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((p) => fichaCorta(p, hoy)) })
+		ejecutar: (_args, foto, hoy) => ({ fincas: [...foto.propiedades].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((p) => fichaPublica(p, hoy)) })
 	},
 	{
 		name: "cobros_pendientes",
@@ -1415,7 +1727,8 @@ function ejecutar(nombre, args, foto, hoy = /* @__PURE__ */ new Date()) {
 var CLAVES = /* @__PURE__ */ new Set([
 	"registrar_cobro",
 	"registrar_gasto",
-	"cerrar_tarea"
+	"cerrar_tarea",
+	"fijar_ficha"
 ]);
 function esEscritura(nombre) {
 	return CLAVES.has(nombre);
@@ -1507,6 +1820,42 @@ var fichasEscritura = [
 				"importe",
 				"categoria"
 			],
+			additionalProperties: false
+		}
+	},
+	{
+		name: "fijar_ficha",
+		description: "Actualiza la ficha de escritura de un inmueble que ya existe: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Sin confirmar:true no escribe y devuelve el antes y el después. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				finca: {
+					type: "string",
+					description: "Nombre o id de un inmueble que ya existe."
+				},
+				campos: {
+					type: "object",
+					description: "Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100. null borra el campo.",
+					properties: {
+						referenciaCatastral: { type: "string" },
+						valorAdquisicion: { type: "number" },
+						fechaAdquisicion: { type: "string" },
+						tipoAdquisicion: { type: "string" },
+						metrosCuadrados: { type: "number" },
+						valorMercado: { type: "number" },
+						fechaValorMercado: { type: "string" },
+						valorReferencia: { type: "number" },
+						valorConstruccion: { type: "number" },
+						cuotaPropiedad: {},
+						sinRenta: { type: "boolean" },
+						financiacion: { type: "object" },
+						copropietarios: { type: "array" }
+					},
+					additionalProperties: false
+				},
+				...esquemaComun
+			},
+			required: ["finca", "campos"],
 			additionalProperties: false
 		}
 	},
@@ -1613,6 +1962,78 @@ var INSERT_MOVIMIENTO = `insert into transacciones (
   id, propiedad_id, fecha, tipo, importe, categoria, descripcion, archivos, creado_en,
   periodo_inicio, periodo_fin, solo_mio, igic_soportado
 ) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12)`;
+var COLUMNAS_FICHA = {
+	referenciaCatastral: "referencia_catastral",
+	valorAdquisicion: "valor_adquisicion",
+	fechaAdquisicion: "fecha_adquisicion",
+	tipoAdquisicion: "tipo_adquisicion",
+	metrosCuadrados: "metros_cuadrados",
+	valorMercado: "valor_mercado",
+	fechaValorMercado: "fecha_valor_mercado",
+	valorReferencia: "valor_referencia",
+	valorConstruccion: "valor_construccion",
+	sinRenta: "sin_renta"
+};
+function sqlFicha(id, parche) {
+	const sets = [];
+	const params = [];
+	const add = (columna, valor, cast = "") => {
+		params.push(valor);
+		sets.push(`${columna} = $${params.length}${cast}`);
+	};
+	for (const campo of Object.keys(COLUMNAS_FICHA)) {
+		if (!(campo in parche)) continue;
+		add(COLUMNAS_FICHA[campo], parche[campo] ?? null);
+	}
+	if ("cuotaPropiedad" in parche) {
+		const cuota = parche.cuotaPropiedad;
+		add("cuota_numerador", cuota?.numerador ?? null);
+		add("cuota_denominador", cuota?.denominador ?? null);
+		add("cuota_valor", cuota?.valor ?? null);
+	}
+	if ("financiacion" in parche) add("financiacion", parche.financiacion ? JSON.stringify(parche.financiacion) : null, "::jsonb");
+	if ("copropietarios" in parche) {
+		const lista = parche.copropietarios;
+		add("copropietarios", lista && lista.length > 0 ? JSON.stringify(lista) : null, "::jsonb");
+	}
+	params.push(id);
+	return {
+		sql: `update propiedades set ${sets.join(", ")} where id = $${params.length}`,
+		params
+	};
+}
+function ordenFicha(finca, entrada, confirmar, clave, hoy) {
+	let parche;
+	try {
+		parche = interpretarCamposFicha(entrada, fechaDeHoy(hoy));
+	} catch (err) {
+		if (err instanceof FichaError) throw new ConsultaError(err.message);
+		throw err;
+	}
+	const cambios = cambiosDeFicha(finca, parche);
+	const ficha = fichaPublica(fusionarFicha(finca, parche), hoy);
+	const sentencia = sqlFicha(finca.id, parche);
+	return {
+		herramienta: "fijar_ficha",
+		confirmar,
+		clave,
+		vista: {
+			escrito: false,
+			vistaPrevia: true,
+			finca: finca.nombre,
+			cambios,
+			ficha
+		},
+		sentencias: [sentencia],
+		resultado: {
+			escrito: true,
+			repetida: false,
+			finca: finca.nombre,
+			cambios,
+			ficha
+		}
+	};
+}
 function ordenMovimiento(herramienta, t, finca, confirmar, clave) {
 	const movimiento = movimientoDe(t, finca);
 	const resultado = {
@@ -1712,6 +2133,7 @@ function planificar(nombre, args, foto, hoy = /* @__PURE__ */ new Date()) {
 	const nombreFinca = texto$2(datos, "finca");
 	if (!nombreFinca) throw new ConsultaError("Falta \"finca\".");
 	const finca = resolverFinca(foto.propiedades, nombreFinca);
+	if (nombre === "fijar_ficha") return ordenFicha(finca, datos.campos, confirmar, clave, hoy);
 	const fecha = fechaDe(datos, hoy);
 	const mes = mesDe(datos, fecha);
 	const importe = euros(datos, "importe");
@@ -1889,7 +2311,7 @@ async function responder(mensaje, ctx) {
 				name: "finca",
 				version: "0.1.0"
 			},
-			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler. registrar_cobro, registrar_gasto y cerrar_tarea no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar."
+			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe."
 		});
 	}
 	if (method === "notifications/initialized" || method === "notifications/cancelled") return null;
@@ -2037,6 +2459,16 @@ function json(fila, clave) {
 	if (valor == null) return void 0;
 	return valor;
 }
+function cuotaDeFila(fila) {
+	const numerador = numero(fila, "cuota_numerador");
+	const denominador = numero(fila, "cuota_denominador");
+	if (numerador == null || denominador == null || denominador <= 0) return void 0;
+	return {
+		numerador,
+		denominador,
+		valor: numero(fila, "cuota_valor") ?? numerador / denominador
+	};
+}
 function filaAPropiedad(fila) {
 	return {
 		id: texto(fila, "id") ?? "",
@@ -2062,6 +2494,15 @@ function filaAPropiedad(fila) {
 		porcentajePropiedad: numero(fila, "porcentaje_propiedad"),
 		gastosRecurrentes: json(fila, "gastos_recurrentes"),
 		referenciaCatastral: texto(fila, "referencia_catastral"),
+		valorAdquisicion: numero(fila, "valor_adquisicion"),
+		fechaAdquisicion: dia(fila, "fecha_adquisicion"),
+		tipoAdquisicion: texto(fila, "tipo_adquisicion"),
+		metrosCuadrados: numero(fila, "metros_cuadrados"),
+		fechaValorMercado: dia(fila, "fecha_valor_mercado"),
+		cuotaPropiedad: cuotaDeFila(fila),
+		sinRenta: fila.sin_renta == null ? void 0 : Boolean(fila.sin_renta),
+		financiacion: json(fila, "financiacion"),
+		copropietarios: json(fila, "copropietarios"),
 		municipio: texto(fila, "municipio"),
 		valorReferencia: numero(fila, "valor_referencia"),
 		valorMercado: numero(fila, "valor_mercado"),

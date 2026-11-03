@@ -54,7 +54,13 @@ function foto(overrides: Partial<Foto> = {}): Foto {
 describe('consultar', () => {
   it('lista la finca sin DNI, email, teléfono ni carpeta de Drive', () => {
     const datos = ejecutar('listar_fincas', {}, foto(), HOY) as { fincas: Record<string, unknown>[] }
-    expect(datos.fincas[0]).toMatchObject({ nombre: 'Piso test', inquilino: 'Ana', alquilerMensual: 500 })
+    expect(datos.fincas[0]).toMatchObject({
+      nombre: 'Piso test',
+      inquilino: 'Ana',
+      alquilerMensual: 500,
+      sinRenta: false,
+      cuota: { numerador: 1, denominador: 1, valor: 1 },
+    })
     expect(JSON.stringify(datos)).not.toContain('12345678Z')
     expect(JSON.stringify(datos)).not.toContain('ana@example.com')
     expect(JSON.stringify(datos)).not.toContain('600000000')
@@ -128,5 +134,76 @@ describe('consultar', () => {
     ) as { finca: string }
     expect(datos.finca).toBe('Piso Aguagarcia 2')
     expect(JSON.stringify(datos)).not.toContain('secreto-drive')
+  })
+
+  it('devuelve la herencia guardada y no DNI, email, teléfono ni NIF', () => {
+    const datos = ejecutar(
+      'listar_fincas',
+      {},
+      foto({
+        propiedades: [
+          propiedad({
+            tipoAdquisicion: 'herencia',
+            fechaAdquisicion: '2018-04-02',
+            valorAdquisicion: 90000,
+            referenciaCatastral: '7837301VG8173B0001TT',
+            metrosCuadrados: 80,
+            valorMercado: 120000,
+            fechaValorMercado: '2026-01-15',
+            valorReferencia: 80000,
+            valorConstruccion: 40000,
+            cuotaPropiedad: { numerador: 1, denominador: 12, valor: 0.083333 },
+            copropietarios: [{ nombre: 'Luis', porcentaje: 100, nif: 'B123' } as never],
+          }),
+        ],
+      }),
+      HOY,
+    ) as { fincas: Record<string, unknown>[] }
+    expect(datos.fincas[0]).toMatchObject({
+      tipoAdquisicion: 'herencia',
+      fechaAdquisicion: '2018-04-02',
+      valorAdquisicion: 90000,
+      referenciaCatastral: '7837301VG8173B0001TT',
+      metrosCuadrados: 80,
+      valorMercado: 120000,
+      valores: {
+        mercado: { total: 120000, parteJose: 10000 },
+        adquisicion: { total: 90000, parteJose: 7500 },
+      },
+      copropietarios: [{ nombre: 'Luis', porcentaje: 100 }],
+    })
+    const json = JSON.stringify(datos)
+    expect(json).not.toContain('12345678Z')
+    expect(json).not.toContain('ana@example.com')
+    expect(json).not.toContain('600000000')
+    expect(json).not.toContain('B123')
+    expect(json).not.toContain('nif')
+  })
+
+  it('un rústico sin renta sale en el listado y no en cobros, huecos ni avisos', () => {
+    const base = foto({
+      propiedades: [
+        propiedad({
+          id: 'rus',
+          nombre: 'Finca rústica',
+          tipo: 'rustica',
+          estado: 'alquilado',
+          sinRenta: true,
+          alquilerMensual: 400,
+          contratoInicio: '2020-01-01',
+          valorMercado: 50000,
+          fianzaImporte: 400,
+        }),
+      ],
+    })
+    const lista = ejecutar('listar_fincas', {}, base, HOY) as { fincas: { nombre: string; sinRenta: boolean }[] }
+    expect(lista.fincas).toEqual([expect.objectContaining({ nombre: 'Finca rústica', sinRenta: true, tipo: 'rustica' })])
+    const cobros = ejecutar('cobros_pendientes', { mes: '2026-10' }, base, HOY) as { pendientes: unknown[]; deudas: unknown[] }
+    expect(cobros.pendientes).toEqual([])
+    expect(cobros.deudas).toEqual([])
+    const huecos = ejecutar('huecos', {}, base, HOY) as { huecos: unknown[] }
+    expect(huecos.huecos).toEqual([])
+    const avisos = ejecutar('avisos', {}, base, HOY) as { avisos: { tipo: string }[] }
+    expect(avisos.avisos.filter((a) => a.tipo === 'renta' || a.tipo === 'registro' || a.tipo === 'fianza')).toEqual([])
   })
 })

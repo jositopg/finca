@@ -63,7 +63,7 @@ export async function responder(mensaje: unknown, ctx: ContextoMcp): Promise<Rec
       capabilities: { tools: {} },
       serverInfo: { name: 'finca', version: '0.1.0' },
       instructions:
-        'Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler. registrar_cobro, registrar_gasto y cerrar_tarea no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar.',
+        'Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe.',
     })
   }
 

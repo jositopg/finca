@@ -1,5 +1,5 @@
 // Cada herramienta devuelve lo mismo que la pantalla correspondiente.
-// Los totales personales usan esDeJose + esDeAlquiler. La respuesta no
+// Los totales personales usan esDeJose + esRendimientoAlquiler. La respuesta no
 // incluye DNI, email, teléfono, NIF ni ids de Drive.
 import {
   INCLUSION_AGUA_LUZ_LABEL,
@@ -12,8 +12,8 @@ import {
   desgloseSuministrosPorMes,
   deudaInquilino,
   devengoIgicLocalTrimestre,
-  esDeAlquiler,
   esDeJose,
+  esRendimientoAlquiler,
   estimarAhorroRenta,
   filasRepercutibles,
   gastosPorCategoriaEnRango,
@@ -26,6 +26,7 @@ import {
   rangoMes,
   rentaDelMesIncompleta,
   rendimientoIrpfPropiedad,
+  valoresProporcionales,
   repartoEfectivo,
   resumenEnRango,
   resumenVariasEnRango,
@@ -100,7 +101,7 @@ export function normalizar(texto: string): string {
 }
 
 export function fincasDeJose(propiedades: Propiedad[]): Propiedad[] {
-  return propiedades.filter((p) => esDeJose(p) && esDeAlquiler(p))
+  return propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
 }
 
 export function resolverFinca(propiedades: Propiedad[], consulta: string): Propiedad {
@@ -117,11 +118,12 @@ export function resolverFinca(propiedades: Propiedad[], consulta: string): Propi
   throw new ConsultaError(`"${consulta}" coincide con varias fincas: ${lista}. Usa el nombre completo.`)
 }
 
-function fichaCorta(p: Propiedad, hoy: Date) {
+export function fichaPublica(p: Propiedad, hoy: Date) {
   const inclusion = inclusionAguaLuz(repartoEfectivo(p))
   let aguaLuz = 'sin configurar'
   if (inclusion?.modo === 'parcial_conjunto') aguaLuz = `cupo ${inclusion.importeMensual ?? 30} €/mes`
   else if (inclusion) aguaLuz = INCLUSION_AGUA_LUZ_LABEL[inclusion.modo]
+  const valores = valoresProporcionales(p)
   return {
     id: p.id,
     nombre: p.nombre,
@@ -135,6 +137,20 @@ function fichaCorta(p: Propiedad, hoy: Date) {
     porcentaje: p.porcentajePropiedad ?? 100,
     deJose: esDeJose(p),
     propietario: p.propietarioNombre ?? null,
+    sinRenta: p.sinRenta ?? false,
+    referenciaCatastral: p.referenciaCatastral ?? null,
+    valorAdquisicion: p.valorAdquisicion ?? null,
+    fechaAdquisicion: p.fechaAdquisicion ?? null,
+    tipoAdquisicion: p.tipoAdquisicion ?? null,
+    metrosCuadrados: p.metrosCuadrados ?? null,
+    valorMercado: p.valorMercado ?? null,
+    fechaValorMercado: p.fechaValorMercado ?? null,
+    valorReferencia: p.valorReferencia ?? null,
+    valorConstruccion: p.valorConstruccion ?? null,
+    cuota: valores.cuota,
+    valores,
+    financiacion: p.financiacion ?? null,
+    copropietarios: (p.copropietarios ?? []).map((c) => ({ nombre: c.nombre, porcentaje: c.porcentaje })),
   }
 }
 
@@ -154,12 +170,12 @@ const sinParametros = { type: 'object', properties: {}, additionalProperties: fa
 const listarFincas: Herramienta = {
   name: 'listar_fincas',
   description:
-    'Lista todas las fincas, también las de terceros y las de uso propio. No incluye DNI, email ni teléfono. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
+    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura (referencia, adquisición, cuota y valores proporcionales). No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
   inputSchema: sinParametros,
   ejecutar: (_args, foto, hoy) => ({
     fincas: [...foto.propiedades]
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
-      .map((p) => fichaCorta(p, hoy)),
+      .map((p) => fichaPublica(p, hoy)),
   }),
 }
 

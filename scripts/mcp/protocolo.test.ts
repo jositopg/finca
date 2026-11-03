@@ -26,9 +26,11 @@ describe('protocolo', () => {
     expect(aviso).toBeNull()
 
     const lista = await responder({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { foto: async () => fotoVacia })
-    const tools = (lista as { result: { tools: { name: string }[] } }).result.tools
+    const tools = (lista as { result: { tools: { name: string; description: string }[] } }).result.tools
     expect(tools.map((t) => t.name)).toContain('modelo_420')
+    expect(tools.map((t) => t.name)).toContain('fijar_ficha')
     expect(tools.map((t) => t.name)).not.toContain('sql')
+    expect(tools.find((t) => t.name === 'fijar_ficha')?.description).toMatch(/confirmar/)
   })
 
   it('devuelve un error de herramienta si el nombre no existe', async () => {
