@@ -55,6 +55,7 @@ import {
   rentaPendiente,
   rentabilidadCartera,
   rentabilidadEnRango,
+  resumenIrpfFinca,
   siguienteNumeroFactura,
   tareaVencida,
   tipoDocumentoAlquiler,
@@ -1977,5 +1978,218 @@ describe('rentabilidad sobre valor de mercado', () => {
     const ventana = rangoUltimosMeses(HOY_RENTABILIDAD)
     expect(ventana.desde).toBe('2025-12-01')
     expect(ventana.hasta).toBe('2026-11-30')
+  })
+})
+
+const SUPUESTOS_NINGUNO = {
+  zonaTensionada: false,
+  rebajaRentaMasDe5: false,
+  joven18a35: false,
+  administracionOEntidad: false,
+  rehabilitacionDosAnios: false,
+}
+
+describe('resumen IRPF', () => {
+  it('sin valor de construcción no inventa la amortización', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      estado: 'alquilado',
+      valorConstruccion: undefined,
+      valorMercado: 200000,
+      valorReferencia: 80000,
+      valorAdquisicion: 90000,
+      contratoInicio: '2020-01-01',
+    })
+    const fila = resumenIrpfFinca(p, [], '2026')
+    expect(fila.amortizacion).toBeNull()
+    expect(fila.baseAmortizacion).toBeNull()
+    expect(fila.rendimientoNeto).toBeNull()
+    expect(fila.pendiente).toContain('valor catastral de la construcción')
+    expect(fila.pendiente).toContain('proporción de construcción')
+  })
+
+  it('en una herencia la base es el mayor entre construcción y el valor de adquisición por la proporción', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      estado: 'alquilado',
+      tipoAdquisicion: 'herencia',
+      valorAdquisicion: 100000,
+      proporcionConstruccion: 0.4,
+      valorConstruccion: 30000,
+      contratoInicio: '2020-01-01',
+    })
+    const fila = resumenIrpfFinca(p, [], '2026')
+    expect(fila.baseAmortizacion).toBe(40000)
+    expect(fila.diasAlquilados).toBe(365)
+    expect(fila.amortizacion).toBe(1200)
+    expect(fila.pendiente).toEqual([])
+  })
+
+  it('prorratea la amortización por los días alquilados', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      estado: 'vacio',
+      valorConstruccion: 100000,
+      contratoInicio: '2026-01-01',
+      contratoFin: '2026-06-30',
+    })
+    const fila = resumenIrpfFinca(p, [], '2026')
+    expect(fila.diasAlquilados).toBe(181)
+    expect(fila.diasAnio).toBe(365)
+    expect(fila.amortizacion).toBe(1487.67)
+  })
+
+  it('un contrato anterior al 26-05-2023 reduce el 60 % y uno posterior no elige porcentaje sin los supuestos', () => {
+    const ingresos = [transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' })]
+    const anterior = resumenIrpfFinca(
+      propiedad({ tipo: 'piso', valorConstruccion: 10000, contratoInicio: '2020-01-01' }),
+      ingresos,
+      '2026',
+    )
+    expect(anterior.reduccion.estado).toBe('aplicada')
+    expect(anterior.reduccion.porcentaje).toBe(60)
+    expect(anterior.rendimientoNeto).toBe(700)
+    expect(anterior.reduccion.importe).toBe(420)
+    expect(anterior.rendimientoNetoReducido).toBe(280)
+
+    const posterior = resumenIrpfFinca(
+      propiedad({ tipo: 'piso', valorConstruccion: 10000, contratoInicio: '2024-01-01' }),
+      ingresos,
+      '2026',
+    )
+    expect(posterior.reduccion.estado).toBe('pendiente de dato')
+    expect(posterior.reduccion.porcentaje).toBeNull()
+    expect(posterior.reduccion.falta.length).toBeGreaterThan(0)
+    expect(posterior.rendimientoNetoReducido).toBeNull()
+
+    const conSupuestos = resumenIrpfFinca(
+      propiedad({
+        tipo: 'piso',
+        valorConstruccion: 10000,
+        contratoInicio: '2024-01-01',
+        supuestosReduccion: SUPUESTOS_NINGUNO,
+      }),
+      ingresos,
+      '2026',
+    )
+    expect(conSupuestos.reduccion.porcentaje).toBe(50)
+    expect(conSupuestos.rendimientoNetoReducido).toBe(350)
+
+    const rebajado = resumenIrpfFinca(
+      propiedad({
+        tipo: 'piso',
+        valorConstruccion: 10000,
+        contratoInicio: '2024-01-01',
+        supuestosReduccion: { zonaTensionada: true, rebajaRentaMasDe5: true },
+      }),
+      ingresos,
+      '2026',
+    )
+    expect(rebajado.reduccion.porcentaje).toBe(90)
+    expect(rebajado.reduccion.falta).toEqual([])
+  })
+
+  it('en 2023 un contrato posterior al corte sigue al 60 %', () => {
+    const fila = resumenIrpfFinca(
+      propiedad({ tipo: 'piso', valorConstruccion: 10000, contratoInicio: '2023-06-01' }),
+      [],
+      '2023',
+    )
+    expect(fila.reduccion).toMatchObject({ estado: 'aplicada', porcentaje: 60 })
+  })
+
+  it('la copropiedad al 50 % parte ingresos, gastos y amortización', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      porcentajePropiedad: 50,
+      valorConstruccion: 10000,
+      contratoInicio: '2020-01-01',
+    })
+    const fila = resumenIrpfFinca(
+      p,
+      [
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' }),
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 800, fecha: '2026-04-01' }),
+        transaccion({ tipo: 'gasto', categoria: 'Intereses hipoteca', importe: 700, fecha: '2026-04-02' }),
+        transaccion({ tipo: 'gasto', categoria: 'Comunidad de propietarios', importe: 100, fecha: '2026-05-01' }),
+      ],
+      '2026',
+    )
+    expect(fila.porcentajeCopropiedad).toBe(50)
+    expect(fila.ingresosIntegros).toBe(500)
+    expect(fila.intereses).toBe(350)
+    expect(fila.reparaciones).toBe(400)
+    expect(fila.otrosGastos).toBe(50)
+    expect(fila.excesoAnio).toBe(250)
+    expect(fila.gastosDeducibles).toBe(550)
+    expect(fila.amortizacion).toBe(150)
+  })
+
+  it('los intereses y la reparación no superan los ingresos y el exceso caduca a los cuatro años', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      valorConstruccion: 10000,
+      contratoInicio: '2020-01-01',
+    })
+    const delAnio = resumenIrpfFinca(
+      p,
+      [
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' }),
+        transaccion({ tipo: 'ingreso', categoria: 'Fianza recibida', importe: 9000, fecha: '2026-01-05' }),
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 800, fecha: '2026-04-01' }),
+        transaccion({ tipo: 'gasto', categoria: 'Intereses hipoteca', importe: 700, fecha: '2026-04-02' }),
+        transaccion({ tipo: 'gasto', categoria: 'Comunidad de propietarios', importe: 100, fecha: '2026-05-01' }),
+        transaccion({ tipo: 'gasto', categoria: 'Hipoteca / Financiación', importe: 5000, fecha: '2026-06-01' }),
+      ],
+      '2026',
+    )
+    expect(delAnio.ingresosIntegros).toBe(1000)
+    expect(delAnio.excesoAnio).toBe(500)
+    expect(delAnio.arrastreAplicado).toBe(0)
+    expect(delAnio.gastosDeducibles).toBe(1100)
+    expect(delAnio.arrastrePendiente).toBe(500)
+
+    const caducado = resumenIrpfFinca(
+      p,
+      [
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 400, fecha: '2021-03-01' }),
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' }),
+      ],
+      '2026',
+    )
+    expect(caducado.arrastreAplicado).toBe(0)
+
+    const vigente = resumenIrpfFinca(
+      p,
+      [
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 400, fecha: '2022-03-01' }),
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' }),
+      ],
+      '2026',
+    )
+    expect(vigente.arrastreAplicado).toBe(400)
+    expect(vigente.gastosDeducibles).toBe(400)
+    expect(vigente.excesoAnio).toBe(0)
+  })
+
+  it('un exceso que ya caduca ocupa el hueco antes que uno que sigue vivo', () => {
+    const p = propiedad({
+      tipo: 'piso',
+      valorConstruccion: 10000,
+      contratoInicio: '2020-01-01',
+    })
+    const fila = resumenIrpfFinca(
+      p,
+      [
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 1000, fecha: '2021-03-01' }),
+        transaccion({ tipo: 'gasto', categoria: 'Reparaciones', importe: 400, fecha: '2022-03-01' }),
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2023-03-05' }),
+        transaccion({ tipo: 'ingreso', categoria: 'Alquiler mensual', importe: 1000, fecha: '2026-03-05' }),
+      ],
+      '2026',
+    )
+    expect(fila.arrastreAplicado).toBe(400)
+    expect(fila.gastosDeducibles).toBe(400)
+    expect(fila.excesoAnio).toBe(0)
   })
 })

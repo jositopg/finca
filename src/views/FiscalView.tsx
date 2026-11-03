@@ -10,10 +10,16 @@ import {
   mesDelCobroAlquiler,
   miParte,
   rendimientoIrpfPropiedad,
+  resumenIrpf,
+  type ResumenIrpfFinca,
 } from '../types'
 
 function fmt(n: number) {
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function euros(n: number | null): string {
+  return n == null ? '—' : `${fmt(n)} €`
 }
 
 const NOMBRE_MES = [
@@ -45,6 +51,51 @@ function listaMeses(meses: string[]): string {
   if (nombres.length <= 1) return nombres[0] ?? ''
   if (nombres.length === 2) return `${nombres[0]} y ${nombres[1]}`
   return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
+}
+
+function linea(etiqueta: string, valor: string) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-xs">
+      <span className="text-outline-variant">{etiqueta}</span>
+      <span className="tabular-nums text-on-surface text-right">{valor}</span>
+    </div>
+  )
+}
+
+function FichaIrpf({ fila }: { fila: ResumenIrpfFinca }) {
+  const reduccion =
+    fila.reduccion.estado === 'pendiente de dato'
+      ? `Pendiente de dato: ${fila.reduccion.falta.join('; ')}`
+      : fila.reduccion.estado === 'no aplica'
+        ? 'No aplica'
+        : `${fila.reduccion.porcentaje} % · ${euros(fila.reduccion.importe)}`
+  return (
+    <div className="bg-surface-lowest rounded-2xl shadow-soft p-4 flex flex-col gap-1.5">
+      <p className="text-sm font-medium text-on-surface">{fila.nombre}</p>
+      {fila.porcentajeCopropiedad !== 100 && (
+        <p className="text-xs text-outline-variant">Parte del {fila.porcentajeCopropiedad} %</p>
+      )}
+      {linea('Ingresos íntegros', euros(fila.ingresosIntegros))}
+      {linea('Gastos deducibles', euros(fila.gastosDeducibles))}
+      {(fila.excesoAnio > 0 || fila.arrastreAplicado > 0) && (
+        <p className="text-xs text-outline-variant">
+          Intereses y reparación, limitados a los ingresos.
+          {fila.excesoAnio > 0 ? ` Exceso de este año: ${fmt(fila.excesoAnio)} €, arrastre 4 años.` : ''}
+          {fila.arrastreAplicado > 0 ? ` Arrastre aplicado: ${fmt(fila.arrastreAplicado)} €.` : ''}
+        </p>
+      )}
+      {linea(
+        `Amortización (${fila.diasAlquilados}/${fila.diasAnio} días)`,
+        fila.amortizacion == null ? 'Pendiente de dato' : euros(fila.amortizacion),
+      )}
+      {fila.pendiente.length > 0 && (
+        <p className="text-xs text-outline-variant">Falta: {fila.pendiente.join('; ')}.</p>
+      )}
+      {linea('Rendimiento neto', euros(fila.rendimientoNeto))}
+      {linea('Reducción vivienda', reduccion)}
+      {linea('Rendimiento neto reducido', euros(fila.rendimientoNetoReducido))}
+    </div>
+  )
 }
 
 export function FiscalView() {
@@ -79,6 +130,7 @@ export function FiscalView() {
     const r = rendimientoIrpfPropiedad(p, transacciones, anio, 0)
     return { ...r, neto: r.ingresos - r.gastos }
   })
+  const hojaIrpf = resumenIrpf(propiedades, transacciones, anio)
   const totalIngresos = filasRenta.reduce((s, f) => s + f.ingresos, 0)
   const totalGastos = filasRenta.reduce((s, f) => s + f.gastos, 0)
   const totalAmortizacion = filasRenta.reduce((s, f) => s + f.amortizacion, 0)
@@ -239,6 +291,20 @@ export function FiscalView() {
                 «Intereses hipoteca» para la parte deducible.
               </p>
             )}
+          </div>
+        )}
+
+        {hojaIrpf.porFinca.length > 0 && (
+          <div className="mt-5">
+            <p className="text-xs font-medium text-outline-variant uppercase tracking-wide mb-1">
+              Resumen IRPF {anio}
+            </p>
+            <p className="text-xs text-outline-variant mb-3">{hojaIrpf.nota}</p>
+            <div className="flex flex-col gap-2">
+              {hojaIrpf.porFinca.map((fila) => (
+                <FichaIrpf key={fila.nombre} fila={fila} />
+              ))}
+            </div>
           </div>
         )}
       </div>

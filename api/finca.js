@@ -355,28 +355,63 @@ function mesesEntre(desdeYYYYMM, hastaYYYYMM) {
 	}
 	return meses;
 }
-function mesesOcupados(propiedad, desde, hasta) {
+function periodosDeAlquiler(propiedad, hastaTope) {
 	const periodos = [];
 	for (const h of propiedad.historialContratos ?? []) periodos.push({
 		ini: h.fechaInicio ?? h.fechaFin,
 		fin: h.fechaFin
 	});
 	if (propiedad.contratoInicio) {
-		let fin = propiedad.contratoFin ?? hasta;
-		if (propiedad.estado === "alquilado" && (!propiedad.contratoFin || propiedad.contratoFin < hasta)) fin = hasta;
+		let fin = propiedad.contratoFin ?? hastaTope;
+		if (propiedad.estado === "alquilado" && (!propiedad.contratoFin || propiedad.contratoFin < hastaTope)) fin = hastaTope;
 		periodos.push({
 			ini: propiedad.contratoInicio,
 			fin
 		});
 	}
+	return periodos;
+}
+function clipPeriodo(ini, fin, desde, hasta) {
+	const a = ini > desde ? ini : desde;
+	const b = fin < hasta ? fin : hasta;
+	if (a > b) return null;
+	return {
+		ini: a,
+		fin: b
+	};
+}
+function fusionarIntervalos(intervalos) {
+	const orden = [...intervalos].sort((a, b) => a.ini.localeCompare(b.ini) || a.fin.localeCompare(b.fin));
+	const out = [];
+	for (const intervalo of orden) {
+		const ultimo = out[out.length - 1];
+		if (!ultimo || intervalo.ini > ultimo.fin) out.push({
+			ini: intervalo.ini,
+			fin: intervalo.fin
+		});
+		else if (intervalo.fin > ultimo.fin) ultimo.fin = intervalo.fin;
+	}
+	return out;
+}
+function mesesOcupados(propiedad, desde, hasta) {
 	const meses = /* @__PURE__ */ new Set();
-	for (const per of periodos) {
-		const a = per.ini > desde ? per.ini : desde;
-		const b = per.fin < hasta ? per.fin : hasta;
-		if (a > b) continue;
-		for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m);
+	for (const per of periodosDeAlquiler(propiedad, hasta)) {
+		const clip = clipPeriodo(per.ini, per.fin, desde, hasta);
+		if (!clip) continue;
+		for (const m of mesesEntre(clip.ini.slice(0, 7), clip.fin.slice(0, 7))) meses.add(m);
 	}
 	return [...meses].sort();
+}
+function diasDelAnio(anio) {
+	const y = Number(anio);
+	return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0 ? 366 : 365;
+}
+function diasAlquiladosEnAnio(propiedad, anio) {
+	const desde = `${anio}-01-01`;
+	const hasta = `${anio}-12-31`;
+	const fusion = fusionarIntervalos(periodosDeAlquiler(propiedad, hasta).map((per) => clipPeriodo(per.ini, per.fin, desde, hasta)).filter((clip) => clip != null));
+	if (fusion.length === 0 && propiedad.estado === "alquilado" && !hayFechasDeContrato(propiedad)) return diasDelAnio(anio);
+	return fusion.reduce((s, i) => s + diasEntreFechas(i.ini, i.fin) + 1, 0);
 }
 function mesYaEmpezado(mes, hoy) {
 	const [y, m] = mes.split("-").map(Number);
@@ -1324,6 +1359,273 @@ function estimarAhorroRenta(propiedades, transacciones, ingresosExternos, anio, 
 		aGuardar: Math.max(0, cuotaTotal - totalRetenido)
 	};
 }
+var NOTA_RESUMEN_IRPF = "Orientativo: debe revisarse con la declaración.";
+var CORTE_REDUCCION_VIVIENDA = "2023-05-26";
+var CATEGORIA_INTERESES = "Intereses hipoteca";
+var CATEGORIA_REPARACION = "Reparaciones";
+var FALTA_CONSTRUCCION = "valor catastral de la construcción";
+var FALTA_PROPORCION = "proporción de construcción";
+var FALTA_ADQUISICION = "valor de adquisición";
+var FALTA_ADQUISICION_HERENCIA = "valor de adquisición (valor declarado en la herencia)";
+var FALTA_ZONA = "zona de mercado residencial tensionado";
+var FALTA_REBAJA = "rebaja de la renta de más del 5 %";
+var FALTA_JOVEN = "arrendatario de 18 a 35 años";
+var FALTA_ADMIN = "arrendamiento a la Administración o a una entidad sin fines de lucro";
+var FALTA_REHAB = "rehabilitación terminada en los dos años anteriores al contrato";
+function desgloseGastosIrpf(propiedad, transacciones, desde, hasta) {
+	const txs = txsDePropiedad(propiedad, transacciones);
+	let intereses = 0;
+	let reparaciones = 0;
+	let otros = 0;
+	for (const t of txs) {
+		if (t.tipo !== "gasto" || esAguaOLuz(t.categoria) || !esGastoDeducibleIRPF(t.categoria)) continue;
+		const n = miParte(cuotaOtrosEnRango(t, propiedad, desde, hasta).propietario, propiedad, t.soloMio);
+		if (t.categoria === CATEGORIA_INTERESES) intereses += n;
+		else if (t.categoria === CATEGORIA_REPARACION) reparaciones += n;
+		else otros += n;
+	}
+	const { propietario } = desgloseSuministrosEnRango(propiedad, txs, desde, hasta);
+	otros += miParte(propietario, propiedad);
+	return {
+		intereses: round2(intereses),
+		reparaciones: round2(reparaciones),
+		otros: round2(otros)
+	};
+}
+function gastosDelAnio(propiedad, transacciones, anio) {
+	const [desde, hasta] = rangoAnio(anio);
+	return {
+		ingresos: round2(sumIngresosEnRango(propiedad, transacciones, desde, hasta, { irpf: true })),
+		...desgloseGastosIrpf(propiedad, transacciones, desde, hasta)
+	};
+}
+function anioInicialArrastre(propiedad, transacciones, yFin) {
+	let min = yFin;
+	for (const t of txsDePropiedad(propiedad, transacciones)) {
+		const y = Number(t.fecha.slice(0, 4));
+		if (y >= 1990 && y < min) min = y;
+	}
+	return Math.min(min, yFin - 4);
+}
+function limiteGastosIrpf(propiedad, transacciones, anio) {
+	const yFin = Number(anio);
+	const lotes = [];
+	const actual = gastosDelAnio(propiedad, transacciones, anio);
+	let arrastreAplicado = 0;
+	let excesoAnio = 0;
+	for (let y = anioInicialArrastre(propiedad, transacciones, yFin); y <= yFin; y++) {
+		const g = y === yFin ? actual : gastosDelAnio(propiedad, transacciones, String(y));
+		const suma = round2(g.intereses + g.reparaciones);
+		const room = round2(Math.max(0, g.ingresos - suma));
+		let aplicado = 0;
+		for (const lote of lotes) {
+			if (lote.anio < y - 4 || lote.anio > y - 1 || lote.pendiente <= 0) continue;
+			const cabe = round2(room - aplicado);
+			if (cabe <= 0) break;
+			const usa = round2(Math.min(lote.pendiente, cabe));
+			lote.pendiente = round2(lote.pendiente - usa);
+			aplicado = round2(aplicado + usa);
+		}
+		const exceso = round2(Math.max(0, suma - g.ingresos));
+		if (exceso > 0) lotes.push({
+			anio: y,
+			pendiente: exceso
+		});
+		if (y === yFin) {
+			arrastreAplicado = aplicado;
+			excesoAnio = exceso;
+		}
+	}
+	const deducidos = round2(actual.intereses + actual.reparaciones - excesoAnio);
+	const gastosDeducibles = round2(actual.otros + deducidos + arrastreAplicado);
+	const arrastrePendiente = round2(lotes.filter((l) => l.anio >= yFin - 3 && l.anio <= yFin).reduce((s, l) => s + l.pendiente, 0));
+	return {
+		...actual,
+		limiteInteresesReparacion: actual.ingresos,
+		excesoAnio,
+		arrastreAplicado,
+		arrastrePendiente,
+		gastosDeducibles
+	};
+}
+function proporcionValida(valor) {
+	if (valor == null || !Number.isFinite(valor) || valor <= 0 || valor > 1) return null;
+	return valor;
+}
+function baseAmortizacionIrpf(propiedad) {
+	if (propiedad.sinRenta) return {
+		baseParte: null,
+		pendiente: []
+	};
+	const pendiente = [];
+	const catastral = propiedad.valorConstruccion != null && propiedad.valorConstruccion > 0 ? propiedad.valorConstruccion : null;
+	if (catastral == null) pendiente.push(FALTA_CONSTRUCCION);
+	const proporcion = proporcionValida(propiedad.proporcionConstruccion);
+	const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null;
+	let porAdquisicion = null;
+	if (coste != null && proporcion != null) porAdquisicion = coste * proporcion;
+	else {
+		if (proporcion == null) pendiente.push(FALTA_PROPORCION);
+		if (coste == null) pendiente.push(propiedad.tipoAdquisicion === "herencia" ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION);
+	}
+	const candidatos = [catastral, porAdquisicion].filter((n) => n != null && n > 0);
+	if (candidatos.length === 0) return {
+		baseParte: null,
+		pendiente
+	};
+	return {
+		baseParte: round2(miParte(parteDeCuota(Math.max(...candidatos), cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad)),
+		pendiente: catastral == null || porAdquisicion == null ? pendiente : []
+	};
+}
+function amortizacionIrpfAnio(propiedad, anio) {
+	const diasAnio = diasDelAnio(anio);
+	const diasAlquilados = propiedad.sinRenta ? 0 : diasAlquiladosEnAnio(propiedad, anio);
+	const base = baseAmortizacionIrpf(propiedad);
+	if (base.baseParte == null) return {
+		importe: null,
+		diasAlquilados,
+		diasAnio,
+		base: null,
+		pendiente: base.pendiente
+	};
+	return {
+		importe: round2(base.baseParte * (3 / 100) * (diasAlquilados / diasAnio)),
+		diasAlquilados,
+		diasAnio,
+		base: base.baseParte,
+		pendiente: base.pendiente
+	};
+}
+function reduccionAlquilerVivienda(propiedad, anio) {
+	if (propiedad.sinRenta || propiedad.tipo !== "piso" && propiedad.tipo !== "casa") return {
+		estado: "no aplica",
+		porcentaje: 0,
+		falta: [],
+		motivo: "No es alquiler de vivienda."
+	};
+	if (!propiedad.contratoInicio) return {
+		estado: "pendiente de dato",
+		porcentaje: null,
+		falta: ["fecha de contrato"]
+	};
+	if (propiedad.contratoInicio < CORTE_REDUCCION_VIVIENDA || anio <= "2023") return {
+		estado: "aplicada",
+		porcentaje: 60,
+		falta: [],
+		motivo: propiedad.contratoInicio < CORTE_REDUCCION_VIVIENDA ? "Contrato anterior al 26-05-2023: reducción del 60 %." : "En 2023 la reducción del alquiler de vivienda sigue siendo del 60 %."
+	};
+	const s = propiedad.supuestosReduccion ?? {};
+	const zona = s.zonaTensionada;
+	const rebaja = s.rebajaRentaMasDe5;
+	const joven = s.joven18a35;
+	const admin = s.administracionOEntidad;
+	const rehab = s.rehabilitacionDosAnios;
+	const falta = [];
+	if (zona == null) falta.push(FALTA_ZONA);
+	if (zona !== false && rebaja == null) falta.push(FALTA_REBAJA);
+	if (zona === true && rebaja === true) return {
+		estado: "aplicada",
+		porcentaje: 90,
+		falta: [],
+		motivo: "Zona tensionada y renta rebajada más de un 5 %."
+	};
+	const puede90 = zona !== false && rebaja !== false && (zona == null || rebaja == null);
+	if (zona !== false && joven == null) falta.push(FALTA_JOVEN);
+	if (admin == null) falta.push(FALTA_ADMIN);
+	const es70 = zona === true && joven === true || admin === true;
+	const puede70 = !es70 && (zona !== false && joven !== false && (zona == null || joven == null) || admin == null);
+	if (rehab == null) falta.push(FALTA_REHAB);
+	if (puede90 || puede70) return {
+		estado: "pendiente de dato",
+		porcentaje: null,
+		falta
+	};
+	if (es70) return {
+		estado: "aplicada",
+		porcentaje: 70,
+		falta: [],
+		motivo: "Vivienda en zona tensionada a un joven, o alquiler a la Administración o a una entidad sin fines de lucro."
+	};
+	if (rehab == null) return {
+		estado: "pendiente de dato",
+		porcentaje: null,
+		falta
+	};
+	if (rehab) return {
+		estado: "aplicada",
+		porcentaje: 60,
+		falta: [],
+		motivo: "Rehabilitación terminada en los dos años anteriores."
+	};
+	return {
+		estado: "aplicada",
+		porcentaje: 50,
+		falta: [],
+		motivo: "Contrato de vivienda desde el 26-05-2023 sin los supuestos del 90, 70 o 60 %."
+	};
+}
+function resumenIrpfFinca(propiedad, transacciones, anio) {
+	const gastos = limiteGastosIrpf(propiedad, transacciones, anio);
+	const amort = amortizacionIrpfAnio(propiedad, anio);
+	const reduccionBase = reduccionAlquilerVivienda(propiedad, anio);
+	const rendimientoNeto = amort.importe == null ? null : round2(gastos.ingresos - gastos.gastosDeducibles - amort.importe);
+	let importe = null;
+	let reducido = null;
+	if (rendimientoNeto != null && reduccionBase.estado !== "pendiente de dato" && reduccionBase.porcentaje != null) {
+		importe = rendimientoNeto > 0 ? round2(rendimientoNeto * (reduccionBase.porcentaje / 100)) : 0;
+		reducido = round2(rendimientoNeto - importe);
+	}
+	return {
+		nombre: propiedad.nombre,
+		porcentajeCopropiedad: propiedad.porcentajePropiedad ?? 100,
+		ingresosIntegros: gastos.ingresos,
+		gastosDeducibles: gastos.gastosDeducibles,
+		intereses: gastos.intereses,
+		reparaciones: gastos.reparaciones,
+		otrosGastos: gastos.otros,
+		limiteInteresesReparacion: gastos.limiteInteresesReparacion,
+		excesoAnio: gastos.excesoAnio,
+		arrastreAplicado: gastos.arrastreAplicado,
+		arrastrePendiente: gastos.arrastrePendiente,
+		amortizacion: amort.importe,
+		diasAlquilados: amort.diasAlquilados,
+		diasAnio: amort.diasAnio,
+		baseAmortizacion: amort.base,
+		rendimientoNeto,
+		reduccion: {
+			...reduccionBase,
+			importe
+		},
+		rendimientoNetoReducido: reducido,
+		pendiente: amort.pendiente
+	};
+}
+function totalesIrpf(filas) {
+	const suma = (campo) => round2(filas.reduce((s, f) => s + f[campo], 0));
+	const sumaONull = (campo) => {
+		if (filas.some((f) => f[campo] == null)) return null;
+		return round2(filas.reduce((s, f) => s + (f[campo] ?? 0), 0));
+	};
+	return {
+		ingresosIntegros: suma("ingresosIntegros"),
+		gastosDeducibles: suma("gastosDeducibles"),
+		excesoAnio: suma("excesoAnio"),
+		arrastreAplicado: suma("arrastreAplicado"),
+		amortizacion: sumaONull("amortizacion"),
+		rendimientoNeto: sumaONull("rendimientoNeto"),
+		rendimientoNetoReducido: sumaONull("rendimientoNetoReducido")
+	};
+}
+function resumenIrpf(propiedades, transacciones, anio) {
+	const porFinca = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p)).map((p) => resumenIrpfFinca(p, transacciones, anio)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+	return {
+		nota: NOTA_RESUMEN_IRPF,
+		anio,
+		porFinca,
+		totales: totalesIrpf(porFinca)
+	};
+}
 var PRIORIDAD_ORDEN = {
 	alta: 0,
 	media: 1,
@@ -1818,6 +2120,25 @@ var herramientas = [
 					anio,
 					...rentabilidadCartera(foto.propiedades, foto.transacciones, desdeAnio, hastaAnio, hoy)
 				}
+			};
+		}
+	},
+	{
+		name: "resumen_irpf",
+		description: "Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. A la parte de Jose. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.",
+		inputSchema: {
+			type: "object",
+			properties: { anio: {
+				type: "string",
+				description: "YYYY. Por defecto el año actual."
+			} },
+			additionalProperties: false
+		},
+		ejecutar: (args, foto, hoy) => {
+			const anio = anioDe(args, hoy);
+			return {
+				ambito: AMBITO,
+				...resumenIrpf(foto.propiedades, foto.transacciones, anio)
 			};
 		}
 	},

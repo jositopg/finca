@@ -6,8 +6,10 @@ import {
   rangoUltimosMeses,
   rentabilidadCartera,
   rentabilidadEnRango,
+  resumenIrpf,
   type Propiedad,
   type RentabilidadPeriodo,
+  type ResumenIrpfAnio,
   type Transaccion,
 } from '../../src/types/index.ts'
 
@@ -487,6 +489,49 @@ describe('consultar', () => {
       motivo: 'Sin valor de mercado.',
     })
     expect(anio.porFinca.map((f) => f.nombre)).not.toContain('De Martín')
+    const json = JSON.stringify(datos)
+    expect(json).not.toContain('12345678Z')
+    expect(json).not.toContain('ana@example.com')
+    expect(json).not.toContain('600000000')
+    expect(json).not.toContain('drive')
+    expect(json).not.toContain('nif')
+  })
+
+  it('el resumen de IRPF coincide con la app, redondea a céntimos y no lleva datos personales', () => {
+    const piso = propiedad({
+      tipo: 'piso',
+      valorConstruccion: 10000,
+      contratoInicio: '2020-01-01',
+      porcentajePropiedad: 50,
+    })
+    const txs = [
+      transaccion({
+        importe: 1000,
+        fecha: '2026-03-05',
+        periodoInicio: undefined,
+        periodoFin: undefined,
+      }),
+      transaccion({
+        id: 'rep',
+        tipo: 'gasto',
+        categoria: 'Reparaciones',
+        importe: 1800,
+        fecha: '2026-04-01',
+        periodoInicio: undefined,
+        periodoFin: undefined,
+      }),
+    ]
+    const datos = ejecutar('resumen_irpf', { anio: '2026' }, foto({ propiedades: [piso], transacciones: txs }), HOY) as ResumenIrpfAnio
+    const app = resumenIrpf([piso], txs, '2026')
+    expect(datos.nota).toMatch(/orientativo/i)
+    expect(datos.nota).toMatch(/declaración/)
+    expect(datos.anio).toBe('2026')
+    expect(datos.porFinca).toEqual(app.porFinca)
+    expect(datos.totales).toEqual(app.totales)
+    expect(app.porFinca[0].ingresosIntegros).toBe(500)
+    expect(app.porFinca[0].excesoAnio).toBe(400)
+    expect(app.porFinca[0].gastosDeducibles).toBe(500)
+    expect(app.porFinca[0].amortizacion).toBe(150)
     const json = JSON.stringify(datos)
     expect(json).not.toContain('12345678Z')
     expect(json).not.toContain('ana@example.com')

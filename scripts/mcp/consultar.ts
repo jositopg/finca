@@ -31,6 +31,7 @@ import {
   rentaDelMesIncompleta,
   rendimientoIrpfPropiedad,
   rentabilidadCartera,
+  resumenIrpf,
   valoresProporcionales,
   repartoEfectivo,
   resumenEnRango,
@@ -588,6 +589,23 @@ const rentabilidad: Herramienta = {
   },
 }
 
+const resumenIrpfHerramienta: Herramienta = {
+  name: 'resumen_irpf',
+  description:
+    'Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. A la parte de Jose. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      anio: { type: 'string', description: 'YYYY. Por defecto el año actual.' },
+    },
+    additionalProperties: false,
+  },
+  ejecutar: (args, foto, hoy) => {
+    const anio = anioDe(args, hoy)
+    return { ambito: AMBITO, ...resumenIrpf(foto.propiedades, foto.transacciones, anio) }
+  },
+}
+
 const repercutir: Herramienta = {
   name: 'repercutir',
   description:
@@ -713,6 +731,7 @@ export const herramientas: Herramienta[] = [
   modelo420,
   rendimiento,
   rentabilidad,
+  resumenIrpfHerramienta,
   repercutir,
   tareas,
   movimientos,

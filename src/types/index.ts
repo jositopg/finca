@@ -36,6 +36,16 @@ export type PropiedadEstado =
   | 'vivienda_habitual'
 export type TransaccionTipo = 'ingreso' | 'gasto'
 
+// Respuestas sí/no de la Ley 12/2023. Una clave ausente es un dato que falta,
+// no un no.
+export interface SupuestosReduccionVivienda {
+  zonaTensionada?: boolean
+  rebajaRentaMasDe5?: boolean
+  joven18a35?: boolean
+  administracionOEntidad?: boolean
+  rehabilitacionDosAnios?: boolean
+}
+
 // Condiciones de un tramo del contrato actual (mismo inquilino). El contrato
 // no se termina: inquilino y contratoInicio se mantienen. Cada tramo cubre
 // desde vigenteDesde hasta el día anterior al siguiente tramo (el último
@@ -97,6 +107,13 @@ export interface Propiedad {
   deudaDesde?: string // YYYY-MM: mes desde el que se cuenta la deuda de renta (ver deudaInquilino) — "dar la deuda por saldada" lo adelanta al mes actual sin tocar el contrato
   rentaRevisadaDesde?: string // ISO datetime: última vez que se marcó la renta como revisada (cláusula de actualización anual, ver tocaRevisarRenta)
   valorConstruccion?: number // valor catastral de la construcción (sin suelo), del recibo del IBI — base de la amortización deducible en IRPF
+  // Fracción del valor de adquisición que es construcción (0–1). Sin ella no se
+  // compara el coste con el valor catastral. No es una columna: si no está, el
+  // resumen de IRPF lo señala como dato pendiente.
+  proporcionConstruccion?: number
+  // Supuestos de la Ley 12/2023 para elegir 50/60/70/90. Si falta uno que cambia
+  // el porcentaje, el resumen no lo inventa.
+  supuestosReduccion?: SupuestosReduccionVivienda
   certificadoEnergeticoVencimiento?: string // YYYY-MM-DD — el certificado de eficiencia energética caduca a los 10 años
   fianzaImporte?: number // fianza legal a depositar en el organismo correspondiente (normalmente 1 mes de renta, 2 en locales)
   fianzaDepositadaDesde?: string // ISO datetime: cuándo se marcó como depositada — undefined = pendiente de depositar
@@ -345,34 +362,80 @@ function mesesEntre(desdeYYYYMM: string, hastaYYYYMM: string): string[] {
   return meses
 }
 
-// Meses YYYY-MM con contrato vigente entre dos fechas, inclusive.
-// Si sigue `alquilado` y el fin falta o cae antes del cierre del rango,
-// la ocupación llega hasta ese cierre (tácita). No rellena el rango cuando
-// no hay ninguna fecha: de eso se ocupa `mesesAlquiladosEnAnio`.
-export function mesesOcupados(
-  propiedad: Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'>,
-  desde: string,
-  hasta: string,
-): string[] {
+type Ocupacion = Pick<Propiedad, 'estado' | 'contratoInicio' | 'contratoFin' | 'historialContratos'>
+
+// Periodos de contrato. Si sigue `alquilado` y el fin falta o cae antes de
+// `hastaTope`, la ocupación llega hasta ese día (tácita).
+function periodosDeAlquiler(propiedad: Ocupacion, hastaTope: string): { ini: string; fin: string }[] {
   const periodos: { ini: string; fin: string }[] = []
   for (const h of propiedad.historialContratos ?? []) {
     periodos.push({ ini: h.fechaInicio ?? h.fechaFin, fin: h.fechaFin })
   }
   if (propiedad.contratoInicio) {
-    let fin = propiedad.contratoFin ?? hasta
-    if (propiedad.estado === 'alquilado' && (!propiedad.contratoFin || propiedad.contratoFin < hasta)) {
-      fin = hasta
+    let fin = propiedad.contratoFin ?? hastaTope
+    if (propiedad.estado === 'alquilado' && (!propiedad.contratoFin || propiedad.contratoFin < hastaTope)) {
+      fin = hastaTope
     }
     periodos.push({ ini: propiedad.contratoInicio, fin })
   }
+  return periodos
+}
+
+function clipPeriodo(
+  ini: string,
+  fin: string,
+  desde: string,
+  hasta: string,
+): { ini: string; fin: string } | null {
+  const a = ini > desde ? ini : desde
+  const b = fin < hasta ? fin : hasta
+  if (a > b) return null
+  return { ini: a, fin: b }
+}
+
+function fusionarIntervalos(intervalos: { ini: string; fin: string }[]): { ini: string; fin: string }[] {
+  const orden = [...intervalos].sort((a, b) => a.ini.localeCompare(b.ini) || a.fin.localeCompare(b.fin))
+  const out: { ini: string; fin: string }[] = []
+  for (const intervalo of orden) {
+    const ultimo = out[out.length - 1]
+    if (!ultimo || intervalo.ini > ultimo.fin) out.push({ ini: intervalo.ini, fin: intervalo.fin })
+    else if (intervalo.fin > ultimo.fin) ultimo.fin = intervalo.fin
+  }
+  return out
+}
+
+// Meses YYYY-MM con contrato vigente entre dos fechas, inclusive.
+// No rellena el rango cuando no hay ninguna fecha: de eso se ocupa
+// `mesesAlquiladosEnAnio`.
+export function mesesOcupados(propiedad: Ocupacion, desde: string, hasta: string): string[] {
   const meses = new Set<string>()
-  for (const per of periodos) {
-    const a = per.ini > desde ? per.ini : desde
-    const b = per.fin < hasta ? per.fin : hasta
-    if (a > b) continue
-    for (const m of mesesEntre(a.slice(0, 7), b.slice(0, 7))) meses.add(m)
+  for (const per of periodosDeAlquiler(propiedad, hasta)) {
+    const clip = clipPeriodo(per.ini, per.fin, desde, hasta)
+    if (!clip) continue
+    for (const m of mesesEntre(clip.ini.slice(0, 7), clip.fin.slice(0, 7))) meses.add(m)
   }
   return [...meses].sort()
+}
+
+function diasDelAnio(anio: string): number {
+  const y = Number(anio)
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 366 : 365
+}
+
+// Días con contrato vigente dentro del año. Sin ninguna fecha y estado
+// `alquilado`, cuenta el año entero. Un contrato que no pisa el año cuenta 0,
+// aunque `mesesAlquiladosEnAnio` rellene 12 meses para la amortización antigua.
+export function diasAlquiladosEnAnio(propiedad: Ocupacion, anio: string): number {
+  const desde = `${anio}-01-01`
+  const hasta = `${anio}-12-31`
+  const clips = periodosDeAlquiler(propiedad, hasta)
+    .map((per) => clipPeriodo(per.ini, per.fin, desde, hasta))
+    .filter((clip): clip is { ini: string; fin: string } => clip != null)
+  const fusion = fusionarIntervalos(clips)
+  if (fusion.length === 0 && propiedad.estado === 'alquilado' && !hayFechasDeContrato(propiedad)) {
+    return diasDelAnio(anio)
+  }
+  return fusion.reduce((s, i) => s + diasEntreFechas(i.ini, i.fin) + 1, 0)
 }
 
 function mesYaEmpezado(mes: string, hoy: Date): boolean {
@@ -2533,6 +2596,352 @@ export function estimarAhorroRenta(
     totalRetenido,
     aGuardar,
   }
+}
+
+// ─── Resumen IRPF orientativo ────────────────────────────────────────────────
+// No sustituye a `rendimientoIrpfPropiedad` ni a `amortizacionAnual` (esa sigue
+// en meses y solo con el valor catastral de la construcción). Esto es la hoja
+// de la declaración: céntimos, días alquilados, límite de intereses y
+// reparación, y la reducción de vivienda. Hay que revisarlo con la declaración.
+
+export const NOTA_RESUMEN_IRPF = 'Orientativo: debe revisarse con la declaración.'
+
+const CORTE_REDUCCION_VIVIENDA = '2023-05-26'
+const CATEGORIA_INTERESES = 'Intereses hipoteca'
+const CATEGORIA_REPARACION = 'Reparaciones'
+const FALTA_CONSTRUCCION = 'valor catastral de la construcción'
+const FALTA_PROPORCION = 'proporción de construcción'
+const FALTA_ADQUISICION = 'valor de adquisición'
+const FALTA_ADQUISICION_HERENCIA = 'valor de adquisición (valor declarado en la herencia)'
+const FALTA_ZONA = 'zona de mercado residencial tensionado'
+const FALTA_REBAJA = 'rebaja de la renta de más del 5 %'
+const FALTA_JOVEN = 'arrendatario de 18 a 35 años'
+const FALTA_ADMIN = 'arrendamiento a la Administración o a una entidad sin fines de lucro'
+const FALTA_REHAB = 'rehabilitación terminada en los dos años anteriores al contrato'
+
+export interface ReduccionVivienda {
+  estado: 'aplicada' | 'no aplica' | 'pendiente de dato'
+  porcentaje: number | null
+  importe: number | null
+  falta: string[]
+  motivo?: string
+}
+
+export interface ResumenIrpfFinca {
+  nombre: string
+  porcentajeCopropiedad: number
+  ingresosIntegros: number
+  gastosDeducibles: number
+  intereses: number
+  reparaciones: number
+  otrosGastos: number
+  limiteInteresesReparacion: number
+  excesoAnio: number
+  arrastreAplicado: number
+  arrastrePendiente: number
+  amortizacion: number | null
+  diasAlquilados: number
+  diasAnio: number
+  baseAmortizacion: number | null
+  rendimientoNeto: number | null
+  reduccion: ReduccionVivienda
+  rendimientoNetoReducido: number | null
+  pendiente: string[]
+}
+
+export interface TotalesIrpf {
+  ingresosIntegros: number
+  gastosDeducibles: number
+  excesoAnio: number
+  arrastreAplicado: number
+  amortizacion: number | null
+  rendimientoNeto: number | null
+  rendimientoNetoReducido: number | null
+}
+
+export interface ResumenIrpfAnio {
+  nota: string
+  anio: string
+  porFinca: ResumenIrpfFinca[]
+  totales: TotalesIrpf
+}
+
+type FincaIrpf = Pick<
+  Propiedad,
+  | 'id'
+  | 'nombre'
+  | 'tipo'
+  | 'estado'
+  | 'reparto'
+  | 'gastosRecurrentes'
+  | 'porcentajePropiedad'
+  | 'cuotaPropiedad'
+  | 'sinRenta'
+  | 'contratoInicio'
+  | 'contratoFin'
+  | 'historialContratos'
+  | 'valorConstruccion'
+  | 'valorAdquisicion'
+  | 'tipoAdquisicion'
+  | 'proporcionConstruccion'
+  | 'supuestosReduccion'
+  | 'propietarioNombre'
+>
+
+function desgloseGastosIrpf(
+  propiedad: Pick<Propiedad, 'id' | 'reparto' | 'gastosRecurrentes' | 'porcentajePropiedad'>,
+  transacciones: Transaccion[],
+  desde: string,
+  hasta: string,
+): { intereses: number; reparaciones: number; otros: number } {
+  const txs = txsDePropiedad(propiedad, transacciones)
+  let intereses = 0
+  let reparaciones = 0
+  let otros = 0
+  for (const t of txs) {
+    if (t.tipo !== 'gasto' || esAguaOLuz(t.categoria) || !esGastoDeducibleIRPF(t.categoria)) continue
+    const n = miParte(cuotaOtrosEnRango(t, propiedad, desde, hasta).propietario, propiedad, t.soloMio)
+    if (t.categoria === CATEGORIA_INTERESES) intereses += n
+    else if (t.categoria === CATEGORIA_REPARACION) reparaciones += n
+    else otros += n
+  }
+  const { propietario } = desgloseSuministrosEnRango(propiedad, txs, desde, hasta)
+  otros += miParte(propietario, propiedad)
+  return { intereses: round2(intereses), reparaciones: round2(reparaciones), otros: round2(otros) }
+}
+
+function gastosDelAnio(propiedad: FincaIrpf, transacciones: Transaccion[], anio: string) {
+  const [desde, hasta] = rangoAnio(anio)
+  const ingresos = round2(sumIngresosEnRango(propiedad, transacciones, desde, hasta, { irpf: true }))
+  return { ingresos, ...desgloseGastosIrpf(propiedad, transacciones, desde, hasta) }
+}
+
+// El exceso de intereses y reparación sobre los ingresos se arrastra a los
+// cuatro años siguientes. El más antiguo se aplica primero. El recorrido
+// empieza en el primer año con movimientos: un exceso anterior puede llenar
+// el hueco y dejar intacto otro que todavía cabe en el año pedido.
+function anioInicialArrastre(propiedad: FincaIrpf, transacciones: Transaccion[], yFin: number): number {
+  let min = yFin
+  for (const t of txsDePropiedad(propiedad, transacciones)) {
+    const y = Number(t.fecha.slice(0, 4))
+    if (y >= 1990 && y < min) min = y
+  }
+  return Math.min(min, yFin - 4)
+}
+
+function limiteGastosIrpf(propiedad: FincaIrpf, transacciones: Transaccion[], anio: string) {
+  const yFin = Number(anio)
+  const lotes: { anio: number; pendiente: number }[] = []
+  const actual = gastosDelAnio(propiedad, transacciones, anio)
+  let arrastreAplicado = 0
+  let excesoAnio = 0
+  for (let y = anioInicialArrastre(propiedad, transacciones, yFin); y <= yFin; y++) {
+    const g = y === yFin ? actual : gastosDelAnio(propiedad, transacciones, String(y))
+    const suma = round2(g.intereses + g.reparaciones)
+    const room = round2(Math.max(0, g.ingresos - suma))
+    let aplicado = 0
+    for (const lote of lotes) {
+      if (lote.anio < y - 4 || lote.anio > y - 1 || lote.pendiente <= 0) continue
+      const cabe = round2(room - aplicado)
+      if (cabe <= 0) break
+      const usa = round2(Math.min(lote.pendiente, cabe))
+      lote.pendiente = round2(lote.pendiente - usa)
+      aplicado = round2(aplicado + usa)
+    }
+    const exceso = round2(Math.max(0, suma - g.ingresos))
+    if (exceso > 0) lotes.push({ anio: y, pendiente: exceso })
+    if (y === yFin) {
+      arrastreAplicado = aplicado
+      excesoAnio = exceso
+    }
+  }
+  const deducidos = round2(actual.intereses + actual.reparaciones - excesoAnio)
+  const gastosDeducibles = round2(actual.otros + deducidos + arrastreAplicado)
+  const arrastrePendiente = round2(
+    lotes.filter((l) => l.anio >= yFin - 3 && l.anio <= yFin).reduce((s, l) => s + l.pendiente, 0),
+  )
+  return {
+    ...actual,
+    limiteInteresesReparacion: actual.ingresos,
+    excesoAnio,
+    arrastreAplicado,
+    arrastrePendiente,
+    gastosDeducibles,
+  }
+}
+
+function proporcionValida(valor: number | undefined): number | null {
+  if (valor == null || !Number.isFinite(valor) || valor <= 0 || valor > 1) return null
+  return valor
+}
+
+function baseAmortizacionIrpf(propiedad: FincaIrpf): { baseParte: number | null; pendiente: string[] } {
+  if (propiedad.sinRenta) return { baseParte: null, pendiente: [] }
+  const pendiente: string[] = []
+  const catastral =
+    propiedad.valorConstruccion != null && propiedad.valorConstruccion > 0 ? propiedad.valorConstruccion : null
+  if (catastral == null) pendiente.push(FALTA_CONSTRUCCION)
+  const proporcion = proporcionValida(propiedad.proporcionConstruccion)
+  const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null
+  let porAdquisicion: number | null = null
+  if (coste != null && proporcion != null) porAdquisicion = coste * proporcion
+  else {
+    if (proporcion == null) pendiente.push(FALTA_PROPORCION)
+    if (coste == null) {
+      pendiente.push(propiedad.tipoAdquisicion === 'herencia' ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION)
+    }
+  }
+  const candidatos = [catastral, porAdquisicion].filter((n): n is number => n != null && n > 0)
+  if (candidatos.length === 0) return { baseParte: null, pendiente }
+  const base = Math.max(...candidatos)
+  const parte = round2(miParte(parteDeCuota(base, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad))
+  const incompleta = catastral == null || porAdquisicion == null
+  return { baseParte: parte, pendiente: incompleta ? pendiente : [] }
+}
+
+function amortizacionIrpfAnio(propiedad: FincaIrpf, anio: string) {
+  const diasAnio = diasDelAnio(anio)
+  const diasAlquilados = propiedad.sinRenta ? 0 : diasAlquiladosEnAnio(propiedad, anio)
+  const base = baseAmortizacionIrpf(propiedad)
+  if (base.baseParte == null) {
+    return { importe: null as number | null, diasAlquilados, diasAnio, base: null as number | null, pendiente: base.pendiente }
+  }
+  return {
+    importe: round2(base.baseParte * (AMORTIZACION_PCT / 100) * (diasAlquilados / diasAnio)),
+    diasAlquilados,
+    diasAnio,
+    base: base.baseParte,
+    pendiente: base.pendiente,
+  }
+}
+
+// Contratos anteriores al 26-05-2023: 60 %. En el ejercicio 2023 también, aunque
+// el contrato sea posterior: la escala 50/60/70/90 entra en 2024. A partir de
+// ahí, si falta un supuesto que cambia el porcentaje, no se elige uno.
+export function reduccionAlquilerVivienda(
+  propiedad: Pick<Propiedad, 'tipo' | 'sinRenta' | 'contratoInicio' | 'supuestosReduccion'>,
+  anio: string,
+): Omit<ReduccionVivienda, 'importe'> {
+  if (propiedad.sinRenta || (propiedad.tipo !== 'piso' && propiedad.tipo !== 'casa')) {
+    return { estado: 'no aplica', porcentaje: 0, falta: [], motivo: 'No es alquiler de vivienda.' }
+  }
+  if (!propiedad.contratoInicio) {
+    return { estado: 'pendiente de dato', porcentaje: null, falta: ['fecha de contrato'] }
+  }
+  if (propiedad.contratoInicio < CORTE_REDUCCION_VIVIENDA || anio <= '2023') {
+    return {
+      estado: 'aplicada',
+      porcentaje: 60,
+      falta: [],
+      motivo:
+        propiedad.contratoInicio < CORTE_REDUCCION_VIVIENDA
+          ? 'Contrato anterior al 26-05-2023: reducción del 60 %.'
+          : 'En 2023 la reducción del alquiler de vivienda sigue siendo del 60 %.',
+    }
+  }
+  const s = propiedad.supuestosReduccion ?? {}
+  const zona = s.zonaTensionada
+  const rebaja = s.rebajaRentaMasDe5
+  const joven = s.joven18a35
+  const admin = s.administracionOEntidad
+  const rehab = s.rehabilitacionDosAnios
+  const falta: string[] = []
+  if (zona == null) falta.push(FALTA_ZONA)
+  if (zona !== false && rebaja == null) falta.push(FALTA_REBAJA)
+  if (zona === true && rebaja === true) {
+    return {
+      estado: 'aplicada',
+      porcentaje: 90,
+      falta: [],
+      motivo: 'Zona tensionada y renta rebajada más de un 5 %.',
+    }
+  }
+  const puede90 = zona !== false && rebaja !== false && (zona == null || rebaja == null)
+  if (zona !== false && joven == null) falta.push(FALTA_JOVEN)
+  if (admin == null) falta.push(FALTA_ADMIN)
+  const es70 = (zona === true && joven === true) || admin === true
+  const puede70 = !es70 && ((zona !== false && joven !== false && (zona == null || joven == null)) || admin == null)
+  if (rehab == null) falta.push(FALTA_REHAB)
+  if (puede90 || puede70) return { estado: 'pendiente de dato', porcentaje: null, falta }
+  if (es70) {
+    return {
+      estado: 'aplicada',
+      porcentaje: 70,
+      falta: [],
+      motivo: 'Vivienda en zona tensionada a un joven, o alquiler a la Administración o a una entidad sin fines de lucro.',
+    }
+  }
+  if (rehab == null) return { estado: 'pendiente de dato', porcentaje: null, falta }
+  if (rehab) {
+    return { estado: 'aplicada', porcentaje: 60, falta: [], motivo: 'Rehabilitación terminada en los dos años anteriores.' }
+  }
+  return {
+    estado: 'aplicada',
+    porcentaje: 50,
+    falta: [],
+    motivo: 'Contrato de vivienda desde el 26-05-2023 sin los supuestos del 90, 70 o 60 %.',
+  }
+}
+
+export function resumenIrpfFinca(propiedad: FincaIrpf, transacciones: Transaccion[], anio: string): ResumenIrpfFinca {
+  const gastos = limiteGastosIrpf(propiedad, transacciones, anio)
+  const amort = amortizacionIrpfAnio(propiedad, anio)
+  const reduccionBase = reduccionAlquilerVivienda(propiedad, anio)
+  const rendimientoNeto =
+    amort.importe == null ? null : round2(gastos.ingresos - gastos.gastosDeducibles - amort.importe)
+  let importe: number | null = null
+  let reducido: number | null = null
+  if (rendimientoNeto != null && reduccionBase.estado !== 'pendiente de dato' && reduccionBase.porcentaje != null) {
+    importe = rendimientoNeto > 0 ? round2(rendimientoNeto * (reduccionBase.porcentaje / 100)) : 0
+    reducido = round2(rendimientoNeto - importe)
+  }
+  return {
+    nombre: propiedad.nombre,
+    porcentajeCopropiedad: propiedad.porcentajePropiedad ?? 100,
+    ingresosIntegros: gastos.ingresos,
+    gastosDeducibles: gastos.gastosDeducibles,
+    intereses: gastos.intereses,
+    reparaciones: gastos.reparaciones,
+    otrosGastos: gastos.otros,
+    limiteInteresesReparacion: gastos.limiteInteresesReparacion,
+    excesoAnio: gastos.excesoAnio,
+    arrastreAplicado: gastos.arrastreAplicado,
+    arrastrePendiente: gastos.arrastrePendiente,
+    amortizacion: amort.importe,
+    diasAlquilados: amort.diasAlquilados,
+    diasAnio: amort.diasAnio,
+    baseAmortizacion: amort.base,
+    rendimientoNeto,
+    reduccion: { ...reduccionBase, importe },
+    rendimientoNetoReducido: reducido,
+    pendiente: amort.pendiente,
+  }
+}
+
+function totalesIrpf(filas: ResumenIrpfFinca[]): TotalesIrpf {
+  const suma = (campo: 'ingresosIntegros' | 'gastosDeducibles' | 'excesoAnio' | 'arrastreAplicado') =>
+    round2(filas.reduce((s, f) => s + f[campo], 0))
+  const sumaONull = (campo: 'amortizacion' | 'rendimientoNeto' | 'rendimientoNetoReducido') => {
+    if (filas.some((f) => f[campo] == null)) return null
+    return round2(filas.reduce((s, f) => s + (f[campo] ?? 0), 0))
+  }
+  return {
+    ingresosIntegros: suma('ingresosIntegros'),
+    gastosDeducibles: suma('gastosDeducibles'),
+    excesoAnio: suma('excesoAnio'),
+    arrastreAplicado: suma('arrastreAplicado'),
+    amortizacion: sumaONull('amortizacion'),
+    rendimientoNeto: sumaONull('rendimientoNeto'),
+    rendimientoNetoReducido: sumaONull('rendimientoNetoReducido'),
+  }
+}
+
+export function resumenIrpf(propiedades: readonly FincaIrpf[], transacciones: Transaccion[], anio: string): ResumenIrpfAnio {
+  const porFinca = propiedades
+    .filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
+    .map((p) => resumenIrpfFinca(p, transacciones, anio))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+  return { nota: NOTA_RESUMEN_IRPF, anio, porFinca, totales: totalesIrpf(porFinca) }
 }
 
 export const ESTADO_BADGE_VARIANT: Record<
