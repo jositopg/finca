@@ -6,7 +6,10 @@ import {
   CATEGORIAS_GASTO,
   CATEGORIAS_INGRESO,
   FichaError,
+  aplicarCambioCondiciones,
+  alquilerVigente,
   cambiosDeFicha,
+  diaAnteriorISO,
   fechaDeHoy,
   fusionarFicha,
   interpretarCamposFicha,
@@ -14,9 +17,13 @@ import {
   interpretarNumeroFactura,
   parseImporte,
   type CamposFicha,
+  type ConceptoFijo,
+  type InclusionAguaLuz,
   type ParcheFicha,
   type Propiedad,
+  type Reparto,
   type Tarea,
+  type TramoContrato,
   type Transaccion,
 } from '../../src/types/index.ts'
 import { ConsultaError, fichaPublica, normalizar, resolverFinca } from './consultar.ts'
@@ -105,7 +112,7 @@ export const fichasEscritura: FichaEscritura[] = [
   {
     name: 'fijar_ficha',
     description:
-      'Actualiza la ficha de escritura de un inmueble que ya existe: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Sin confirmar:true no escribe y devuelve el antes y el después. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.',
+      'Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -113,7 +120,7 @@ export const fichasEscritura: FichaEscritura[] = [
         campos: {
           type: 'object',
           description:
-            'Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100. null borra el campo.',
+            'Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo.',
           properties: {
             referenciaCatastral: { type: 'string' },
             valorAdquisicion: { type: 'number' },
@@ -128,6 +135,25 @@ export const fichasEscritura: FichaEscritura[] = [
             sinRenta: { type: 'boolean' },
             financiacion: { type: 'object' },
             copropietarios: { type: 'array' },
+            alquilerMensual: { type: 'number', description: 'Nueva renta, mayor que 0. Crea un tramo; no sustituye el historial.' },
+            fechaEfecto: { type: 'string', description: 'YYYY-MM-DD. Obligatoria si va alquilerMensual. vigenteDesde del tramo.' },
+            aguaLuz: {
+              type: 'object',
+              properties: {
+                modo: { type: 'string', description: 'incluido, no_incluido o parcial_conjunto.' },
+                importeMensual: { type: 'number', description: 'Obligatorio si modo es parcial_conjunto. Mayor que 0.' },
+              },
+            },
+            conceptosFijos: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  concepto: { type: 'string', description: 'De 1 a 40 caracteres.' },
+                  importeMensual: { type: 'number', description: 'Mayor que 0.' },
+                },
+              },
+            },
           },
           additionalProperties: false,
         },
@@ -296,7 +322,17 @@ const COLUMNAS_FICHA: Partial<Record<keyof CamposFicha, string>> = {
   sinRenta: 'sin_renta',
 }
 
-function sqlFicha(id: string, parche: ParcheFicha): { sql: string; params: unknown[] } {
+type ExtraSql = {
+  tramosContrato?: TramoContrato[]
+  alquilerMensual?: number | null
+  contratoFin?: string | null
+  fianzaImporte?: number | null
+  rentaRevisadaDesde?: string | null
+  reparto?: Reparto | null
+  conceptosFijos?: ConceptoFijo[] | null
+}
+
+function sqlFicha(id: string, parche: ParcheFicha, extra: ExtraSql = {}): { sql: string; params: unknown[] } {
   const sets: string[] = []
   const params: unknown[] = []
   const add = (columna: string, valor: unknown, cast = '') => {
@@ -320,8 +356,76 @@ function sqlFicha(id: string, parche: ParcheFicha): { sql: string; params: unkno
     const lista = parche.copropietarios
     add('copropietarios', lista && lista.length > 0 ? JSON.stringify(lista) : null, '::jsonb')
   }
+  if ('tramosContrato' in extra) add('tramos_contrato', JSON.stringify(extra.tramosContrato ?? []), '::jsonb')
+  if ('alquilerMensual' in extra) add('alquiler_mensual', extra.alquilerMensual ?? null)
+  if ('contratoFin' in extra) add('contrato_fin', extra.contratoFin ?? null)
+  if ('fianzaImporte' in extra) add('fianza_importe', extra.fianzaImporte ?? null)
+  if ('rentaRevisadaDesde' in extra) add('renta_revisada_desde', extra.rentaRevisadaDesde ?? null)
+  if ('reparto' in extra) add('reparto', extra.reparto ? JSON.stringify(extra.reparto) : null, '::jsonb')
+  if ('conceptosFijos' in extra) {
+    const lista = extra.conceptosFijos
+    add('conceptos_fijos', lista && lista.length > 0 ? JSON.stringify(lista) : null, '::jsonb')
+  }
+  if (sets.length === 0) throw new ConsultaError('No hay ningún campo que guardar.')
   params.push(id)
   return { sql: `update propiedades set ${sets.join(', ')} where id = $${params.length}`, params }
+}
+
+const CAMPOS_EXTRA = new Set(['alquilerMensual', 'fechaEfecto', 'aguaLuz', 'conceptosFijos'])
+const MODOS_AGUA_LUZ = new Set(['incluido', 'no_incluido', 'parcial_conjunto'])
+
+function partirCampos(entrada: unknown): { ficha: Record<string, unknown>; extra: Record<string, unknown> } {
+  if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)) {
+    throw new ConsultaError('"campos" tiene que ser un objeto.')
+  }
+  const ficha: Record<string, unknown> = {}
+  const extra: Record<string, unknown> = {}
+  for (const [clave, valor] of Object.entries(entrada as Record<string, unknown>)) {
+    if (CAMPOS_EXTRA.has(clave)) extra[clave] = valor
+    else ficha[clave] = valor
+  }
+  return { ficha, extra }
+}
+
+function importePositivo(valor: unknown, etiqueta: string): number {
+  const n = typeof valor === 'number' ? valor : typeof valor === 'string' ? parseImporte(valor) : NaN
+  if (!Number.isFinite(n) || n <= 0) throw new ConsultaError(`"${etiqueta}" tiene que ser un importe mayor que cero.`)
+  return Math.round(n * 100) / 100
+}
+
+function leerAguaLuz(valor: unknown): InclusionAguaLuz | null {
+  if (valor == null) return null
+  if (typeof valor !== 'object' || Array.isArray(valor)) throw new ConsultaError('"aguaLuz" tiene que ser un objeto.')
+  const datos = valor as Record<string, unknown>
+  const modo = datos.modo
+  if (typeof modo !== 'string' || !MODOS_AGUA_LUZ.has(modo)) {
+    throw new ConsultaError('"aguaLuz.modo" tiene que ser incluido, no_incluido o parcial_conjunto.')
+  }
+  if (modo === 'parcial_conjunto') {
+    return { modo, importeMensual: importePositivo(datos.importeMensual, 'aguaLuz.importeMensual') }
+  }
+  return { modo: modo as InclusionAguaLuz['modo'] }
+}
+
+function leerConceptosFijos(valor: unknown): ConceptoFijo[] | null {
+  if (valor == null) return null
+  if (!Array.isArray(valor) || valor.length === 0) {
+    throw new ConsultaError('"conceptosFijos" tiene que ser una lista con al menos un concepto.')
+  }
+  return valor.map((item, i) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new ConsultaError(`"conceptosFijos[${i}]" tiene que ser un objeto.`)
+    }
+    const datos = item as Record<string, unknown>
+    if (typeof datos.concepto !== 'string') {
+      throw new ConsultaError(`"conceptosFijos[${i}].concepto" tiene que ser texto.`)
+    }
+    const concepto = datos.concepto.trim()
+    if (concepto.length < 1 || concepto.length > 40) {
+      throw new ConsultaError(`"conceptosFijos[${i}].concepto" tiene que tener entre 1 y 40 caracteres.`)
+    }
+    return { concepto, importeMensual: importePositivo(datos.importeMensual, `conceptosFijos[${i}].importeMensual`) }
+  })
 }
 
 function ordenFicha(
@@ -332,24 +436,82 @@ function ordenFicha(
   hoy: Date,
   transacciones: Foto['transacciones'],
 ): Orden {
-  let parche: ParcheFicha
-  try {
-    parche = interpretarCamposFicha(entrada, fechaDeHoy(hoy))
-  } catch (err) {
-    if (err instanceof FichaError) throw new ConsultaError(err.message)
-    throw err
+  const { ficha: entradaFicha, extra } = partirCampos(entrada)
+  if (Object.keys(entradaFicha).length === 0 && Object.keys(extra).length === 0) {
+    throw new ConsultaError('No hay ningún campo que guardar.')
   }
-  const cambios = cambiosDeFicha(finca, parche)
-  const siguiente = fusionarFicha(finca, parche)
+  let parche: ParcheFicha = {}
+  if (Object.keys(entradaFicha).length > 0) {
+    try {
+      parche = interpretarCamposFicha(entradaFicha, fechaDeHoy(hoy))
+    } catch (err) {
+      if (err instanceof FichaError) throw new ConsultaError(err.message)
+      throw err
+    }
+  }
+  const cambios: { campo: string; antes: unknown; despues: unknown }[] = cambiosDeFicha(finca, parche)
+  let siguiente = fusionarFicha(finca, parche)
+  const extraSql: ExtraSql = {}
+
+  if ('aguaLuz' in extra) {
+    const agua = leerAguaLuz(extra.aguaLuz)
+    const reparto: Reparto = { ...(siguiente.reparto ?? {}) }
+    if (agua == null) delete reparto.aguaLuz
+    else reparto.aguaLuz = agua
+    const antes = finca.reparto?.aguaLuz ?? null
+    siguiente = { ...siguiente, reparto: Object.keys(reparto).length > 0 ? reparto : undefined }
+    cambios.push({ campo: 'aguaLuz', antes, despues: siguiente.reparto?.aguaLuz ?? null })
+    extraSql.reparto = siguiente.reparto ?? null
+  }
+
+  if ('conceptosFijos' in extra) {
+    const lista = leerConceptosFijos(extra.conceptosFijos)
+    cambios.push({ campo: 'conceptosFijos', antes: finca.conceptosFijos ?? null, despues: lista })
+    siguiente = { ...siguiente, conceptosFijos: lista ?? undefined }
+    extraSql.conceptosFijos = lista
+  }
+
+  let renta: { antes: number | null; despues: number; fechaEfecto: string } | undefined
+  if ('alquilerMensual' in extra || 'fechaEfecto' in extra) {
+    if (!('alquilerMensual' in extra)) throw new ConsultaError('"fechaEfecto" solo vale junto con alquilerMensual.')
+    if (extra.fechaEfecto == null || extra.fechaEfecto === '') {
+      throw new ConsultaError('Para cambiar el alquiler hace falta "fechaEfecto" (YYYY-MM-DD).')
+    }
+    if (typeof extra.fechaEfecto !== 'string') throw new ConsultaError('"fechaEfecto" tiene que ser YYYY-MM-DD.')
+    const fechaEfecto = fechaTexto(extra.fechaEfecto.trim(), 'fechaEfecto')
+    const despues = importePositivo(extra.alquilerMensual, 'alquilerMensual')
+    const antes = alquilerVigente(siguiente, diaAnteriorISO(fechaEfecto), hoy) ?? null
+    const resultado = aplicarCambioCondiciones(
+      siguiente,
+      { vigenteDesde: fechaEfecto, alquilerMensual: despues },
+      hoy,
+    )
+    if (!resultado.ok) throw new ConsultaError(resultado.error)
+    siguiente = resultado.propiedad
+    renta = { antes, despues, fechaEfecto }
+    extraSql.tramosContrato = siguiente.tramosContrato ?? []
+    if ((siguiente.alquilerMensual ?? null) !== (finca.alquilerMensual ?? null)) {
+      extraSql.alquilerMensual = siguiente.alquilerMensual ?? null
+    }
+    if ((siguiente.contratoFin ?? null) !== (finca.contratoFin ?? null)) extraSql.contratoFin = siguiente.contratoFin ?? null
+    if ((siguiente.fianzaImporte ?? null) !== (finca.fianzaImporte ?? null)) {
+      extraSql.fianzaImporte = siguiente.fianzaImporte ?? null
+    }
+    if ((siguiente.rentaRevisadaDesde ?? null) !== (finca.rentaRevisadaDesde ?? null)) {
+      extraSql.rentaRevisadaDesde = siguiente.rentaRevisadaDesde ?? null
+    }
+  }
+
   const ficha = fichaPublica(siguiente, hoy, transacciones)
-  const sentencia = sqlFicha(finca.id, parche)
+  const sentencia = sqlFicha(finca.id, parche, extraSql)
+  const comun = { finca: finca.nombre, cambios, ficha, ...(renta ? { renta } : {}) }
   return {
     herramienta: 'fijar_ficha',
     confirmar,
     clave,
-    vista: { escrito: false, vistaPrevia: true, finca: finca.nombre, cambios, ficha },
+    vista: { escrito: false, vistaPrevia: true, ...comun },
     sentencias: [sentencia],
-    resultado: { escrito: true, repetida: false, finca: finca.nombre, cambios, ficha },
+    resultado: { escrito: true, repetida: false, ...comun },
   }
 }
 

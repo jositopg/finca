@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import type {
   ContratoHistorico,
   DatosFacturacion,
+  ConceptoFijo,
   GastoRecurrente,
   IngresoExterno,
   Propiedad,
@@ -43,6 +44,7 @@ interface PropiedadRow {
   tramos_contrato: TramoContrato[] | null
   porcentaje_propiedad: number | string | null
   gastos_recurrentes: GastoRecurrente[] | null
+  conceptos_fijos: ConceptoFijo[] | null
   referencia_catastral: string | null
   valor_adquisicion: number | string | null
   fecha_adquisicion: string | null
@@ -131,6 +133,7 @@ function rowToPropiedad(row: PropiedadRow): Propiedad {
     tramosContrato: row.tramos_contrato ?? undefined,
     porcentajePropiedad: row.porcentaje_propiedad != null ? Number(row.porcentaje_propiedad) : undefined,
     gastosRecurrentes: row.gastos_recurrentes ?? undefined,
+    conceptosFijos: row.conceptos_fijos ?? undefined,
     referenciaCatastral: row.referencia_catastral ?? undefined,
     valorAdquisicion: row.valor_adquisicion != null ? Number(row.valor_adquisicion) : undefined,
     fechaAdquisicion: row.fecha_adquisicion ?? undefined,
@@ -190,6 +193,7 @@ function propiedadToRow(p: Propiedad): Omit<PropiedadRow, 'creado_en'> & { cread
     tramos_contrato: p.tramosContrato ?? null,
     porcentaje_propiedad: p.porcentajePropiedad ?? null,
     gastos_recurrentes: p.gastosRecurrentes ?? null,
+    conceptos_fijos: p.conceptosFijos ?? null,
     referencia_catastral: p.referenciaCatastral ?? null,
     valor_adquisicion: p.valorAdquisicion ?? null,
     fecha_adquisicion: p.fechaAdquisicion ?? null,

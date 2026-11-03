@@ -247,6 +247,7 @@ export function fichaPublica(p: Propiedad, hoy: Date, transacciones: Transaccion
     direccion: p.direccion,
     inquilino: p.inquilinoNombre ?? null,
     alquilerMensual: alquilerVigente(p, undefined, hoy) ?? null,
+    ...(p.conceptosFijos && p.conceptosFijos.length > 0 ? { conceptosFijos: p.conceptosFijos } : {}),
     aguaLuz,
     porcentaje: p.porcentajePropiedad ?? 100,
     deJose: esDeJose(p),
@@ -285,7 +286,7 @@ const sinParametros = { type: 'object', properties: {}, additionalProperties: fa
 const listarFincas: Herramienta = {
   name: 'listar_fincas',
   description:
-    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
+    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
   inputSchema: sinParametros,
   ejecutar: (_args, foto, hoy) => ({
     fincas: [...foto.propiedades]

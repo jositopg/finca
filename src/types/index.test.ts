@@ -589,6 +589,31 @@ describe('gastosPorCategoriaEnRango', () => {
   })
 })
 
+describe('conceptosFijos', () => {
+  it('la basura de 8 entra en la renta esperada y no en el rendimiento de IRPF', () => {
+    const p = propiedad({
+      alquilerMensual: 525.77,
+      contratoInicio: '2024-01-01',
+      conceptosFijos: [{ concepto: 'basura', importeMensual: 8 }],
+    })
+    const dia = new Date(2026, 10, 10)
+    expect(alquilerACobrar(p, '2026-11-01', dia)).toBe(533.77)
+    const cobro = transaccion({
+      tipo: 'ingreso',
+      categoria: 'Alquiler mensual',
+      importe: 533.77,
+      fecha: '2026-11-05',
+      periodoInicio: '2026-11-01',
+      periodoFin: '2026-11-30',
+    })
+    expect(rentaPendiente(p, [cobro], dia)).toBe(false)
+    const r = rendimientoIrpfPropiedad(p, [cobro], '2026', 0)
+    expect(r.ingresos).toBe(525.77)
+    expect(r.rendimientoNeto).toBe(525.77)
+    expect(rentabilidadEnRango(p, [cobro], '2026-01-01', '2026-12-31', dia).rentas).toBe(525.77)
+  })
+})
+
 describe('rendimientoIrpfPropiedad y suministros', () => {
   it('solo deduce la parte incluida de agua/luz', () => {
     const p = propiedad({

@@ -61,6 +61,13 @@ export interface TramoContrato {
   notas?: string
 }
 
+// Importe fijo que el inquilino paga cada mes además de la renta (basura, etc.).
+// Entra en el cobro esperado. No es rendimiento del alquiler: va repercutido.
+export interface ConceptoFijo {
+  concepto: string
+  importeMensual: number
+}
+
 export interface Propiedad {
   id: string
   nombre: string
@@ -85,6 +92,7 @@ export interface Propiedad {
   tramosContrato?: TramoContrato[] // cambios de condiciones del contrato en vigor, con fecha desde la que aplican
   porcentajePropiedad?: number // 0-100, % de la propiedad que es de Jose (sin definir = 100%)
   gastosRecurrentes?: GastoRecurrente[] // gastos fijos que se repiten cada mes (comunidad, etc.)
+  conceptosFijos?: ConceptoFijo[] // los paga el inquilino junto a la renta; no son rendimiento
   referenciaCatastral?: string
   valorAdquisicion?: number // valor escriturado (herencia, donación o compra): valor de adquisición fiscal
   fechaAdquisicion?: string // YYYY-MM-DD, no futura
@@ -1083,6 +1091,11 @@ export function rangoMes(mesYYYYMM: string): [string, string] {
 
 // Lo que debería entrar en el banco ese mes: en vivienda, la renta pactada;
 // en local, la neta (base + IGIC − IRPF), que es lo que se registra al cobrar.
+export function sumaConceptosFijos(propiedad: { conceptosFijos?: ConceptoFijo[] }): number {
+  const total = (propiedad.conceptosFijos ?? []).reduce((s, c) => s + c.importeMensual, 0)
+  return round2(total)
+}
+
 export function alquilerACobrar(
   propiedad: Pick<
     Propiedad,
@@ -1095,14 +1108,16 @@ export function alquilerACobrar(
     | 'historialContratos'
     | 'inquilinoNombre'
     | 'inquilinoDni'
+    | 'conceptosFijos'
   >,
   fecha?: string,
   hoy: Date = new Date(),
 ): number | undefined {
   const bruta = alquilerVigente(propiedad, fecha, hoy)
   if (bruta == null || bruta <= 0) return undefined
-  if (propiedad.tipo === 'local') return Math.round(calcularRentaLocal(bruta).neta * 100) / 100
-  return bruta
+  const renta = propiedad.tipo === 'local' ? round2(calcularRentaLocal(bruta).neta) : bruta
+  const total = round2(renta + sumaConceptosFijos(propiedad))
+  return total > 0 ? total : undefined
 }
 
 // A partir del día de cobro (por defecto el 5), si una propiedad alquilada
@@ -1719,8 +1734,66 @@ function txsDePropiedad(
   return transacciones.filter((t) => t.propiedadId === propiedad.id)
 }
 
+type PropiedadDelCobro = Pick<
+  Propiedad,
+  | 'tipo'
+  | 'porcentajePropiedad'
+  | 'conceptosFijos'
+  | 'alquilerMensual'
+  | 'tramosContrato'
+  | 'contratoInicio'
+  | 'contratoFin'
+  | 'fianzaImporte'
+  | 'historialContratos'
+  | 'inquilinoNombre'
+  | 'inquilinoDni'
+  | 'sinRenta'
+>
+
+function mesesCubiertosPorCobro(
+  t: Pick<Transaccion, 'fecha' | 'periodoInicio' | 'periodoFin'>,
+): string[] {
+  if (t.periodoInicio && t.periodoFin && t.periodoInicio <= t.periodoFin) {
+    return mesesEntre(t.periodoInicio.slice(0, 7), t.periodoFin.slice(0, 7))
+  }
+  return [t.fecha.slice(0, 7)]
+}
+
+// Renta que debería entrar sin los conceptos fijos: en un local, la neta.
+function rentaCobrableSinConceptos(propiedad: PropiedadDelCobro, fecha: string): number | undefined {
+  const bruta = alquilerVigente(propiedad, fecha)
+  if (bruta == null || bruta <= 0) return undefined
+  if (propiedad.tipo === 'local') return round2(calcularRentaLocal(bruta).neta)
+  return bruta
+}
+
+// Del cobro de alquiler, lo que pasa de la renta pactada hasta el cupo de
+// conceptos fijos es repercutido. Un cobro que no lo supera se queda entero.
+function alquilerEnRangoSinConceptos(
+  t: Pick<Transaccion, 'tipo' | 'categoria' | 'importe' | 'fecha' | 'periodoInicio' | 'periodoFin'>,
+  propiedad: PropiedadDelCobro,
+  desde: string,
+  hasta: string,
+): number {
+  const enRango = importeEnRango(t, desde, hasta)
+  if (t.tipo !== 'ingreso' || t.categoria !== 'Alquiler mensual' || enRango <= 0) return enRango
+  const mensual = sumaConceptosFijos(propiedad)
+  if (mensual <= 0 || t.importe <= 0) return enRango
+  let pactada = 0
+  let cupo = 0
+  for (const mes of mesesCubiertosPorCobro(t)) {
+    const renta = rentaCobrableSinConceptos(propiedad, `${mes}-01`)
+    if (renta == null) continue
+    pactada = round2(pactada + renta)
+    cupo = round2(cupo + mensual)
+  }
+  const repercutido = Math.min(cupo, round2(Math.max(0, t.importe - pactada)))
+  if (repercutido <= 0) return enRango
+  return round2(Math.max(0, enRango - repercutido * (enRango / t.importe)))
+}
+
 export function sumIngresosEnRango(
-  propiedad: Pick<Propiedad, 'id' | 'tipo' | 'porcentajePropiedad'>,
+  propiedad: Pick<Propiedad, 'id'> & PropiedadDelCobro,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
@@ -1736,14 +1809,16 @@ export function sumIngresosEnRango(
 // Alquiler y otros ingresos, a la parte de Jose. La fianza no es renta.
 // En un local es el importe cobrado, no la base de IRPF.
 export function sumRentasEnRango(
-  propiedad: Pick<Propiedad, 'id' | 'porcentajePropiedad'>,
+  propiedad: Pick<Propiedad, 'id'> & PropiedadDelCobro,
   transacciones: Transaccion[],
   desde: string,
   hasta: string,
 ): number {
   return txsDePropiedad(propiedad, transacciones).reduce((s, t) => {
     if (t.tipo !== 'ingreso' || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return s
-    return s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+    const renta =
+      t.categoria === 'Alquiler mensual' ? alquilerEnRangoSinConceptos(t, propiedad, desde, hasta) : importeEnRango(t, desde, hasta)
+    return s + miParte(renta, propiedad, t.soloMio)
   }, 0)
 }
 
@@ -1851,6 +1926,12 @@ type PropiedadRentable = Pick<
   | 'contratoInicio'
   | 'contratoFin'
   | 'historialContratos'
+  | 'conceptosFijos'
+  | 'alquilerMensual'
+  | 'tramosContrato'
+  | 'fianzaImporte'
+  | 'inquilinoNombre'
+  | 'inquilinoDni'
 >
 
 // Rentabilidad del periodo sobre el valor de mercado × cuota. No anualiza
@@ -2454,12 +2535,14 @@ export function esGastoDeducibleIRPF(categoria: string): boolean {
 
 export function ingresoIrpfDeTx(
   t: Pick<Transaccion, 'tipo' | 'categoria' | 'importe' | 'periodoInicio' | 'periodoFin' | 'fecha' | 'soloMio'>,
-  propiedad: Pick<Propiedad, 'tipo' | 'porcentajePropiedad'>,
+  propiedad: PropiedadDelCobro,
   desde: string,
   hasta: string,
 ): number {
   if (t.tipo !== 'ingreso' || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return 0
-  const bruto = miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio)
+  const renta =
+    t.categoria === 'Alquiler mensual' ? alquilerEnRangoSinConceptos(t, propiedad, desde, hasta) : importeEnRango(t, desde, hasta)
+  const bruto = miParte(renta, propiedad, t.soloMio)
   if (propiedad.tipo === 'local' && t.categoria === 'Alquiler mensual') return baseDesdeRentaNeta(bruto)
   return bruto
 }
@@ -2680,6 +2763,12 @@ type FincaIrpf = Pick<
   | 'contratoInicio'
   | 'contratoFin'
   | 'historialContratos'
+  | 'conceptosFijos'
+  | 'alquilerMensual'
+  | 'tramosContrato'
+  | 'fianzaImporte'
+  | 'inquilinoNombre'
+  | 'inquilinoDni'
   | 'valorConstruccion'
   | 'valorAdquisicion'
   | 'tipoAdquisicion'

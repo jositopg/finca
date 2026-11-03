@@ -346,4 +346,48 @@ describe('aplicarEscritura', () => {
       planificar('fijar_ficha', { finca: 'Quimel', campos: { copropietarios: [{ nombre: 'Ana', porcentaje: 40, dni: '1' }] } }, foto, hoy),
     ).toThrow(/nombre y porcentaje/)
   })
+
+  it('fijar_ficha alquilerMensual con fechaEfecto abre un tramo y deja la renta anterior en el mes previo', () => {
+    const aguagarcia = fotoDe([
+      finca({
+        id: 'ag4',
+        nombre: 'Piso Aguagarcia 4',
+        tipo: 'piso',
+        estado: 'alquilado',
+        alquilerMensual: 498,
+        contratoInicio: '2024-01-01',
+      }),
+    ])
+    const orden = planificar(
+      'fijar_ficha',
+      { finca: 'Aguagarcia 4', campos: { alquilerMensual: 525.77, fechaEfecto: '2026-11-01' } },
+      aguagarcia,
+      hoy,
+    )
+    expect(orden.confirmar).toBe(false)
+    expect(orden.vista).toMatchObject({
+      escrito: false,
+      vistaPrevia: true,
+      renta: { antes: 498, despues: 525.77, fechaEfecto: '2026-11-01' },
+    })
+    const ficha = orden.vista.ficha as {
+      alquilerMensual: number
+      tramosContrato: { vigenteDesde: string; alquilerMensual: number }[]
+    }
+    expect(ficha.alquilerMensual).toBe(498)
+    expect(ficha.tramosContrato).toEqual([
+      expect.objectContaining({ vigenteDesde: '2024-01-01', alquilerMensual: 498 }),
+      expect.objectContaining({ vigenteDesde: '2026-11-01', alquilerMensual: 525.77 }),
+    ])
+    expect(orden.sentencias[0].sql).toContain('tramos_contrato')
+    expect(orden.sentencias[0].sql).not.toContain('alquiler_mensual')
+    expect(JSON.stringify(orden.sentencias[0].params)).toContain('525.77')
+    expect(JSON.stringify(orden.sentencias[0].params)).toContain('498')
+  })
+
+  it('alquilerMensual sin fechaEfecto falla', () => {
+    expect(() =>
+      planificar('fijar_ficha', { finca: 'Quimel', campos: { alquilerMensual: 525.77 } }, foto, hoy),
+    ).toThrow(/fechaEfecto/)
+  })
 })

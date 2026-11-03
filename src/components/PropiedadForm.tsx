@@ -573,6 +573,7 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
       gastosRecurrentes: gastosRecurrentes.length > 0 ? gastosRecurrentes : undefined,
       historialContratos: initial?.historialContratos,
       tramosContrato: initial?.tramosContrato,
+      conceptosFijos: initial?.conceptosFijos,
       contratoArchivoId: initial?.contratoArchivoId,
       contratoArchivoNombre: initial?.contratoArchivoNombre,
       alDiaDesde: initial?.alDiaDesde,

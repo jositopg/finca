@@ -3,6 +3,7 @@
 // calcula con un dato de menos.
 import type {
   ContratoHistorico,
+  ConceptoFijo,
   GastoRecurrente,
   HuecoMensual,
   IngresoExterno,
@@ -78,6 +79,7 @@ export function filaAPropiedad(fila: Fila): Propiedad {
     tramosContrato: json<TramoContrato[]>(fila, 'tramos_contrato'),
     porcentajePropiedad: numero(fila, 'porcentaje_propiedad'),
     gastosRecurrentes: json<GastoRecurrente[]>(fila, 'gastos_recurrentes'),
+    conceptosFijos: json<ConceptoFijo[]>(fila, 'conceptos_fijos'),
     referenciaCatastral: texto(fila, 'referencia_catastral'),
     valorAdquisicion: numero(fila, 'valor_adquisicion'),
     fechaAdquisicion: dia(fila, 'fecha_adquisicion'),

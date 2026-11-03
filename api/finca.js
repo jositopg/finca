@@ -466,6 +466,76 @@ function alquilerVigente(propiedad, fecha, hoy = /* @__PURE__ */ new Date()) {
 	if (historico) return alquilerDeHistorico(historico, dia);
 	if (!propiedad.contratoInicio && !propiedad.tramosContrato?.length) return propiedad.alquilerMensual;
 }
+function snapshotTramo(anterior, cambio) {
+	return {
+		id: crypto.randomUUID(),
+		vigenteDesde: cambio.vigenteDesde,
+		alquilerMensual: cambio.alquilerMensual ?? anterior?.alquilerMensual,
+		contratoFin: cambio.contratoFin ?? anterior?.contratoFin,
+		fianzaImporte: cambio.fianzaImporte ?? anterior?.fianzaImporte,
+		notas: cambio.notas?.trim() ? cambio.notas.trim() : void 0
+	};
+}
+function hayCambioRespecto(anterior, nuevo) {
+	if (!anterior) return true;
+	return anterior.alquilerMensual !== nuevo.alquilerMensual || anterior.contratoFin !== nuevo.contratoFin || anterior.fianzaImporte !== nuevo.fianzaImporte || (nuevo.notas ?? "") !== (anterior.notas ?? "");
+}
+function sincronizarCamposVigentes(propiedad, hoy = /* @__PURE__ */ new Date()) {
+	const tramos = tramosEfectivos(propiedad);
+	if (tramos.length === 0) return propiedad;
+	const vigente = tramoEnFecha(propiedad, fechaISO(hoy)) ?? tramos[0];
+	const ultimo = tramos[tramos.length - 1];
+	return {
+		...propiedad,
+		alquilerMensual: vigente.alquilerMensual,
+		contratoFin: ultimo.contratoFin,
+		fianzaImporte: vigente.fianzaImporte
+	};
+}
+function aplicarCambioCondiciones(propiedad, cambio, hoy = /* @__PURE__ */ new Date()) {
+	if (propiedad.estado !== "alquilado") return {
+		ok: false,
+		error: "Solo se pueden cambiar las condiciones de un contrato en vigor"
+	};
+	if (!propiedad.contratoInicio) return {
+		ok: false,
+		error: "Falta la fecha de inicio del contrato"
+	};
+	if (!cambio.vigenteDesde) return {
+		ok: false,
+		error: "Indica desde qué fecha aplican las nuevas condiciones"
+	};
+	if (cambio.vigenteDesde < propiedad.contratoInicio) return {
+		ok: false,
+		error: "La fecha no puede ser anterior al inicio del contrato"
+	};
+	const existentes = tramosEfectivos(propiedad).map((t) => t.id === TRAMO_INICIAL_ID ? {
+		...t,
+		id: crypto.randomUUID()
+	} : t);
+	const anterior = [...existentes].reverse().find((t) => t.vigenteDesde < cambio.vigenteDesde);
+	const existenteMismoDia = existentes.find((t) => t.vigenteDesde === cambio.vigenteDesde);
+	const nuevo = snapshotTramo(anterior ?? existenteMismoDia, cambio);
+	if (!hayCambioRespecto(existenteMismoDia ?? anterior, nuevo)) return {
+		ok: false,
+		error: "No hay ningún cambio respecto a las condiciones anteriores"
+	};
+	const tramos = [...existentes.filter((t) => t.vigenteDesde !== cambio.vigenteDesde), nuevo].sort((a, b) => a.vigenteDesde.localeCompare(b.vigenteDesde));
+	const alquilerCambio = (anterior ?? existenteMismoDia)?.alquilerMensual !== nuevo.alquilerMensual;
+	return {
+		ok: true,
+		propiedad: sincronizarCamposVigentes({
+			...propiedad,
+			tramosContrato: tramos,
+			rentaRevisadaDesde: alquilerCambio ? hoy.toISOString() : propiedad.rentaRevisadaDesde
+		}, hoy)
+	};
+}
+function diaAnteriorISO(fecha) {
+	const d = /* @__PURE__ */ new Date(`${fecha}T00:00:00`);
+	d.setDate(d.getDate() - 1);
+	return fechaISO(d);
+}
 function diaSiguienteISO(fecha) {
 	const d = /* @__PURE__ */ new Date(`${fecha}T00:00:00`);
 	d.setDate(d.getDate() + 1);
@@ -539,11 +609,14 @@ function rangoMes(mesYYYYMM) {
 	const ultimoDia = new Date(y, m, 0).getDate();
 	return [`${mesYYYYMM}-01`, `${mesYYYYMM}-${String(ultimoDia).padStart(2, "0")}`];
 }
+function sumaConceptosFijos(propiedad) {
+	return round2((propiedad.conceptosFijos ?? []).reduce((s, c) => s + c.importeMensual, 0));
+}
 function alquilerACobrar(propiedad, fecha, hoy = /* @__PURE__ */ new Date()) {
 	const bruta = alquilerVigente(propiedad, fecha, hoy);
 	if (bruta == null || bruta <= 0) return void 0;
-	if (propiedad.tipo === "local") return Math.round(calcularRentaLocal(bruta).neta * 100) / 100;
-	return bruta;
+	const total = round2((propiedad.tipo === "local" ? round2(calcularRentaLocal(bruta).neta) : bruta) + sumaConceptosFijos(propiedad));
+	return total > 0 ? total : void 0;
 }
 function rentaPendiente(propiedad, transacciones, hoy = /* @__PURE__ */ new Date()) {
 	if (propiedad.sinRenta || propiedad.estado !== "alquilado") return false;
@@ -850,6 +923,33 @@ function desgloseSuministrosEnRango(propiedad, transacciones, desde, hasta) {
 function txsDePropiedad(propiedad, transacciones) {
 	return transacciones.filter((t) => t.propiedadId === propiedad.id);
 }
+function mesesCubiertosPorCobro(t) {
+	if (t.periodoInicio && t.periodoFin && t.periodoInicio <= t.periodoFin) return mesesEntre(t.periodoInicio.slice(0, 7), t.periodoFin.slice(0, 7));
+	return [t.fecha.slice(0, 7)];
+}
+function rentaCobrableSinConceptos(propiedad, fecha) {
+	const bruta = alquilerVigente(propiedad, fecha);
+	if (bruta == null || bruta <= 0) return void 0;
+	if (propiedad.tipo === "local") return round2(calcularRentaLocal(bruta).neta);
+	return bruta;
+}
+function alquilerEnRangoSinConceptos(t, propiedad, desde, hasta) {
+	const enRango = importeEnRango(t, desde, hasta);
+	if (t.tipo !== "ingreso" || t.categoria !== "Alquiler mensual" || enRango <= 0) return enRango;
+	const mensual = sumaConceptosFijos(propiedad);
+	if (mensual <= 0 || t.importe <= 0) return enRango;
+	let pactada = 0;
+	let cupo = 0;
+	for (const mes of mesesCubiertosPorCobro(t)) {
+		const renta = rentaCobrableSinConceptos(propiedad, `${mes}-01`);
+		if (renta == null) continue;
+		pactada = round2(pactada + renta);
+		cupo = round2(cupo + mensual);
+	}
+	const repercutido = Math.min(cupo, round2(Math.max(0, t.importe - pactada)));
+	if (repercutido <= 0) return enRango;
+	return round2(Math.max(0, enRango - repercutido * (enRango / t.importe)));
+}
 function sumIngresosEnRango(propiedad, transacciones, desde, hasta, opts) {
 	return txsDePropiedad(propiedad, transacciones).reduce((s, t) => {
 		if (t.tipo !== "ingreso" || esIngresoRepercutido(t.categoria)) return s;
@@ -860,7 +960,7 @@ function sumIngresosEnRango(propiedad, transacciones, desde, hasta, opts) {
 function sumRentasEnRango(propiedad, transacciones, desde, hasta) {
 	return txsDePropiedad(propiedad, transacciones).reduce((s, t) => {
 		if (t.tipo !== "ingreso" || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return s;
-		return s + miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio);
+		return s + miParte(t.categoria === "Alquiler mensual" ? alquilerEnRangoSinConceptos(t, propiedad, desde, hasta) : importeEnRango(t, desde, hasta), propiedad, t.soloMio);
 	}, 0);
 }
 function cuotaOtrosEnRango(t, propiedad, desde, hasta) {
@@ -1297,7 +1397,7 @@ function esGastoDeducibleIRPF(categoria) {
 }
 function ingresoIrpfDeTx(t, propiedad, desde, hasta) {
 	if (t.tipo !== "ingreso" || !CATEGORIAS_RENDIMIENTO.includes(t.categoria)) return 0;
-	const bruto = miParte(importeEnRango(t, desde, hasta), propiedad, t.soloMio);
+	const bruto = miParte(t.categoria === "Alquiler mensual" ? alquilerEnRangoSinConceptos(t, propiedad, desde, hasta) : importeEnRango(t, desde, hasta), propiedad, t.soloMio);
 	if (propiedad.tipo === "local" && t.categoria === "Alquiler mensual") return baseDesdeRentaNeta(bruto);
 	return bruto;
 }
@@ -1811,6 +1911,7 @@ function fichaPublica(p, hoy, transacciones = []) {
 		direccion: p.direccion,
 		inquilino: p.inquilinoNombre ?? null,
 		alquilerMensual: alquilerVigente(p, void 0, hoy) ?? null,
+		...p.conceptosFijos && p.conceptosFijos.length > 0 ? { conceptosFijos: p.conceptosFijos } : {},
 		aguaLuz,
 		porcentaje: p.porcentajePropiedad ?? 100,
 		deJose: esDeJose(p),
@@ -1851,7 +1952,7 @@ var sinParametros = {
 var herramientas = [
 	{
 		name: "listar_fincas",
-		description: "Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
+		description: "Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
 		inputSchema: sinParametros,
 		ejecutar: (_args, foto, hoy) => ({ fincas: [...foto.propiedades].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((p) => fichaPublica(p, hoy, foto.transacciones)) })
 	},
@@ -2386,7 +2487,7 @@ var fichasEscritura = [
 	},
 	{
 		name: "fijar_ficha",
-		description: "Actualiza la ficha de escritura de un inmueble que ya existe: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Sin confirmar:true no escribe y devuelve el antes y el después. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.",
+		description: "Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -2396,7 +2497,7 @@ var fichasEscritura = [
 				},
 				campos: {
 					type: "object",
-					description: "Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100. null borra el campo.",
+					description: "Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo.",
 					properties: {
 						referenciaCatastral: { type: "string" },
 						valorAdquisicion: { type: "number" },
@@ -2410,7 +2511,44 @@ var fichasEscritura = [
 						cuotaPropiedad: {},
 						sinRenta: { type: "boolean" },
 						financiacion: { type: "object" },
-						copropietarios: { type: "array" }
+						copropietarios: { type: "array" },
+						alquilerMensual: {
+							type: "number",
+							description: "Nueva renta, mayor que 0. Crea un tramo; no sustituye el historial."
+						},
+						fechaEfecto: {
+							type: "string",
+							description: "YYYY-MM-DD. Obligatoria si va alquilerMensual. vigenteDesde del tramo."
+						},
+						aguaLuz: {
+							type: "object",
+							properties: {
+								modo: {
+									type: "string",
+									description: "incluido, no_incluido o parcial_conjunto."
+								},
+								importeMensual: {
+									type: "number",
+									description: "Obligatorio si modo es parcial_conjunto. Mayor que 0."
+								}
+							}
+						},
+						conceptosFijos: {
+							type: "array",
+							items: {
+								type: "object",
+								properties: {
+									concepto: {
+										type: "string",
+										description: "De 1 a 40 caracteres."
+									},
+									importeMensual: {
+										type: "number",
+										description: "Mayor que 0."
+									}
+								}
+							}
+						}
 					},
 					additionalProperties: false
 				},
@@ -2566,7 +2704,7 @@ var COLUMNAS_FICHA = {
 	valorConstruccion: "valor_construccion",
 	sinRenta: "sin_renta"
 };
-function sqlFicha(id, parche) {
+function sqlFicha(id, parche, extra = {}) {
 	const sets = [];
 	const params = [];
 	const add = (columna, valor, cast = "") => {
@@ -2588,23 +2726,153 @@ function sqlFicha(id, parche) {
 		const lista = parche.copropietarios;
 		add("copropietarios", lista && lista.length > 0 ? JSON.stringify(lista) : null, "::jsonb");
 	}
+	if ("tramosContrato" in extra) add("tramos_contrato", JSON.stringify(extra.tramosContrato ?? []), "::jsonb");
+	if ("alquilerMensual" in extra) add("alquiler_mensual", extra.alquilerMensual ?? null);
+	if ("contratoFin" in extra) add("contrato_fin", extra.contratoFin ?? null);
+	if ("fianzaImporte" in extra) add("fianza_importe", extra.fianzaImporte ?? null);
+	if ("rentaRevisadaDesde" in extra) add("renta_revisada_desde", extra.rentaRevisadaDesde ?? null);
+	if ("reparto" in extra) add("reparto", extra.reparto ? JSON.stringify(extra.reparto) : null, "::jsonb");
+	if ("conceptosFijos" in extra) {
+		const lista = extra.conceptosFijos;
+		add("conceptos_fijos", lista && lista.length > 0 ? JSON.stringify(lista) : null, "::jsonb");
+	}
+	if (sets.length === 0) throw new ConsultaError("No hay ningún campo que guardar.");
 	params.push(id);
 	return {
 		sql: `update propiedades set ${sets.join(", ")} where id = $${params.length}`,
 		params
 	};
 }
+var CAMPOS_EXTRA = /* @__PURE__ */ new Set([
+	"alquilerMensual",
+	"fechaEfecto",
+	"aguaLuz",
+	"conceptosFijos"
+]);
+var MODOS_AGUA_LUZ = /* @__PURE__ */ new Set([
+	"incluido",
+	"no_incluido",
+	"parcial_conjunto"
+]);
+function partirCampos(entrada) {
+	if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) throw new ConsultaError("\"campos\" tiene que ser un objeto.");
+	const ficha = {};
+	const extra = {};
+	for (const [clave, valor] of Object.entries(entrada)) if (CAMPOS_EXTRA.has(clave)) extra[clave] = valor;
+	else ficha[clave] = valor;
+	return {
+		ficha,
+		extra
+	};
+}
+function importePositivo(valor, etiqueta) {
+	const n = typeof valor === "number" ? valor : typeof valor === "string" ? parseImporte(valor) : NaN;
+	if (!Number.isFinite(n) || n <= 0) throw new ConsultaError(`"${etiqueta}" tiene que ser un importe mayor que cero.`);
+	return Math.round(n * 100) / 100;
+}
+function leerAguaLuz(valor) {
+	if (valor == null) return null;
+	if (typeof valor !== "object" || Array.isArray(valor)) throw new ConsultaError("\"aguaLuz\" tiene que ser un objeto.");
+	const datos = valor;
+	const modo = datos.modo;
+	if (typeof modo !== "string" || !MODOS_AGUA_LUZ.has(modo)) throw new ConsultaError("\"aguaLuz.modo\" tiene que ser incluido, no_incluido o parcial_conjunto.");
+	if (modo === "parcial_conjunto") return {
+		modo,
+		importeMensual: importePositivo(datos.importeMensual, "aguaLuz.importeMensual")
+	};
+	return { modo };
+}
+function leerConceptosFijos(valor) {
+	if (valor == null) return null;
+	if (!Array.isArray(valor) || valor.length === 0) throw new ConsultaError("\"conceptosFijos\" tiene que ser una lista con al menos un concepto.");
+	return valor.map((item, i) => {
+		if (!item || typeof item !== "object" || Array.isArray(item)) throw new ConsultaError(`"conceptosFijos[${i}]" tiene que ser un objeto.`);
+		const datos = item;
+		if (typeof datos.concepto !== "string") throw new ConsultaError(`"conceptosFijos[${i}].concepto" tiene que ser texto.`);
+		const concepto = datos.concepto.trim();
+		if (concepto.length < 1 || concepto.length > 40) throw new ConsultaError(`"conceptosFijos[${i}].concepto" tiene que tener entre 1 y 40 caracteres.`);
+		return {
+			concepto,
+			importeMensual: importePositivo(datos.importeMensual, `conceptosFijos[${i}].importeMensual`)
+		};
+	});
+}
 function ordenFicha(finca, entrada, confirmar, clave, hoy, transacciones) {
-	let parche;
-	try {
-		parche = interpretarCamposFicha(entrada, fechaDeHoy(hoy));
+	const { ficha: entradaFicha, extra } = partirCampos(entrada);
+	if (Object.keys(entradaFicha).length === 0 && Object.keys(extra).length === 0) throw new ConsultaError("No hay ningún campo que guardar.");
+	let parche = {};
+	if (Object.keys(entradaFicha).length > 0) try {
+		parche = interpretarCamposFicha(entradaFicha, fechaDeHoy(hoy));
 	} catch (err) {
 		if (err instanceof FichaError) throw new ConsultaError(err.message);
 		throw err;
 	}
 	const cambios = cambiosDeFicha(finca, parche);
-	const ficha = fichaPublica(fusionarFicha(finca, parche), hoy, transacciones);
-	const sentencia = sqlFicha(finca.id, parche);
+	let siguiente = fusionarFicha(finca, parche);
+	const extraSql = {};
+	if ("aguaLuz" in extra) {
+		const agua = leerAguaLuz(extra.aguaLuz);
+		const reparto = { ...siguiente.reparto ?? {} };
+		if (agua == null) delete reparto.aguaLuz;
+		else reparto.aguaLuz = agua;
+		const antes = finca.reparto?.aguaLuz ?? null;
+		siguiente = {
+			...siguiente,
+			reparto: Object.keys(reparto).length > 0 ? reparto : void 0
+		};
+		cambios.push({
+			campo: "aguaLuz",
+			antes,
+			despues: siguiente.reparto?.aguaLuz ?? null
+		});
+		extraSql.reparto = siguiente.reparto ?? null;
+	}
+	if ("conceptosFijos" in extra) {
+		const lista = leerConceptosFijos(extra.conceptosFijos);
+		cambios.push({
+			campo: "conceptosFijos",
+			antes: finca.conceptosFijos ?? null,
+			despues: lista
+		});
+		siguiente = {
+			...siguiente,
+			conceptosFijos: lista ?? void 0
+		};
+		extraSql.conceptosFijos = lista;
+	}
+	let renta;
+	if ("alquilerMensual" in extra || "fechaEfecto" in extra) {
+		if (!("alquilerMensual" in extra)) throw new ConsultaError("\"fechaEfecto\" solo vale junto con alquilerMensual.");
+		if (extra.fechaEfecto == null || extra.fechaEfecto === "") throw new ConsultaError("Para cambiar el alquiler hace falta \"fechaEfecto\" (YYYY-MM-DD).");
+		if (typeof extra.fechaEfecto !== "string") throw new ConsultaError("\"fechaEfecto\" tiene que ser YYYY-MM-DD.");
+		const fechaEfecto = fechaTexto(extra.fechaEfecto.trim(), "fechaEfecto");
+		const despues = importePositivo(extra.alquilerMensual, "alquilerMensual");
+		const antes = alquilerVigente(siguiente, diaAnteriorISO(fechaEfecto), hoy) ?? null;
+		const resultado = aplicarCambioCondiciones(siguiente, {
+			vigenteDesde: fechaEfecto,
+			alquilerMensual: despues
+		}, hoy);
+		if (!resultado.ok) throw new ConsultaError(resultado.error);
+		siguiente = resultado.propiedad;
+		renta = {
+			antes,
+			despues,
+			fechaEfecto
+		};
+		extraSql.tramosContrato = siguiente.tramosContrato ?? [];
+		if ((siguiente.alquilerMensual ?? null) !== (finca.alquilerMensual ?? null)) extraSql.alquilerMensual = siguiente.alquilerMensual ?? null;
+		if ((siguiente.contratoFin ?? null) !== (finca.contratoFin ?? null)) extraSql.contratoFin = siguiente.contratoFin ?? null;
+		if ((siguiente.fianzaImporte ?? null) !== (finca.fianzaImporte ?? null)) extraSql.fianzaImporte = siguiente.fianzaImporte ?? null;
+		if ((siguiente.rentaRevisadaDesde ?? null) !== (finca.rentaRevisadaDesde ?? null)) extraSql.rentaRevisadaDesde = siguiente.rentaRevisadaDesde ?? null;
+	}
+	const ficha = fichaPublica(siguiente, hoy, transacciones);
+	const sentencia = sqlFicha(finca.id, parche, extraSql);
+	const comun = {
+		finca: finca.nombre,
+		cambios,
+		ficha,
+		...renta ? { renta } : {}
+	};
 	return {
 		herramienta: "fijar_ficha",
 		confirmar,
@@ -2612,17 +2880,13 @@ function ordenFicha(finca, entrada, confirmar, clave, hoy, transacciones) {
 		vista: {
 			escrito: false,
 			vistaPrevia: true,
-			finca: finca.nombre,
-			cambios,
-			ficha
+			...comun
 		},
 		sentencias: [sentencia],
 		resultado: {
 			escrito: true,
 			repetida: false,
-			finca: finca.nombre,
-			cambios,
-			ficha
+			...comun
 		}
 	};
 }
@@ -3106,6 +3370,7 @@ function filaAPropiedad(fila) {
 		tramosContrato: json(fila, "tramos_contrato"),
 		porcentajePropiedad: numero(fila, "porcentaje_propiedad"),
 		gastosRecurrentes: json(fila, "gastos_recurrentes"),
+		conceptosFijos: json(fila, "conceptos_fijos"),
 		referenciaCatastral: texto(fila, "referencia_catastral"),
 		valorAdquisicion: numero(fila, "valor_adquisicion"),
 		fechaAdquisicion: dia(fila, "fecha_adquisicion"),
