@@ -445,6 +445,17 @@ function inicioOcupacionActual(propiedad) {
 	}
 	return inicio;
 }
+function interpretarNumeroFactura(valor) {
+	const numero = valor.replace(/\s+/g, "").toUpperCase();
+	if (!numero) return {};
+	if (numero.length > 60) return { error: "El número de factura tiene que tener entre 1 y 60 caracteres." };
+	return { numero };
+}
+function facturaYaRegistrada(transacciones, propiedadId, numero) {
+	const clave = numero.replace(/\s+/g, "").toUpperCase();
+	if (!clave) return false;
+	return transacciones.some((t) => t.propiedadId === propiedadId && !!t.numeroFactura && t.numeroFactura.replace(/\s+/g, "").toUpperCase() === clave);
+}
 function diasEntreFechas(desde, hasta) {
 	const d1 = /* @__PURE__ */ new Date(`${desde}T00:00:00`);
 	const d2 = /* @__PURE__ */ new Date(`${hasta}T00:00:00`);
@@ -1873,7 +1884,7 @@ var fichasEscritura = [
 	},
 	{
 		name: "registrar_gasto",
-		description: "Registra un gasto en una finca. La categoría tiene que ser una de la app. El IGIC soportado solo vale en un local. Sin confirmar:true no escribe.",
+		description: "Registra un gasto en una finca. La categoría tiene que ser una de la app. El IGIC soportado solo vale en un local. numeroFactura (1 a 60, se guarda sin espacios y en mayúsculas) no puede repetirse en la misma finca: la vista previa ya lo rechaza. periodoInicio y periodoFin son YYYY-MM-DD y el inicio no puede ser posterior al fin. Sin esos campos el gasto se guarda como hasta ahora. Sin confirmar:true no escribe.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -1895,7 +1906,19 @@ var fichasEscritura = [
 				},
 				mes: {
 					type: "string",
-					description: "YYYY-MM del periodo facturado, si no es el mes de la fecha."
+					description: "YYYY-MM del periodo facturado, si no pasas periodoInicio y periodoFin."
+				},
+				periodoInicio: {
+					type: "string",
+					description: "YYYY-MM-DD. Junto con periodoFin."
+				},
+				periodoFin: {
+					type: "string",
+					description: "YYYY-MM-DD. No puede ser anterior a periodoInicio."
+				},
+				numeroFactura: {
+					type: "string",
+					description: "Número de la factura del proveedor. De 1 a 60 caracteres. Único en la finca."
 				},
 				descripcion: { type: "string" },
 				igicSoportado: {
@@ -1986,13 +2009,43 @@ function fechaHoy(hoy) {
 	const dia = String(hoy.getDate()).padStart(2, "0");
 	return `${hoy.getFullYear()}-${mes}-${dia}`;
 }
-function fechaDe(args, hoy) {
-	const fecha = texto$2(args, "fecha") ?? fechaHoy(hoy);
-	if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ConsultaError("\"fecha\" tiene que ser YYYY-MM-DD.");
-	const [anio, mes, dia] = fecha.split("-").map(Number);
+function fechaTexto(valor, etiqueta) {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) throw new ConsultaError(`"${etiqueta}" tiene que ser YYYY-MM-DD.`);
+	const [anio, mes, dia] = valor.split("-").map(Number);
 	const comprobada = new Date(Date.UTC(anio, mes - 1, dia));
-	if (comprobada.getUTCFullYear() !== anio || comprobada.getUTCMonth() !== mes - 1 || comprobada.getUTCDate() !== dia) throw new ConsultaError("\"fecha\" no existe.");
-	return fecha;
+	if (comprobada.getUTCFullYear() !== anio || comprobada.getUTCMonth() !== mes - 1 || comprobada.getUTCDate() !== dia) throw new ConsultaError(`"${etiqueta}" no existe.`);
+	return valor;
+}
+function fechaDe(args, hoy) {
+	return fechaTexto(texto$2(args, "fecha") ?? fechaHoy(hoy), "fecha");
+}
+function periodoExplicito(args) {
+	const inicio = texto$2(args, "periodoInicio");
+	const fin = texto$2(args, "periodoFin");
+	if (!inicio && !fin) return void 0;
+	if (!inicio || !fin) throw new ConsultaError("El periodo necesita \"periodoInicio\" y \"periodoFin\".");
+	const desde = fechaTexto(inicio, "periodoInicio");
+	const hasta = fechaTexto(fin, "periodoFin");
+	if (desde > hasta) throw new ConsultaError("El periodo no puede terminar antes de empezar.");
+	return {
+		inicio: desde,
+		fin: hasta
+	};
+}
+function numeroFacturaDe(args) {
+	const crudo = texto$2(args, "numeroFactura");
+	if (!crudo) return void 0;
+	const leido = interpretarNumeroFactura(crudo);
+	if (leido.error || !leido.numero) throw new ConsultaError(leido.error ?? "\"numeroFactura\" no es válido.");
+	return leido.numero;
+}
+function intencionDe(args) {
+	const datos = argsDe(args);
+	const confirmar = confirmarDe(datos);
+	return {
+		confirmar,
+		clave: claveDe(datos, confirmar)
+	};
 }
 function mesDe(args, fecha) {
 	const mes = texto$2(args, "mes") ?? fecha.slice(0, 7);
@@ -2044,14 +2097,15 @@ function movimientoDe(t, finca) {
 		descripcion: t.descripcion,
 		periodoInicio: t.periodoInicio ?? null,
 		periodoFin: t.periodoFin ?? null,
+		numeroFactura: t.numeroFactura ?? null,
 		soloMio: t.soloMio ?? false,
 		igicSoportado: t.igicSoportado ?? null
 	};
 }
 var INSERT_MOVIMIENTO = `insert into transacciones (
   id, propiedad_id, fecha, tipo, importe, categoria, descripcion, archivos, creado_en,
-  periodo_inicio, periodo_fin, solo_mio, igic_soportado
-) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12)`;
+  periodo_inicio, periodo_fin, solo_mio, igic_soportado, numero_factura
+) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12,$13)`;
 var COLUMNAS_FICHA = {
 	referenciaCatastral: "referencia_catastral",
 	valorAdquisicion: "valor_adquisicion",
@@ -2154,7 +2208,8 @@ function ordenMovimiento(herramienta, t, finca, confirmar, clave) {
 				t.periodoInicio ?? null,
 				t.periodoFin ?? null,
 				t.soloMio ?? null,
-				t.igicSoportado ?? null
+				t.igicSoportado ?? null,
+				t.numeroFactura ?? null
 			]
 		}],
 		resultado
@@ -2252,7 +2307,10 @@ function planificar(nombre, args, foto, hoy = /* @__PURE__ */ new Date()) {
 	if (!CATEGORIAS_GASTO.includes(categoria)) throw new ConsultaError(`"${categoria}" no es un gasto de la app. Usa una de: ${CATEGORIAS_GASTO.join(", ")}.`);
 	const igic = eurosOpcional(datos, "igicSoportado");
 	if (igic != null && finca.tipo !== "local") throw new ConsultaError("El IGIC soportado solo se guarda en un local.");
-	const conPeriodo = texto$2(datos, "mes") != null;
+	const explicito = periodoExplicito(datos);
+	const conMes = texto$2(datos, "mes") != null;
+	const numeroFactura = numeroFacturaDe(datos);
+	if (numeroFactura && facturaYaRegistrada(foto.transacciones, finca.id, numeroFactura)) throw new ConsultaError(`Ya hay una factura ${numeroFactura} en ${finca.nombre}.`);
 	return ordenMovimiento(nombre, {
 		id: randomUUID(),
 		propiedadId: finca.id,
@@ -2263,8 +2321,9 @@ function planificar(nombre, args, foto, hoy = /* @__PURE__ */ new Date()) {
 		descripcion: descripcionDada ?? categoria,
 		archivos: [],
 		creadoEn,
-		periodoInicio: conPeriodo ? `${mes}-01` : void 0,
-		periodoFin: conPeriodo ? finDeMes(mes) : void 0,
+		periodoInicio: explicito?.inicio ?? (conMes ? `${mes}-01` : void 0),
+		periodoFin: explicito?.fin ?? (conMes ? finDeMes(mes) : void 0),
+		numeroFactura,
 		soloMio,
 		igicSoportado: igic
 	}, finca, confirmar, clave);
@@ -2301,13 +2360,29 @@ async function abrir() {
 	await cliente.connect();
 	return cliente;
 }
+async function resultadoDeClave(db, clave) {
+	await db.query(CREAR_TABLA);
+	const guardada = (await db.query("select resultado from agente_escrituras where clave = $1", [clave])).rows[0]?.resultado;
+	if (guardada && typeof guardada === "object") return guardada;
+}
 async function aplicarEscritura(nombre, args, deps) {
-	const orden = planificar(nombre, args, deps.foto, deps.hoy ?? /* @__PURE__ */ new Date());
-	if (!orden.confirmar) return orden.vista;
-	if (deps.db) return ejecutarOrden(deps.db, orden);
+	const hoy = deps.hoy ?? /* @__PURE__ */ new Date();
+	const { confirmar, clave } = intencionDe(args);
+	if (!confirmar) return planificar(nombre, args, deps.foto, hoy).vista;
+	const correr = async (db) => {
+		if (clave) {
+			const ya = await resultadoDeClave(db, clave);
+			if (ya) return {
+				...ya,
+				repetida: true
+			};
+		}
+		return ejecutarOrden(db, planificar(nombre, args, deps.foto, hoy));
+	};
+	if (deps.db) return correr(deps.db);
 	const cliente = await abrir();
 	try {
-		return await ejecutarOrden(cliente, orden);
+		return await correr(cliente);
 	} finally {
 		await cliente.end();
 	}
@@ -2401,7 +2476,7 @@ async function responder(mensaje, ctx) {
 				name: "finca",
 				version: "0.1.0"
 			},
-			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe."
+			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. Un gasto puede llevar número de factura y periodo; el mismo número en la misma finca se rechaza. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe."
 		});
 	}
 	if (method === "notifications/initialized" || method === "notifications/cancelled") return null;

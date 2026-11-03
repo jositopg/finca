@@ -826,12 +826,35 @@ export interface Transaccion {
   archivos: string[] // Drive file IDs
   creadoEn: string
   referencia?: string // nº factura / referencia
-  numeroFactura?: string // número correlativo asignado al generar la factura/recibo de alquiler — se pone una vez y no cambia
+  numeroFactura?: string // factura de alquiler generada, o número del proveedor en un gasto. Se compara sin espacios y en mayúsculas
   periodoInicio?: string // YYYY-MM-DD — periodo facturado (agua/luz: el cobro suele ir por detrás del periodo real)
   periodoFin?: string // YYYY-MM-DD
   soloMio?: boolean // true = ignora el % de copropiedad de la propiedad, cuenta 100% para Jose (facturas a su nombre personal en propiedades a medias)
   igicSoportado?: number // IGIC incluido en un gasto de un local (deducible del IGIC repercutido en el Modelo 420) — solo aplica a locales, únicas propiedades sujetas a IGIC
   gastoRecurrenteId?: string // id del GastoRecurrente que lo generó — para no duplicar el mes si hay carrera entre dispositivos
+}
+
+// El número de factura se guarda sin espacios y en mayúsculas. Vacío no es un número.
+export function interpretarNumeroFactura(valor: string): { numero?: string; error?: string } {
+  const numero = valor.replace(/\s+/g, '').toUpperCase()
+  if (!numero) return {}
+  if (numero.length > 60) return { error: 'El número de factura tiene que tener entre 1 y 60 caracteres.' }
+  return { numero }
+}
+
+export function facturaYaRegistrada(
+  transacciones: readonly Pick<Transaccion, 'propiedadId' | 'numeroFactura'>[],
+  propiedadId: string,
+  numero: string,
+): boolean {
+  const clave = numero.replace(/\s+/g, '').toUpperCase()
+  if (!clave) return false
+  return transacciones.some(
+    (t) =>
+      t.propiedadId === propiedadId &&
+      !!t.numeroFactura &&
+      t.numeroFactura.replace(/\s+/g, '').toUpperCase() === clave,
+  )
 }
 
 // ─── Alta masiva de transacciones (pegar varias líneas) ────────────────────────

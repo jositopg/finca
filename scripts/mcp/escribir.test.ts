@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Propiedad, Tarea } from '../../src/types/index.ts'
+import type { Propiedad, Tarea, Transaccion } from '../../src/types/index.ts'
 import { aplicarEscritura, type ConsultaSql } from './aplicar.ts'
 import { ConsultaError } from './consultar.ts'
 import { planificar } from './escribir.ts'
@@ -17,8 +17,24 @@ function finca(parcial: Partial<Propiedad> & Pick<Propiedad, 'id' | 'nombre' | '
   }
 }
 
-function fotoDe(propiedades: Propiedad[], tareas: Tarea[] = []): Foto {
-  return { propiedades, transacciones: [], tareas, ingresosExternos: [] }
+function fotoDe(propiedades: Propiedad[], tareas: Tarea[] = [], transacciones: Transaccion[] = []): Foto {
+  return { propiedades, transacciones, tareas, ingresosExternos: [] }
+}
+
+function gasto(parcial: Partial<Transaccion> = {}): Transaccion {
+  return {
+    id: 'g1',
+    propiedadId: 'p1',
+    fecha: '2026-09-01',
+    tipo: 'gasto',
+    importe: 40,
+    categoria: 'Agua',
+    descripcion: 'Agua',
+    archivos: [],
+    creadoEn: '2026-09-01T00:00:00.000Z',
+    numeroFactura: 'A12',
+    ...parcial,
+  }
 }
 
 describe('planificar', () => {
@@ -61,6 +77,98 @@ describe('planificar', () => {
         hoy,
       ),
     ).toThrow(/local/)
+  })
+
+  it('un gasto sin número de factura se queda como hasta ahora', () => {
+    const orden = planificar('registrar_gasto', { finca: 'Quimel', importe: 12, categoria: 'Agua' }, foto, hoy)
+    expect(orden.confirmar).toBe(false)
+    expect(orden.vista).toMatchObject({
+      escrito: false,
+      vistaPrevia: true,
+      movimiento: {
+        finca: 'Local Quimel',
+        tipo: 'gasto',
+        categoria: 'Agua',
+        importe: 12,
+        fecha: '2026-10-31',
+        periodoInicio: null,
+        periodoFin: null,
+        numeroFactura: null,
+      },
+    })
+    const conMes = planificar(
+      'registrar_gasto',
+      { finca: 'Quimel', importe: 12, categoria: 'Agua', mes: '2026-08' },
+      foto,
+      hoy,
+    )
+    expect(conMes.vista).toMatchObject({
+      movimiento: { periodoInicio: '2026-08-01', periodoFin: '2026-08-31', numeroFactura: null },
+    })
+  })
+
+  it('guarda número y periodo, rechaza el duplicado en la misma finca y lo permite en otra', () => {
+    const orden = planificar(
+      'registrar_gasto',
+      {
+        finca: 'Quimel',
+        importe: '30,00',
+        categoria: 'Agua',
+        numeroFactura: ' a 12 ',
+        periodoInicio: '2026-09-01',
+        periodoFin: '2026-09-30',
+        confirmar: false,
+      },
+      foto,
+      hoy,
+    )
+    expect(orden.vista).toMatchObject({
+      vistaPrevia: true,
+      movimiento: { numeroFactura: 'A12', periodoInicio: '2026-09-01', periodoFin: '2026-09-30' },
+    })
+    expect(orden.sentencias[0].params.at(-1)).toBe('A12')
+
+    const misma = fotoDe(foto.propiedades, [], [gasto({ numeroFactura: 'a 12' })])
+    expect(() =>
+      planificar(
+        'registrar_gasto',
+        { finca: 'Quimel', importe: 30, categoria: 'Agua', numeroFactura: 'A12' },
+        misma,
+        hoy,
+      ),
+    ).toThrow(/Ya hay una factura A12 en Local Quimel/)
+
+    const dos = fotoDe(
+      [finca({ id: 'p1', nombre: 'Local Quimel', tipo: 'local' }), finca({ id: 'p2', nombre: 'Piso Rambla', tipo: 'piso' })],
+      [],
+      [gasto()],
+    )
+    const enOtra = planificar(
+      'registrar_gasto',
+      { finca: 'Rambla', importe: 10, categoria: 'Agua', numeroFactura: 'A12' },
+      dos,
+      hoy,
+    )
+    expect(enOtra.vista).toMatchObject({ movimiento: { finca: 'Piso Rambla', numeroFactura: 'A12' } })
+  })
+
+  it('rechaza un periodo invertido o a medias', () => {
+    expect(() =>
+      planificar(
+        'registrar_gasto',
+        { finca: 'Quimel', importe: 10, categoria: 'Agua', periodoInicio: '2026-10-31', periodoFin: '2026-10-01' },
+        foto,
+        hoy,
+      ),
+    ).toThrow(/terminar antes/)
+    expect(() =>
+      planificar(
+        'registrar_gasto',
+        { finca: 'Quimel', importe: 10, categoria: 'Agua', periodoInicio: '2026-10-01' },
+        foto,
+        hoy,
+      ),
+    ).toThrow(/periodoInicio/)
   })
 
   it('marca la tarea pendiente que coincide', () => {
@@ -119,6 +227,32 @@ describe('aplicarEscritura', () => {
   it('la vista previa no abre la base', async () => {
     const respuesta = await aplicarEscritura('registrar_cobro', { finca: 'Quimel', importe: 900 }, { foto, hoy })
     expect(respuesta).toMatchObject({ escrito: false, vistaPrevia: true })
+  })
+
+  it('la misma clave no falla aunque la factura ya esté en la finca', async () => {
+    const db = memoria()
+    const args = {
+      finca: 'Quimel',
+      importe: 40,
+      categoria: 'Agua',
+      numeroFactura: 'A-9',
+      periodoInicio: '2026-09-01',
+      periodoFin: '2026-09-30',
+      confirmar: true,
+      clave: 'gasto-agua-a9-ok',
+    }
+    const primera = await aplicarEscritura('registrar_gasto', args, { foto, hoy, db })
+    const segunda = await aplicarEscritura(
+      'registrar_gasto',
+      args,
+      { foto: fotoDe(foto.propiedades, [], [gasto({ numeroFactura: 'A-9' })]), hoy, db },
+    )
+    expect(primera).toMatchObject({
+      escrito: true,
+      repetida: false,
+      movimiento: { numeroFactura: 'A-9', periodoInicio: '2026-09-01', periodoFin: '2026-09-30' },
+    })
+    expect(segunda).toMatchObject({ escrito: true, repetida: true, movimiento: (primera as { movimiento: unknown }).movimiento })
   })
 
   it('la misma clave no inserta dos veces', async () => {

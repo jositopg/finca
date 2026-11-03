@@ -10,6 +10,8 @@ import {
   fechaDeHoy,
   fusionarFicha,
   interpretarCamposFicha,
+  facturaYaRegistrada,
+  interpretarNumeroFactura,
   parseImporte,
   type CamposFicha,
   type ParcheFicha,
@@ -76,7 +78,7 @@ export const fichasEscritura: FichaEscritura[] = [
   {
     name: 'registrar_gasto',
     description:
-      'Registra un gasto en una finca. La categoría tiene que ser una de la app. El IGIC soportado solo vale en un local. Sin confirmar:true no escribe.',
+      'Registra un gasto en una finca. La categoría tiene que ser una de la app. El IGIC soportado solo vale en un local. numeroFactura (1 a 60, se guarda sin espacios y en mayúsculas) no puede repetirse en la misma finca: la vista previa ya lo rechaza. periodoInicio y periodoFin son YYYY-MM-DD y el inicio no puede ser posterior al fin. Sin esos campos el gasto se guarda como hasta ahora. Sin confirmar:true no escribe.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,7 +86,13 @@ export const fichasEscritura: FichaEscritura[] = [
         importe: { type: 'string', description: 'Euros. Admite 1.200,50.' },
         categoria: { type: 'string', description: CATEGORIAS_GASTO.join(', ') },
         fecha: { type: 'string', description: 'YYYY-MM-DD. Por defecto hoy.' },
-        mes: { type: 'string', description: 'YYYY-MM del periodo facturado, si no es el mes de la fecha.' },
+        mes: { type: 'string', description: 'YYYY-MM del periodo facturado, si no pasas periodoInicio y periodoFin.' },
+        periodoInicio: { type: 'string', description: 'YYYY-MM-DD. Junto con periodoFin.' },
+        periodoFin: { type: 'string', description: 'YYYY-MM-DD. No puede ser anterior a periodoInicio.' },
+        numeroFactura: {
+          type: 'string',
+          description: 'Número de la factura del proveedor. De 1 a 60 caracteres. Único en la finca.',
+        },
         descripcion: { type: 'string' },
         igicSoportado: { type: 'number', description: 'IGIC incluido en el gasto. Solo en locales.' },
         soloMio: { type: 'boolean' },
@@ -165,15 +173,43 @@ function fechaHoy(hoy: Date): string {
   return `${hoy.getFullYear()}-${mes}-${dia}`
 }
 
-function fechaDe(args: Record<string, unknown>, hoy: Date): string {
-  const fecha = texto(args, 'fecha') ?? fechaHoy(hoy)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new ConsultaError('"fecha" tiene que ser YYYY-MM-DD.')
-  const [anio, mes, dia] = fecha.split('-').map(Number)
+function fechaTexto(valor: string, etiqueta: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(valor)) throw new ConsultaError(`"${etiqueta}" tiene que ser YYYY-MM-DD.`)
+  const [anio, mes, dia] = valor.split('-').map(Number)
   const comprobada = new Date(Date.UTC(anio, mes - 1, dia))
   if (comprobada.getUTCFullYear() !== anio || comprobada.getUTCMonth() !== mes - 1 || comprobada.getUTCDate() !== dia) {
-    throw new ConsultaError('"fecha" no existe.')
+    throw new ConsultaError(`"${etiqueta}" no existe.`)
   }
-  return fecha
+  return valor
+}
+
+function fechaDe(args: Record<string, unknown>, hoy: Date): string {
+  return fechaTexto(texto(args, 'fecha') ?? fechaHoy(hoy), 'fecha')
+}
+
+function periodoExplicito(args: Record<string, unknown>): { inicio: string; fin: string } | undefined {
+  const inicio = texto(args, 'periodoInicio')
+  const fin = texto(args, 'periodoFin')
+  if (!inicio && !fin) return undefined
+  if (!inicio || !fin) throw new ConsultaError('El periodo necesita "periodoInicio" y "periodoFin".')
+  const desde = fechaTexto(inicio, 'periodoInicio')
+  const hasta = fechaTexto(fin, 'periodoFin')
+  if (desde > hasta) throw new ConsultaError('El periodo no puede terminar antes de empezar.')
+  return { inicio: desde, fin: hasta }
+}
+
+function numeroFacturaDe(args: Record<string, unknown>): string | undefined {
+  const crudo = texto(args, 'numeroFactura')
+  if (!crudo) return undefined
+  const leido = interpretarNumeroFactura(crudo)
+  if (leido.error || !leido.numero) throw new ConsultaError(leido.error ?? '"numeroFactura" no es válido.')
+  return leido.numero
+}
+
+export function intencionDe(args: unknown): { confirmar: boolean; clave?: string } {
+  const datos = argsDe(args)
+  const confirmar = confirmarDe(datos)
+  return { confirmar, clave: claveDe(datos, confirmar) }
 }
 
 function mesDe(args: Record<string, unknown>, fecha: string): string {
@@ -236,6 +272,7 @@ function movimientoDe(t: Transaccion, finca: Propiedad) {
     descripcion: t.descripcion,
     periodoInicio: t.periodoInicio ?? null,
     periodoFin: t.periodoFin ?? null,
+    numeroFactura: t.numeroFactura ?? null,
     soloMio: t.soloMio ?? false,
     igicSoportado: t.igicSoportado ?? null,
   }
@@ -243,8 +280,8 @@ function movimientoDe(t: Transaccion, finca: Propiedad) {
 
 const INSERT_MOVIMIENTO = `insert into transacciones (
   id, propiedad_id, fecha, tipo, importe, categoria, descripcion, archivos, creado_en,
-  periodo_inicio, periodo_fin, solo_mio, igic_soportado
-) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12)`
+  periodo_inicio, periodo_fin, solo_mio, igic_soportado, numero_factura
+) values ($1,$2,$3,$4,$5,$6,$7,'[]'::jsonb,$8,$9,$10,$11,$12,$13)`
 
 const COLUMNAS_FICHA: Partial<Record<keyof CamposFicha, string>> = {
   referenciaCatastral: 'referencia_catastral',
@@ -340,6 +377,7 @@ function ordenMovimiento(herramienta: string, t: Transaccion, finca: Propiedad, 
           t.periodoFin ?? null,
           t.soloMio ?? null,
           t.igicSoportado ?? null,
+          t.numeroFactura ?? null,
         ],
       },
     ],
@@ -432,7 +470,12 @@ export function planificar(nombre: string, args: unknown, foto: Foto, hoy: Date 
   }
   const igic = eurosOpcional(datos, 'igicSoportado')
   if (igic != null && finca.tipo !== 'local') throw new ConsultaError('El IGIC soportado solo se guarda en un local.')
-  const conPeriodo = texto(datos, 'mes') != null
+  const explicito = periodoExplicito(datos)
+  const conMes = texto(datos, 'mes') != null
+  const numeroFactura = numeroFacturaDe(datos)
+  if (numeroFactura && facturaYaRegistrada(foto.transacciones, finca.id, numeroFactura)) {
+    throw new ConsultaError(`Ya hay una factura ${numeroFactura} en ${finca.nombre}.`)
+  }
   const transaccion: Transaccion = {
     id: randomUUID(),
     propiedadId: finca.id,
@@ -443,8 +486,9 @@ export function planificar(nombre: string, args: unknown, foto: Foto, hoy: Date 
     descripcion: descripcionDada ?? categoria,
     archivos: [],
     creadoEn,
-    periodoInicio: conPeriodo ? `${mes}-01` : undefined,
-    periodoFin: conPeriodo ? finDeMes(mes) : undefined,
+    periodoInicio: explicito?.inicio ?? (conMes ? `${mes}-01` : undefined),
+    periodoFin: explicito?.fin ?? (conMes ? finDeMes(mes) : undefined),
+    numeroFactura,
     soloMio,
     igicSoportado: igic,
   }

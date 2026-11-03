@@ -1,6 +1,6 @@
 import { Client, types as pgTypes } from 'pg'
 import { ConsultaError } from './consultar.ts'
-import { planificar, type Orden } from './escribir.ts'
+import { intencionDe, planificar, type Orden } from './escribir.ts'
 import { cargarEnv } from './env.ts'
 import type { Foto } from './foto.ts'
 
@@ -28,17 +28,36 @@ async function abrir(): Promise<Client> {
   return cliente
 }
 
+async function resultadoDeClave(db: ConsultaSql, clave: string): Promise<Record<string, unknown> | undefined> {
+  await db.query(CREAR_TABLA)
+  const previa = await db.query('select resultado from agente_escrituras where clave = $1', [clave])
+  const guardada = previa.rows[0]?.resultado
+  if (guardada && typeof guardada === 'object') return guardada as Record<string, unknown>
+  return undefined
+}
+
 export async function aplicarEscritura(
   nombre: string,
   args: unknown,
   deps: { foto: Foto; hoy?: Date; db?: ConsultaSql },
 ): Promise<unknown> {
-  const orden = planificar(nombre, args, deps.foto, deps.hoy ?? new Date())
-  if (!orden.confirmar) return orden.vista
-  if (deps.db) return ejecutarOrden(deps.db, orden)
+  const hoy = deps.hoy ?? new Date()
+  const { confirmar, clave } = intencionDe(args)
+  if (!confirmar) return planificar(nombre, args, deps.foto, hoy).vista
+
+  const correr = async (db: ConsultaSql) => {
+    // La clave se mira antes de planificar: si el gasto ya se escribió, la
+    // factura está en la foto y el duplicado no debe tapar la respuesta repetida.
+    if (clave) {
+      const ya = await resultadoDeClave(db, clave)
+      if (ya) return { ...ya, repetida: true }
+    }
+    return ejecutarOrden(db, planificar(nombre, args, deps.foto, hoy))
+  }
+  if (deps.db) return correr(deps.db)
   const cliente = await abrir()
   try {
-    return await ejecutarOrden(cliente, orden)
+    return await correr(cliente)
   } finally {
     await cliente.end()
   }
