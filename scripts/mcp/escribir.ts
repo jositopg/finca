@@ -287,7 +287,14 @@ function sqlFicha(id: string, parche: ParcheFicha): { sql: string; params: unkno
   return { sql: `update propiedades set ${sets.join(', ')} where id = $${params.length}`, params }
 }
 
-function ordenFicha(finca: Propiedad, entrada: unknown, confirmar: boolean, clave: string | undefined, hoy: Date): Orden {
+function ordenFicha(
+  finca: Propiedad,
+  entrada: unknown,
+  confirmar: boolean,
+  clave: string | undefined,
+  hoy: Date,
+  transacciones: Foto['transacciones'],
+): Orden {
   let parche: ParcheFicha
   try {
     parche = interpretarCamposFicha(entrada, fechaDeHoy(hoy))
@@ -297,7 +304,7 @@ function ordenFicha(finca: Propiedad, entrada: unknown, confirmar: boolean, clav
   }
   const cambios = cambiosDeFicha(finca, parche)
   const siguiente = fusionarFicha(finca, parche)
-  const ficha = fichaPublica(siguiente, hoy)
+  const ficha = fichaPublica(siguiente, hoy, transacciones)
   const sentencia = sqlFicha(finca.id, parche)
   return {
     herramienta: 'fijar_ficha',
@@ -388,7 +395,7 @@ export function planificar(nombre: string, args: unknown, foto: Foto, hoy: Date 
   const finca = resolverFinca(foto.propiedades, nombreFinca)
 
   if (nombre === 'fijar_ficha') {
-    return ordenFicha(finca, datos.campos, confirmar, clave, hoy)
+    return ordenFicha(finca, datos.campos, confirmar, clave, hoy, foto.transacciones)
   }
   const fecha = fechaDe(datos, hoy)
   const mes = mesDe(datos, fecha)

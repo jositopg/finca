@@ -1,6 +1,7 @@
 // Cada herramienta devuelve lo mismo que la pantalla correspondiente.
 // Los totales personales usan esDeJose + esRendimientoAlquiler. La respuesta no
-// incluye DNI, email, teléfono, NIF ni ids de Drive.
+// incluye DNI, email, teléfono ni NIF. Un archivo sale como enlace de Drive,
+// nunca como id suelto ni como carpeta.
 import {
   INCLUSION_AGUA_LUZ_LABEL,
   alquilerACobrar,
@@ -9,12 +10,14 @@ import {
   baseDesdeRentaNeta,
   calcularRentaLocal,
   cobradoAlquilerEnMes,
+  contratoEstado,
   desgloseSuministrosPorMes,
   deudaInquilino,
   devengoIgicLocalTrimestre,
   esDeJose,
   esRendimientoAlquiler,
   estimarAhorroRenta,
+  fechaISO,
   filasRepercutibles,
   gastosPorCategoriaEnRango,
   huecosMensuales,
@@ -32,6 +35,8 @@ import {
   resumenVariasEnRango,
   tareaVencida,
   type Propiedad,
+  type TramoContrato,
+  type Transaccion,
 } from '../../src/types/index.ts'
 import type { Foto } from './foto.ts'
 
@@ -118,7 +123,113 @@ export function resolverFinca(propiedades: Propiedad[], consulta: string): Propi
   throw new ConsultaError(`"${consulta}" coincide con varias fincas: ${lista}. Usa el nombre completo.`)
 }
 
-export function fichaPublica(p: Propiedad, hoy: Date) {
+// Id de archivo de Drive, no una carpeta ni un texto libre. El enlace lo lleva
+// dentro; la respuesta no repite el id en otro campo.
+function idDeArchivo(id: string | undefined): string | undefined {
+  if (!id) return undefined
+  const limpio = id.trim()
+  if (!/^[A-Za-z0-9_-]+$/.test(limpio)) return undefined
+  return limpio
+}
+
+function enlaceDrive(id: string): string {
+  return `https://drive.google.com/file/d/${id}/view`
+}
+
+// No hay un tipo de revisión guardado. El aniversario es el de contratoInicio,
+// la misma cuenta que tocaRevisarRenta: un año desde el inicio o desde la
+// última vez que se marcó revisada.
+function revisionAnual(p: Propiedad): { fecha: string; tipo: 'anual' } | undefined {
+  if (p.sinRenta || p.estado !== 'alquilado' || !p.contratoInicio) return undefined
+  const inicio = new Date(`${p.contratoInicio}T00:00:00`)
+  if (Number.isNaN(inicio.getTime())) return undefined
+  const desde = p.rentaRevisadaDesde ? new Date(p.rentaRevisadaDesde) : inicio
+  if (Number.isNaN(desde.getTime())) return undefined
+  let aniversario = new Date(desde.getFullYear(), inicio.getMonth(), inicio.getDate())
+  if (aniversario <= desde) aniversario = new Date(desde.getFullYear() + 1, inicio.getMonth(), inicio.getDate())
+  return { fecha: fechaISO(aniversario), tipo: 'anual' }
+}
+
+function tramoPublico(tramo: TramoContrato): Record<string, unknown> {
+  const publico: Record<string, unknown> = { id: tramo.id, vigenteDesde: tramo.vigenteDesde }
+  if (tramo.alquilerMensual != null) publico.alquilerMensual = tramo.alquilerMensual
+  if (tramo.contratoFin) publico.contratoFin = tramo.contratoFin
+  if (tramo.fianzaImporte != null) publico.fianzaImporte = tramo.fianzaImporte
+  return publico
+}
+
+function enlacesDe(p: Propiedad, transacciones: Transaccion[]): Record<string, unknown> | undefined {
+  const contrato = idDeArchivo(p.contratoArchivoId)
+  const fianza = idDeArchivo(p.fianzaDepositoArchivoId)
+  const vistos = new Set<string>()
+  const facturas: string[] = []
+  const propias = transacciones
+    .filter((t) => t.propiedadId === p.id && t.archivos.length > 0)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creadoEn.localeCompare(b.creadoEn) || a.id.localeCompare(b.id))
+  for (const t of propias) {
+    for (const archivo of t.archivos) {
+      const id = idDeArchivo(archivo)
+      if (!id || vistos.has(id)) continue
+      vistos.add(id)
+      facturas.push(enlaceDrive(id))
+    }
+  }
+  const enlaces: Record<string, unknown> = {}
+  if (contrato) enlaces.contrato = enlaceDrive(contrato)
+  if (fianza) enlaces.fianza = enlaceDrive(fianza)
+  if (facturas.length > 0) enlaces.facturas = facturas
+  return Object.keys(enlaces).length > 0 ? enlaces : undefined
+}
+
+function avisosVencimiento(
+  p: Propiedad,
+  hoy: Date,
+  fechaRevision: string | undefined,
+): { tipo: string; fecha: string; dias: number; mensaje: string }[] {
+  const avisos: { tipo: string; fecha: string; dias: number; mensaje: string }[] = []
+  const sumar = (tipo: string, fecha: string | undefined, texto: (dias: number, vencido: boolean) => string) => {
+    const estado = contratoEstado(fecha, hoy)
+    if (!fecha || !estado?.alerta) return
+    avisos.push({ tipo, fecha, dias: estado.dias, mensaje: texto(estado.dias, estado.vencido) })
+  }
+  if (!p.sinRenta && p.estado === 'alquilado') {
+    sumar('contrato', p.contratoFin, (dias, vencido) =>
+      vencido ? 'Contrato en tácita reconducción' : `Contrato vence en ${dias} días`,
+    )
+    sumar('revision', fechaRevision, (dias) =>
+      dias <= 0 ? 'Toca revisar la renta (IPC/IGC)' : `Revisión de renta en ${dias} días`,
+    )
+  }
+  sumar('cee', p.certificadoEnergeticoVencimiento, (dias, vencido) =>
+    vencido ? 'Certificado energético caducado' : `CEE vence en ${dias} días`,
+  )
+  sumar('seguro', p.seguroVencimiento, (dias, vencido) =>
+    vencido ? 'Seguro caducado' : `Seguro vence en ${dias} días`,
+  )
+  return avisos
+}
+
+function datosDeContrato(p: Propiedad, hoy: Date, transacciones: Transaccion[]): Record<string, unknown> {
+  const salida: Record<string, unknown> = {}
+  if (p.contratoInicio) salida.contratoInicio = p.contratoInicio
+  if (p.contratoFin) salida.contratoFin = p.contratoFin
+  if (p.tramosContrato && p.tramosContrato.length > 0) salida.tramosContrato = p.tramosContrato.map(tramoPublico)
+  if (p.fianzaImporte != null) salida.fianzaImporte = p.fianzaImporte
+  if (p.fianzaDepositadaDesde) salida.fianzaDepositadaDesde = p.fianzaDepositadaDesde
+  if (p.fianzaDepositoNumero) salida.fianzaDepositoNumero = p.fianzaDepositoNumero
+  if (p.seguroVencimiento) salida.seguroVencimiento = p.seguroVencimiento
+  const revision = revisionAnual(p)
+  if (revision) salida.revisionRenta = revision
+  if (p.certificadoEnergeticoVencimiento) salida.certificadoEnergeticoVencimiento = p.certificadoEnergeticoVencimiento
+  if (p.ibiMes != null) salida.ibiMes = p.ibiMes
+  const enlaces = enlacesDe(p, transacciones)
+  if (enlaces) salida.enlaces = enlaces
+  const avisos = avisosVencimiento(p, hoy, revision?.fecha)
+  if (avisos.length > 0) salida.avisosVencimiento = avisos
+  return salida
+}
+
+export function fichaPublica(p: Propiedad, hoy: Date, transacciones: Transaccion[] = []) {
   const inclusion = inclusionAguaLuz(repartoEfectivo(p))
   let aguaLuz = 'sin configurar'
   if (inclusion?.modo === 'parcial_conjunto') aguaLuz = `cupo ${inclusion.importeMensual ?? 30} €/mes`
@@ -151,6 +262,7 @@ export function fichaPublica(p: Propiedad, hoy: Date) {
     valores,
     financiacion: p.financiacion ?? null,
     copropietarios: (p.copropietarios ?? []).map((c) => ({ nombre: c.nombre, porcentaje: c.porcentaje })),
+    ...datosDeContrato(p, hoy, transacciones),
   }
 }
 
@@ -170,12 +282,12 @@ const sinParametros = { type: 'object', properties: {}, additionalProperties: fa
 const listarFincas: Herramienta = {
   name: 'listar_fincas',
   description:
-    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura (referencia, adquisición, cuota y valores proporcionales). No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
+    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
   inputSchema: sinParametros,
   ejecutar: (_args, foto, hoy) => ({
     fincas: [...foto.propiedades]
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
-      .map((p) => fichaPublica(p, hoy)),
+      .map((p) => fichaPublica(p, hoy, foto.transacciones)),
   }),
 }
 

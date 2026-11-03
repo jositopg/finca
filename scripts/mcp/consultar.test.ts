@@ -206,4 +206,203 @@ describe('consultar', () => {
     const avisos = ejecutar('avisos', {}, base, HOY) as { avisos: { tipo: string }[] }
     expect(avisos.avisos.filter((a) => a.tipo === 'renta' || a.tipo === 'registro' || a.tipo === 'fianza')).toEqual([])
   })
+
+  it('devuelve contrato, fianza, vencimientos y enlaces cuando existen', () => {
+    const datos = ejecutar(
+      'listar_fincas',
+      {},
+      foto({
+        propiedades: [
+          propiedad({
+            contratoInicio: '2025-11-01',
+            contratoFin: '2026-12-01',
+            alquilerMensual: 700,
+            tramosContrato: [
+              {
+                id: 't1',
+                vigenteDesde: '2025-11-01',
+                alquilerMensual: 650,
+                contratoFin: '2026-08-31',
+                fianzaImporte: 650,
+              },
+              {
+                id: 't2',
+                vigenteDesde: '2026-09-01',
+                alquilerMensual: 700,
+                contratoFin: '2026-12-01',
+                fianzaImporte: 700,
+                notas: 'NOTA-SECRETA 600111222',
+              },
+            ],
+            fianzaImporte: 700,
+            fianzaDepositadaDesde: '2025-11-02T10:00:00.000Z',
+            fianzaDepositoNumero: 'ICAVI-99',
+            seguroVencimiento: '2026-12-20',
+            certificadoEnergeticoVencimiento: '2026-11-20',
+            ibiMes: 9,
+            contratoArchivoId: 'contratoArchivo',
+            contratoArchivoNombre: 'contrato-ana.pdf',
+            fianzaDepositoArchivoId: 'fianzaArchivo',
+            fianzaDepositoArchivoNombre: 'resguardo.pdf',
+            copropietarios: [{ nombre: 'Luis', porcentaje: 100, nif: 'B12345678' } as never],
+          }),
+        ],
+        transacciones: [
+          transaccion({
+            id: 'tarde',
+            archivos: ['facturaUno', 'facturaUno'],
+            fecha: '2026-10-05',
+            creadoEn: '2026-10-05T00:00:00.000Z',
+          }),
+          transaccion({
+            id: 'pronto',
+            archivos: ['facturaDos'],
+            fecha: '2026-09-01',
+            creadoEn: '2026-09-01T00:00:00.000Z',
+          }),
+          transaccion({ id: 'ajena', propiedadId: 'otra', archivos: ['facturaAjena'] }),
+        ],
+      }),
+      HOY,
+    ) as { fincas: Record<string, unknown>[] }
+    expect(datos.fincas[0]).toMatchObject({
+      contratoInicio: '2025-11-01',
+      contratoFin: '2026-12-01',
+      alquilerMensual: 700,
+      tramosContrato: [
+        { id: 't1', vigenteDesde: '2025-11-01', alquilerMensual: 650, contratoFin: '2026-08-31', fianzaImporte: 650 },
+        { id: 't2', vigenteDesde: '2026-09-01', alquilerMensual: 700, contratoFin: '2026-12-01', fianzaImporte: 700 },
+      ],
+      fianzaImporte: 700,
+      fianzaDepositadaDesde: '2025-11-02T10:00:00.000Z',
+      fianzaDepositoNumero: 'ICAVI-99',
+      seguroVencimiento: '2026-12-20',
+      revisionRenta: { fecha: '2026-11-01', tipo: 'anual' },
+      certificadoEnergeticoVencimiento: '2026-11-20',
+      ibiMes: 9,
+      enlaces: {
+        contrato: 'https://drive.google.com/file/d/contratoArchivo/view',
+        fianza: 'https://drive.google.com/file/d/fianzaArchivo/view',
+        facturas: [
+          'https://drive.google.com/file/d/facturaDos/view',
+          'https://drive.google.com/file/d/facturaUno/view',
+        ],
+      },
+      avisosVencimiento: [
+        { tipo: 'contrato', fecha: '2026-12-01', dias: 33, mensaje: 'Contrato vence en 33 días' },
+        { tipo: 'revision', fecha: '2026-11-01', dias: 3, mensaje: 'Revisión de renta en 3 días' },
+        { tipo: 'cee', fecha: '2026-11-20', dias: 22, mensaje: 'CEE vence en 22 días' },
+        { tipo: 'seguro', fecha: '2026-12-20', dias: 52, mensaje: 'Seguro vence en 52 días' },
+      ],
+    })
+    const ficha = datos.fincas[0]
+    expect(ficha).not.toHaveProperty('contratoArchivoId')
+    expect(ficha).not.toHaveProperty('folderId')
+    expect(ficha).not.toHaveProperty('inquilinoDni')
+    expect(ficha).not.toHaveProperty('inquilinoEmail')
+    expect(ficha).not.toHaveProperty('inquilinoTelefono')
+    const json = JSON.stringify(datos)
+    expect(json).not.toContain('12345678Z')
+    expect(json).not.toContain('ana@example.com')
+    expect(json).not.toContain('600000000')
+    expect(json).not.toContain('600111222')
+    expect(json).not.toContain('NOTA-SECRETA')
+    expect(json).not.toContain('B12345678')
+    expect(json).not.toContain('nif')
+    expect(json).not.toContain('contrato-ana.pdf')
+    expect(json).not.toContain('resguardo.pdf')
+    expect(json).not.toContain('facturaAjena')
+    expect(json).not.toContain('"contratoArchivo"')
+  })
+
+  it('omite contrato, fianza, vencimientos y enlaces cuando no están', () => {
+    const datos = ejecutar(
+      'listar_fincas',
+      {},
+      foto({
+        propiedades: [
+          propiedad({
+            id: 'vacia',
+            nombre: 'Garaje vacío',
+            estado: 'vacio',
+            alquilerMensual: undefined,
+            contratoInicio: undefined,
+            inquilinoNombre: undefined,
+            inquilinoDni: undefined,
+            inquilinoEmail: undefined,
+            inquilinoTelefono: undefined,
+            seguroVencimiento: '2027-06-01',
+            certificadoEnergeticoVencimiento: '2026-12-29',
+          }),
+          propiedad({
+            id: 'justo',
+            nombre: 'Justo sesenta',
+            contratoInicio: '2026-10-01',
+            contratoFin: '2026-12-28',
+            alquilerMensual: 400,
+          }),
+          propiedad({
+            id: 'atrasada',
+            nombre: 'Revisión atrasada',
+            contratoInicio: '2024-03-01',
+            alquilerMensual: 400,
+            rentaRevisadaDesde: undefined,
+          }),
+          propiedad({
+            id: 'revisada',
+            nombre: 'Revisión hecha',
+            contratoInicio: '2024-03-01',
+            alquilerMensual: 400,
+            rentaRevisadaDesde: '2026-03-02T00:00:00',
+          }),
+        ],
+      }),
+      HOY,
+    ) as { fincas: Record<string, unknown>[] }
+    const porNombre = Object.fromEntries(datos.fincas.map((f) => [f.nombre, f]))
+    const vacia = porNombre['Garaje vacío']
+    for (const clave of [
+      'contratoInicio',
+      'contratoFin',
+      'tramosContrato',
+      'fianzaImporte',
+      'fianzaDepositadaDesde',
+      'fianzaDepositoNumero',
+      'revisionRenta',
+      'ibiMes',
+      'enlaces',
+      'avisosVencimiento',
+    ]) {
+      expect(vacia).not.toHaveProperty(clave)
+    }
+    expect(vacia).toMatchObject({
+      alquilerMensual: null,
+      inquilino: null,
+      seguroVencimiento: '2027-06-01',
+      certificadoEnergeticoVencimiento: '2026-12-29',
+    })
+    expect(JSON.stringify(vacia)).not.toContain('drive')
+    expect(JSON.stringify(vacia)).not.toContain('12345678Z')
+
+    expect(porNombre['Justo sesenta']).toMatchObject({
+      contratoFin: '2026-12-28',
+      revisionRenta: { fecha: '2027-10-01', tipo: 'anual' },
+      avisosVencimiento: [{ tipo: 'contrato', fecha: '2026-12-28', dias: 60, mensaje: 'Contrato vence en 60 días' }],
+    })
+    expect(porNombre['Justo sesenta']).not.toHaveProperty('fianzaImporte')
+
+    const atrasada = porNombre['Revisión atrasada']
+    expect(atrasada.revisionRenta).toEqual({ fecha: '2025-03-01', tipo: 'anual' })
+    expect(atrasada.avisosVencimiento).toEqual([
+      expect.objectContaining({
+        tipo: 'revision',
+        fecha: '2025-03-01',
+        mensaje: 'Toca revisar la renta (IPC/IGC)',
+      }),
+    ])
+    expect((atrasada.avisosVencimiento as { dias: number }[])[0].dias).toBeLessThan(0)
+
+    expect(porNombre['Revisión hecha']).toMatchObject({ revisionRenta: { fecha: '2027-03-01', tipo: 'anual' } })
+    expect(porNombre['Revisión hecha']).not.toHaveProperty('avisosVencimiento')
+  })
 })
