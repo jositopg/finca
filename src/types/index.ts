@@ -2889,7 +2889,7 @@ function baseAmortizacionIrpf(propiedad: FincaIrpf): { baseParte: number | null;
   if (propiedad.sinRenta) return { baseParte: null, pendiente: [] }
   const pendiente: string[] = []
   const catastral =
-    propiedad.valorConstruccion != null && propiedad.valorConstruccion > 0 ? propiedad.valorConstruccion : null
+    propiedad.valorConstruccion != null && propiedad.valorConstruccion >= 0 ? propiedad.valorConstruccion : null
   if (catastral == null) pendiente.push(FALTA_CONSTRUCCION)
   const proporcion = proporcionValida(propiedad.proporcionConstruccion)
   const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null
@@ -2901,7 +2901,7 @@ function baseAmortizacionIrpf(propiedad: FincaIrpf): { baseParte: number | null;
       pendiente.push(propiedad.tipoAdquisicion === 'herencia' ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION)
     }
   }
-  const candidatos = [catastral, porAdquisicion].filter((n): n is number => n != null && n > 0)
+  const candidatos = [catastral, porAdquisicion].filter((n): n is number => n != null && n >= 0)
   if (candidatos.length === 0) return { baseParte: null, pendiente }
   const base = Math.max(...candidatos)
   const parte = round2(miParte(parteDeCuota(base, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad))

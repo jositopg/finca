@@ -430,7 +430,7 @@ export function interpretarCamposFicha(entrada: unknown, hoy: string): ParcheFic
   leer('valorMercado', (valor) => validarImporte(valor, 'valorMercado'))
   leer('fechaValorMercado', (valor) => validarFechaNoFutura(valor, 'fechaValorMercado', hoy))
   leer('valorReferencia', (valor) => validarImporte(valor, 'valorReferencia'))
-  leer('valorConstruccion', (valor) => validarImporte(valor, 'valorConstruccion'))
+  leer('valorConstruccion', (valor) => validarImporte(valor, 'valorConstruccion', true))
   leer('valorCatastral', (valor) => validarImporte(valor, 'valorCatastral'))
   leer('anioRevisionCatastral', (valor) => validarAnioRevision(valor, hoy))
   leer('grupo', (valor) => validarGrupo(valor))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Propiedad, Tarea, Transaccion } from '../../src/types/index.ts'
+import { resumenIrpfFinca, type Propiedad, type Tarea, type Transaccion } from '../../src/types/index.ts'
 import { aplicarEscritura, type ConsultaSql } from './aplicar.ts'
 import { ConsultaError } from './consultar.ts'
 import { planificar } from './escribir.ts'
@@ -345,6 +345,28 @@ describe('aplicarEscritura', () => {
     expect(() =>
       planificar('fijar_ficha', { finca: 'Quimel', campos: { copropietarios: [{ nombre: 'Ana', porcentaje: 40, dni: '1' }] } }, foto, hoy),
     ).toThrow(/nombre y porcentaje/)
+  })
+
+  it('valorConstruccion 0 se acepta y la amortización es 0', () => {
+    const orden = planificar('fijar_ficha', { finca: 'Quimel', campos: { valorConstruccion: 0 } }, foto, hoy)
+    expect(orden.vista).toMatchObject({
+      cambios: [{ campo: 'valorConstruccion', antes: null, despues: 0 }],
+    })
+    const fila = resumenIrpfFinca(
+      finca({
+        id: 'p1',
+        nombre: 'Local Quimel',
+        tipo: 'piso',
+        estado: 'alquilado',
+        valorConstruccion: 0,
+        contratoInicio: '2020-01-01',
+      }),
+      [],
+      '2026',
+    )
+    expect(fila.amortizacion).toBe(0)
+    expect(fila.baseAmortizacion).toBe(0)
+    expect(fila.pendiente).not.toContain('valor catastral de la construcción')
   })
 
   it('fijar_ficha alquilerMensual con fechaEfecto abre un tramo y deja la renta anterior en el mes previo', () => {

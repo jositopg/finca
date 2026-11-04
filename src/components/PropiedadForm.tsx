@@ -433,7 +433,7 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
     }
     importeCampo(valorReferencia, 'valorReferencia')
     importeCampo(valorMercado, 'valorMercado')
-    importeCampo(valorConstruccion, 'valorConstruccion')
+    importeCampo(valorConstruccion, 'valorConstruccion', true)
     importeCampo(valorAdquisicion, 'valorAdquisicion')
     importeCampo(metrosCuadrados, 'metrosCuadrados')
     importeCampo(capitalPendiente, 'capitalPendiente', true)
@@ -516,7 +516,7 @@ export function PropiedadForm({ initial, onSave, onCancel, onDelete }: Props) {
       })(),
       valorReferencia: valorReferencia.trim() ? validarImporte(valorReferencia, 'valorReferencia') : undefined,
       valorMercado: valorMercado.trim() ? validarImporte(valorMercado, 'valorMercado') : undefined,
-      valorConstruccion: valorConstruccion.trim() ? validarImporte(valorConstruccion, 'valorConstruccion') : undefined,
+      valorConstruccion: valorConstruccion.trim() ? validarImporte(valorConstruccion, 'valorConstruccion', true) : undefined,
       valorCatastral: initial?.valorCatastral,
       anioRevisionCatastral: initial?.anioRevisionCatastral,
       grupo: initial?.grupo,

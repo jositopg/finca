@@ -295,7 +295,7 @@ function interpretarCamposFicha(entrada, hoy) {
 	leer("valorMercado", (valor) => validarImporte(valor, "valorMercado"));
 	leer("fechaValorMercado", (valor) => validarFechaNoFutura(valor, "fechaValorMercado", hoy));
 	leer("valorReferencia", (valor) => validarImporte(valor, "valorReferencia"));
-	leer("valorConstruccion", (valor) => validarImporte(valor, "valorConstruccion"));
+	leer("valorConstruccion", (valor) => validarImporte(valor, "valorConstruccion", true));
 	leer("valorCatastral", (valor) => validarImporte(valor, "valorCatastral"));
 	leer("anioRevisionCatastral", (valor) => validarAnioRevision(valor, hoy));
 	leer("grupo", (valor) => validarGrupo(valor));
@@ -1586,7 +1586,7 @@ function baseAmortizacionIrpf(propiedad) {
 		pendiente: []
 	};
 	const pendiente = [];
-	const catastral = propiedad.valorConstruccion != null && propiedad.valorConstruccion > 0 ? propiedad.valorConstruccion : null;
+	const catastral = propiedad.valorConstruccion != null && propiedad.valorConstruccion >= 0 ? propiedad.valorConstruccion : null;
 	if (catastral == null) pendiente.push(FALTA_CONSTRUCCION);
 	const proporcion = proporcionValida(propiedad.proporcionConstruccion);
 	const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null;
@@ -1596,7 +1596,7 @@ function baseAmortizacionIrpf(propiedad) {
 		if (proporcion == null) pendiente.push(FALTA_PROPORCION);
 		if (coste == null) pendiente.push(propiedad.tipoAdquisicion === "herencia" ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION);
 	}
-	const candidatos = [catastral, porAdquisicion].filter((n) => n != null && n > 0);
+	const candidatos = [catastral, porAdquisicion].filter((n) => n != null && n >= 0);
 	if (candidatos.length === 0) return {
 		baseParte: null,
 		pendiente
