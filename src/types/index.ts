@@ -8,6 +8,7 @@ export {
   CAMPOS_FICHA,
   FichaError,
   cambiosDeFicha,
+  comprobarValorCatastral,
   cuotaEfectiva,
   fechaDeHoy,
   fusionarFicha,
@@ -23,6 +24,7 @@ export {
   validarReferenciaCatastral,
   validarTipoAdquisicion,
   valorPatrimonioJose,
+  valorSuelo,
   valoresProporcionales,
 } from './ficha.ts'
 
@@ -115,6 +117,9 @@ export interface Propiedad {
   deudaDesde?: string // YYYY-MM: mes desde el que se cuenta la deuda de renta (ver deudaInquilino) — "dar la deuda por saldada" lo adelanta al mes actual sin tocar el contrato
   rentaRevisadaDesde?: string // ISO datetime: última vez que se marcó la renta como revisada (cláusula de actualización anual, ver tocaRevisarRenta)
   valorConstruccion?: number // valor catastral de la construcción (sin suelo), del recibo del IBI — base de la amortización deducible en IRPF
+  valorCatastral?: number // valor catastral total (€). El suelo no se guarda: valorSuelo = valorCatastral − valorConstruccion
+  anioRevisionCatastral?: number // año de la revisión catastral
+  grupo?: string // agrupación opcional, de 1 a 60 caracteres. Una referencia catastral sigue siendo un inmueble
   // Fracción del valor de adquisición que es construcción (0–1). Sin ella no se
   // compara el coste con el valor catastral. No es una columna: si no está, el
   // resumen de IRPF lo señala como dato pendiente.
@@ -2740,12 +2745,26 @@ export interface TotalesIrpf {
   amortizacion: number | null
   rendimientoNeto: number | null
   rendimientoNetoReducido: number | null
+  imputacion: number | null
+}
+
+// Imputación de renta inmobiliaria de lo que no es vivienda habitual y no
+// está alquilado. `pendiente de dato` solo si hay días sin alquilar y falta
+// el valor catastral. Un alquiler que cubre el año no entra.
+export interface ImputacionRentaInmobiliaria {
+  nombre: string
+  estado: 'calculada' | 'pendiente de dato'
+  importe: number | null
+  tipo: 1.1 | 2 | null
+  diasNoAlquilados: number
+  diasAnio: number
 }
 
 export interface ResumenIrpfAnio {
   nota: string
   anio: string
   porFinca: ResumenIrpfFinca[]
+  imputaciones: ImputacionRentaInmobiliaria[]
   totales: TotalesIrpf
 }
 
@@ -2770,6 +2789,8 @@ type FincaIrpf = Pick<
   | 'inquilinoNombre'
   | 'inquilinoDni'
   | 'valorConstruccion'
+  | 'valorCatastral'
+  | 'anioRevisionCatastral'
   | 'valorAdquisicion'
   | 'tipoAdquisicion'
   | 'proporcionConstruccion'
@@ -3007,7 +3028,7 @@ export function resumenIrpfFinca(propiedad: FincaIrpf, transacciones: Transaccio
   }
 }
 
-function totalesIrpf(filas: ResumenIrpfFinca[]): TotalesIrpf {
+function totalesIrpf(filas: ResumenIrpfFinca[]): Omit<TotalesIrpf, 'imputacion'> {
   const suma = (campo: 'ingresosIntegros' | 'gastosDeducibles' | 'excesoAnio' | 'arrastreAplicado') =>
     round2(filas.reduce((s, f) => s + f[campo], 0))
   const sumaONull = (campo: 'amortizacion' | 'rendimientoNeto' | 'rendimientoNetoReducido') => {
@@ -3025,12 +3046,72 @@ function totalesIrpf(filas: ResumenIrpfFinca[]): TotalesIrpf {
   }
 }
 
+function diasNoAlquiladosEnAnio(propiedad: FincaIrpf, anio: string): number {
+  const diasAnio = diasDelAnio(anio)
+  if (propiedad.sinRenta) return diasAnio
+  return Math.max(0, diasAnio - diasAlquiladosEnAnio(propiedad, anio))
+}
+
+// Revisión dentro de los diez años anteriores al ejercicio, o en el mismo:
+// 1,1 %. Si falta el año, es posterior o es más antigua, 2 %.
+function tipoImputacion(anioRevision: number | undefined, ejercicio: number): 1.1 | 2 {
+  if (anioRevision != null && anioRevision >= ejercicio - 10 && anioRevision <= ejercicio) return 1.1
+  return 2
+}
+
+function imputacionesRenta(propiedades: readonly FincaIrpf[], anio: string): ImputacionRentaInmobiliaria[] {
+  const ejercicio = Number(anio)
+  const filas: ImputacionRentaInmobiliaria[] = []
+  for (const propiedad of propiedades) {
+    if (!esDeJose(propiedad) || propiedad.estado === 'vivienda_habitual') continue
+    const diasAnio = diasDelAnio(anio)
+    const diasNoAlquilados = diasNoAlquiladosEnAnio(propiedad, anio)
+    if (diasNoAlquilados <= 0) continue
+    const catastral =
+      propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null
+    if (catastral == null) {
+      filas.push({
+        nombre: propiedad.nombre,
+        estado: 'pendiente de dato',
+        importe: null,
+        tipo: null,
+        diasNoAlquilados,
+        diasAnio,
+      })
+      continue
+    }
+    const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio)
+    const parte = miParte(parteDeCuota(catastral, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad)
+    filas.push({
+      nombre: propiedad.nombre,
+      estado: 'calculada',
+      importe: round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)),
+      tipo,
+      diasNoAlquilados,
+      diasAnio,
+    })
+  }
+  return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+}
+
+function totalImputacion(filas: ImputacionRentaInmobiliaria[]): number | null {
+  if (filas.some((f) => f.importe == null)) return null
+  return round2(filas.reduce((s, f) => s + (f.importe ?? 0), 0))
+}
+
 export function resumenIrpf(propiedades: readonly FincaIrpf[], transacciones: Transaccion[], anio: string): ResumenIrpfAnio {
   const porFinca = propiedades
     .filter((p) => esDeJose(p) && esRendimientoAlquiler(p))
     .map((p) => resumenIrpfFinca(p, transacciones, anio))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
-  return { nota: NOTA_RESUMEN_IRPF, anio, porFinca, totales: totalesIrpf(porFinca) }
+  const imputaciones = imputacionesRenta(propiedades, anio)
+  return {
+    nota: NOTA_RESUMEN_IRPF,
+    anio,
+    porFinca,
+    imputaciones,
+    totales: { ...totalesIrpf(porFinca), imputacion: totalImputacion(imputaciones) },
+  }
 }
 
 export const ESTADO_BADGE_VARIANT: Record<

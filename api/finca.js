@@ -29,6 +29,9 @@ var LISTA = /* @__PURE__ */ new Set([
 	"fechaValorMercado",
 	"valorReferencia",
 	"valorConstruccion",
+	"valorCatastral",
+	"anioRevisionCatastral",
+	"grupo",
 	"cuotaPropiedad",
 	"sinRenta",
 	"financiacion",
@@ -171,6 +174,15 @@ function valoresProporcionales(p) {
 		adquisicion: valorDe$1(p.valorAdquisicion, cuota)
 	};
 }
+function valorSuelo(p) {
+	if (p.valorCatastral == null || !Number.isFinite(p.valorCatastral)) return null;
+	const construccion = p.valorConstruccion != null && Number.isFinite(p.valorConstruccion) ? p.valorConstruccion : 0;
+	return Math.round((p.valorCatastral - construccion) * 100) / 100;
+}
+function comprobarValorCatastral(valorCatastral, valorConstruccion) {
+	if (valorCatastral == null || valorConstruccion == null) return;
+	if (valorCatastral < valorConstruccion) throw new FichaError("El valor catastral no puede ser menor que el valor de la construcción.");
+}
 function validarFecha(raw, campo) {
 	if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) throw new FichaError(`"${campo}" tiene que ser YYYY-MM-DD.`);
 	const [anio, mes, dia] = raw.split("-").map(Number);
@@ -242,6 +254,18 @@ function validarCopropietarios(raw) {
 	if (Math.abs(suma - 100) > .01) throw new FichaError("Los porcentajes de los copropietarios tienen que sumar 100.");
 	return lista;
 }
+function validarAnioRevision(raw, hoy) {
+	if (typeof raw !== "number" || !Number.isInteger(raw)) throw new FichaError("\"anioRevisionCatastral\" tiene que ser un año entero.");
+	const tope = Number(hoy.slice(0, 4));
+	if (raw < 1980 || raw > tope) throw new FichaError(`"anioRevisionCatastral" tiene que estar entre 1980 y ${tope}.`);
+	return raw;
+}
+function validarGrupo(raw) {
+	if (typeof raw !== "string") throw new FichaError("\"grupo\" tiene que ser texto.");
+	const texto = raw.trim();
+	if (texto.length < 1 || texto.length > 60) throw new FichaError("\"grupo\" tiene que tener entre 1 y 60 caracteres.");
+	return texto;
+}
 function asignar(parche, clave, valor) {
 	parche[clave] = valor;
 }
@@ -272,10 +296,14 @@ function interpretarCamposFicha(entrada, hoy) {
 	leer("fechaValorMercado", (valor) => validarFechaNoFutura(valor, "fechaValorMercado", hoy));
 	leer("valorReferencia", (valor) => validarImporte(valor, "valorReferencia"));
 	leer("valorConstruccion", (valor) => validarImporte(valor, "valorConstruccion"));
+	leer("valorCatastral", (valor) => validarImporte(valor, "valorCatastral"));
+	leer("anioRevisionCatastral", (valor) => validarAnioRevision(valor, hoy));
+	leer("grupo", (valor) => validarGrupo(valor));
 	leer("cuotaPropiedad", (valor) => validarCuota(valor));
 	leer("sinRenta", (valor) => validarBandera(valor, "sinRenta"));
 	leer("financiacion", (valor) => validarFinanciacion(valor));
 	leer("copropietarios", (valor) => validarCopropietarios(valor));
+	if ("valorCatastral" in datos && "valorConstruccion" in datos) comprobarValorCatastral(parche.valorCatastral ?? null, parche.valorConstruccion ?? null);
 	return parche;
 }
 function fusionarFicha(actual, parche) {
@@ -1717,13 +1745,64 @@ function totalesIrpf(filas) {
 		rendimientoNetoReducido: sumaONull("rendimientoNetoReducido")
 	};
 }
+function diasNoAlquiladosEnAnio(propiedad, anio) {
+	const diasAnio = diasDelAnio(anio);
+	if (propiedad.sinRenta) return diasAnio;
+	return Math.max(0, diasAnio - diasAlquiladosEnAnio(propiedad, anio));
+}
+function tipoImputacion(anioRevision, ejercicio) {
+	if (anioRevision != null && anioRevision >= ejercicio - 10 && anioRevision <= ejercicio) return 1.1;
+	return 2;
+}
+function imputacionesRenta(propiedades, anio) {
+	const ejercicio = Number(anio);
+	const filas = [];
+	for (const propiedad of propiedades) {
+		if (!esDeJose(propiedad) || propiedad.estado === "vivienda_habitual") continue;
+		const diasAnio = diasDelAnio(anio);
+		const diasNoAlquilados = diasNoAlquiladosEnAnio(propiedad, anio);
+		if (diasNoAlquilados <= 0) continue;
+		const catastral = propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null;
+		if (catastral == null) {
+			filas.push({
+				nombre: propiedad.nombre,
+				estado: "pendiente de dato",
+				importe: null,
+				tipo: null,
+				diasNoAlquilados,
+				diasAnio
+			});
+			continue;
+		}
+		const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio);
+		const parte = miParte(parteDeCuota(catastral, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad);
+		filas.push({
+			nombre: propiedad.nombre,
+			estado: "calculada",
+			importe: round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)),
+			tipo,
+			diasNoAlquilados,
+			diasAnio
+		});
+	}
+	return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+function totalImputacion(filas) {
+	if (filas.some((f) => f.importe == null)) return null;
+	return round2(filas.reduce((s, f) => s + (f.importe ?? 0), 0));
+}
 function resumenIrpf(propiedades, transacciones, anio) {
 	const porFinca = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p)).map((p) => resumenIrpfFinca(p, transacciones, anio)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+	const imputaciones = imputacionesRenta(propiedades, anio);
 	return {
 		nota: NOTA_RESUMEN_IRPF,
 		anio,
 		porFinca,
-		totales: totalesIrpf(porFinca)
+		imputaciones,
+		totales: {
+			...totalesIrpf(porFinca),
+			imputacion: totalImputacion(imputaciones)
+		}
 	};
 }
 var PRIORIDAD_ORDEN = {
@@ -1926,6 +2005,10 @@ function fichaPublica(p, hoy, transacciones = []) {
 		fechaValorMercado: p.fechaValorMercado ?? null,
 		valorReferencia: p.valorReferencia ?? null,
 		valorConstruccion: p.valorConstruccion ?? null,
+		valorCatastral: p.valorCatastral ?? null,
+		anioRevisionCatastral: p.anioRevisionCatastral ?? null,
+		valorSuelo: valorSuelo(p),
+		grupo: p.grupo ?? null,
 		cuota: valores.cuota,
 		valores,
 		financiacion: p.financiacion ?? null,
@@ -1949,284 +2032,324 @@ var sinParametros = {
 	properties: {},
 	additionalProperties: false
 };
-var herramientas = [
-	{
-		name: "listar_fincas",
-		description: "Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
-		inputSchema: sinParametros,
-		ejecutar: (_args, foto, hoy) => ({ fincas: [...foto.propiedades].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((p) => fichaPublica(p, hoy, foto.transacciones)) })
+var listarFincas = {
+	name: "listar_fincas",
+	description: "Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura (una referencia catastral por inmueble), valorCatastral, anioRevisionCatastral, valorSuelo (valorCatastral − valorConstruccion, calculado) y grupo. Si están guardados, también el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.",
+	inputSchema: sinParametros,
+	ejecutar: (_args, foto, hoy) => ({ fincas: [...foto.propiedades].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")).map((p) => fichaPublica(p, hoy, foto.transacciones)) })
+};
+var cobrosPendientes = {
+	name: "cobros_pendientes",
+	description: "Rentas del mes sin cobrar del todo, y deuda de meses ya cerrados. Mismo criterio que Inicio. En un local el importe es la neta, lo que entra en el banco.",
+	inputSchema: {
+		type: "object",
+		properties: { mes: {
+			type: "string",
+			description: "YYYY-MM. Por defecto el mes actual. La deuda de meses cerrados no depende de este valor."
+		} },
+		additionalProperties: false
 	},
-	{
-		name: "cobros_pendientes",
-		description: "Rentas del mes sin cobrar del todo, y deuda de meses ya cerrados. Mismo criterio que Inicio. En un local el importe es la neta, lo que entra en el banco.",
-		inputSchema: {
-			type: "object",
-			properties: { mes: {
-				type: "string",
-				description: "YYYY-MM. Por defecto el mes actual. La deuda de meses cerrados no depende de este valor."
-			} },
-			additionalProperties: false
-		},
-		ejecutar: (args, foto, hoy) => {
-			const mes = mesDe$1(args, hoy);
-			const dia = hoyDelMes(mes, hoy);
-			const fincas = fincasDeJose(foto.propiedades);
-			return {
-				ambito: AMBITO,
-				mes,
-				pendientes: fincas.filter((p) => rentaDelMesIncompleta(p, foto.transacciones, dia)).map((p) => {
-					const esperado = alquilerACobrar(p, `${mes}-01`, dia) ?? 0;
-					const cobrado = cobradoAlquilerEnMes(p.id, foto.transacciones, mes);
-					return {
-						id: p.id,
-						nombre: p.nombre,
-						inquilino: p.inquilinoNombre ?? null,
-						esperado: r2(esperado),
-						cobrado: r2(cobrado),
-						falta: r2(Math.max(0, esperado - cobrado))
-					};
-				}),
-				deudas: fincas.flatMap((p) => {
-					const deuda = deudaInquilino(p, foto.transacciones, hoy);
-					if (!deuda || deuda.importe <= .005) return [];
-					return [{
-						id: p.id,
-						nombre: p.nombre,
-						importe: r2(deuda.importe),
-						meses: deuda.meses
-					}];
-				})
-			};
-		}
-	},
-	{
-		name: "huecos",
-		description: "Meses recientes sin renta, agua o luz registrada. Igual que el aviso de la ficha: últimos 6 meses de ocupación. Sin \"finca\", solo las de Jose en alquiler.",
-		inputSchema: {
-			type: "object",
-			properties: { finca: {
-				type: "string",
-				description: "Nombre o id. Si se omite, todas las de Jose en alquiler."
-			} },
-			additionalProperties: false
-		},
-		ejecutar: (args, foto, hoy) => {
-			const nombre = textoOpcional(args, "finca");
-			const fincas = nombre ? [resolverFinca(foto.propiedades, nombre)] : fincasDeJose(foto.propiedades);
-			const filas = fincas.flatMap((p) => huecosMensuales(p, foto.transacciones, hoy).map((h) => ({
-				nombre: p.nombre,
-				tipo: h.tipo,
-				mes: h.mes
-			})));
-			return {
-				ambito: nombre ? fincas[0].nombre : AMBITO,
-				huecos: filas
-			};
-		}
-	},
-	{
-		name: "avisos",
-		description: "Avisos de ficha: huecos de registro, renta, fianza ICAVI, contrato, revisión, certificado energético, seguro y mes del IBI. Solo fincas de Jose en alquiler.",
-		inputSchema: sinParametros,
-		ejecutar: (_args, foto, hoy) => ({
+	ejecutar: (args, foto, hoy) => {
+		const mes = mesDe$1(args, hoy);
+		const dia = hoyDelMes(mes, hoy);
+		const fincas = fincasDeJose(foto.propiedades);
+		return {
 			ambito: AMBITO,
-			avisos: fincasDeJose(foto.propiedades).flatMap((p) => avisosDePropiedad(p, foto.transacciones, hoy).map((a) => ({
-				finca: a.nombre,
-				tipo: a.tipo,
-				mensaje: a.mensaje
-			})))
-		})
-	},
-	{
-		name: "resumen",
-		description: "Ingresos, gastos y neto de un mes o de un año, ya a la parte de Jose. El gasto de agua y luz cuenta solo la parte incluida en el contrato. Pasa \"mes\" o \"anio\", no los dos.",
-		inputSchema: {
-			type: "object",
-			properties: {
-				mes: {
-					type: "string",
-					description: "YYYY-MM. Por defecto el mes actual si no pasas anio."
-				},
-				anio: {
-					type: "string",
-					description: "YYYY. El año entero."
-				}
-			},
-			additionalProperties: false
-		},
-		ejecutar: (args, foto, hoy) => {
-			const mes = textoOpcional(args, "mes");
-			const anio = textoOpcional(args, "anio");
-			if (mes && anio) throw new ConsultaError("Pasa \"mes\" o \"anio\", no los dos.");
-			const [desde, hasta] = anio ? rangoAnio(anioDe({ anio }, hoy)) : rangoMes(mesDe$1({ mes }, hoy));
-			const fincas = fincasDeJose(foto.propiedades);
-			const total = resumenVariasEnRango(fincas, foto.transacciones, desde, hasta);
-			const porFinca = fincas.map((p) => {
-				const r = resumenEnRango(p, foto.transacciones, desde, hasta);
+			mes,
+			pendientes: fincas.filter((p) => rentaDelMesIncompleta(p, foto.transacciones, dia)).map((p) => {
+				const esperado = alquilerACobrar(p, `${mes}-01`, dia) ?? 0;
+				const cobrado = cobradoAlquilerEnMes(p.id, foto.transacciones, mes);
 				return {
+					id: p.id,
 					nombre: p.nombre,
-					ingresos: r2(r.ingresos),
-					gastos: r2(r.gastos),
-					neto: r2(r.ingresos - r.gastos)
+					inquilino: p.inquilinoNombre ?? null,
+					esperado: r2(esperado),
+					cobrado: r2(cobrado),
+					falta: r2(Math.max(0, esperado - cobrado))
 				};
-			}).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-			const categorias = {};
-			for (const p of fincas) for (const [cat, n] of Object.entries(gastosPorCategoriaEnRango(p, foto.transacciones, desde, hasta))) categorias[cat] = (categorias[cat] ?? 0) + n;
-			const gastosPorCategoria = Object.entries(categorias).map(([categoria, importe]) => ({
-				categoria,
-				importe: r2(importe)
-			})).filter((f) => f.importe !== 0).sort((a, b) => b.importe - a.importe);
-			return {
-				ambito: AMBITO,
-				desde,
-				hasta,
-				ingresos: total.ingresos,
-				gastos: total.gastos,
-				neto: r2(total.ingresos - total.gastos),
-				aRepercutir: total.inquilino,
-				porFinca,
-				gastosPorCategoria
-			};
-		}
+			}),
+			deudas: fincas.flatMap((p) => {
+				const deuda = deudaInquilino(p, foto.transacciones, hoy);
+				if (!deuda || deuda.importe <= .005) return [];
+				return [{
+					id: p.id,
+					nombre: p.nombre,
+					importe: r2(deuda.importe),
+					meses: deuda.meses
+				}];
+			})
+		};
+	}
+};
+var huecos = {
+	name: "huecos",
+	description: "Meses recientes sin renta, agua o luz registrada. Igual que el aviso de la ficha: últimos 6 meses de ocupación. Sin \"finca\", solo las de Jose en alquiler.",
+	inputSchema: {
+		type: "object",
+		properties: { finca: {
+			type: "string",
+			description: "Nombre o id. Si se omite, todas las de Jose en alquiler."
+		} },
+		additionalProperties: false
 	},
+	ejecutar: (args, foto, hoy) => {
+		const nombre = textoOpcional(args, "finca");
+		const fincas = nombre ? [resolverFinca(foto.propiedades, nombre)] : fincasDeJose(foto.propiedades);
+		const filas = fincas.flatMap((p) => huecosMensuales(p, foto.transacciones, hoy).map((h) => ({
+			nombre: p.nombre,
+			tipo: h.tipo,
+			mes: h.mes
+		})));
+		return {
+			ambito: nombre ? fincas[0].nombre : AMBITO,
+			huecos: filas
+		};
+	}
+};
+var avisos = {
+	name: "avisos",
+	description: "Avisos de ficha: huecos de registro, renta, fianza ICAVI, contrato, revisión, certificado energético, seguro y mes del IBI. Solo fincas de Jose en alquiler.",
+	inputSchema: sinParametros,
+	ejecutar: (_args, foto, hoy) => ({
+		ambito: AMBITO,
+		avisos: fincasDeJose(foto.propiedades).flatMap((p) => avisosDePropiedad(p, foto.transacciones, hoy).map((a) => ({
+			finca: a.nombre,
+			tipo: a.tipo,
+			mensaje: a.mensaje
+		})))
+	})
+};
+var resumen = {
+	name: "resumen",
+	description: "Ingresos, gastos y neto de un mes o de un año, ya a la parte de Jose. El gasto de agua y luz cuenta solo la parte incluida en el contrato. Pasa \"mes\" o \"anio\", no los dos.",
+	inputSchema: {
+		type: "object",
+		properties: {
+			mes: {
+				type: "string",
+				description: "YYYY-MM. Por defecto el mes actual si no pasas anio."
+			},
+			anio: {
+				type: "string",
+				description: "YYYY. El año entero."
+			}
+		},
+		additionalProperties: false
+	},
+	ejecutar: (args, foto, hoy) => {
+		const mes = textoOpcional(args, "mes");
+		const anio = textoOpcional(args, "anio");
+		if (mes && anio) throw new ConsultaError("Pasa \"mes\" o \"anio\", no los dos.");
+		const [desde, hasta] = anio ? rangoAnio(anioDe({ anio }, hoy)) : rangoMes(mesDe$1({ mes }, hoy));
+		const fincas = fincasDeJose(foto.propiedades);
+		const total = resumenVariasEnRango(fincas, foto.transacciones, desde, hasta);
+		const porFinca = fincas.map((p) => {
+			const r = resumenEnRango(p, foto.transacciones, desde, hasta);
+			return {
+				nombre: p.nombre,
+				ingresos: r2(r.ingresos),
+				gastos: r2(r.gastos),
+				neto: r2(r.ingresos - r.gastos)
+			};
+		}).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+		const categorias = {};
+		for (const p of fincas) for (const [cat, n] of Object.entries(gastosPorCategoriaEnRango(p, foto.transacciones, desde, hasta))) categorias[cat] = (categorias[cat] ?? 0) + n;
+		const gastosPorCategoria = Object.entries(categorias).map(([categoria, importe]) => ({
+			categoria,
+			importe: r2(importe)
+		})).filter((f) => f.importe !== 0).sort((a, b) => b.importe - a.importe);
+		return {
+			ambito: AMBITO,
+			desde,
+			hasta,
+			ingresos: total.ingresos,
+			gastos: total.gastos,
+			neto: r2(total.ingresos - total.gastos),
+			aRepercutir: total.inquilino,
+			porFinca,
+			gastosPorCategoria
+		};
+	}
+};
+var modelo420 = {
+	name: "modelo_420",
+	description: "Modelo 420 y 115 de los locales de Jose. El IGIC se devenga con la renta pactada de cada mes ya empezado, se haya cobrado o no, y la cuota es la suma del IGIC de cada mes. El IRPF del 115 sigue la fecha de cobro. El IGIC soportado de los gastos se resta solo si el trimestre tiene renta devengada.",
+	inputSchema: {
+		type: "object",
+		properties: {
+			anio: {
+				type: "string",
+				description: "YYYY. Por defecto el año actual."
+			},
+			trimestre: {
+				type: "integer",
+				description: "1 a 4. Por defecto el trimestre actual."
+			}
+		},
+		additionalProperties: false
+	},
+	ejecutar: (args, foto, hoy) => {
+		const anio = anioDe(args, hoy);
+		const trimestre = trimestreDeNumero(args, hoy);
+		const filas = fincasDeJose(foto.propiedades).filter((p) => p.tipo === "local").map((p) => {
+			const devengo = devengoIgicLocalTrimestre(p, anio, trimestre, hoy);
+			const irpf = r2(calcularRentaLocal(baseDesdeRentaNeta(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "ingreso" && t.categoria === "Alquiler mensual" && t.fecha.startsWith(anio) && trimestreDeFecha(t.fecha) === trimestre).reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0))).irpf);
+			const mesesSinCobrar = devengo.meses.filter((m) => {
+				return baseDesdeRentaNeta(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "ingreso" && t.categoria === "Alquiler mensual" && mesDelCobroAlquiler(t) === m.mes).reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)) + .02 < m.base;
+			}).map((m) => m.mes);
+			const igicSoportado = devengo.base > 0 ? r2(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "gasto" && t.fecha.startsWith(anio) && trimestreDeFecha(t.fecha) === trimestre).reduce((s, t) => s + miParte(t.igicSoportado ?? 0, p, t.soloMio), 0)) : 0;
+			return {
+				nombre: p.nombre,
+				base: devengo.base,
+				igic: devengo.igic,
+				igicSoportado,
+				igicAIngresar: r2(devengo.igic - igicSoportado),
+				irpfRetenido: irpf,
+				meses: devengo.meses,
+				mesesSinCobrar
+			};
+		});
+		return {
+			ambito: AMBITO,
+			anio,
+			trimestre,
+			base: r2(filas.reduce((s, f) => s + f.base, 0)),
+			igic: r2(filas.reduce((s, f) => s + f.igic, 0)),
+			igicSoportado: r2(filas.reduce((s, f) => s + f.igicSoportado, 0)),
+			igicAIngresar: r2(filas.reduce((s, f) => s + f.igicAIngresar, 0)),
+			irpfRetenido: r2(filas.reduce((s, f) => s + f.irpfRetenido, 0)),
+			locales: filas
+		};
+	}
+};
+var rendimiento = {
+	name: "rendimiento",
+	description: "Rendimiento de la pestaña Fiscal, sin la reducción por vivienda. El bloque \"estimador\" aplica esa reducción (por defecto 50) y es una aproximación, no la cuota oficial. Importes a la parte de Jose.",
+	inputSchema: {
+		type: "object",
+		properties: {
+			anio: {
+				type: "string",
+				description: "YYYY. Por defecto el año actual."
+			},
+			reduccion: {
+				type: "number",
+				description: "Porcentaje de reducción por vivienda en el estimador. Por defecto 50."
+			}
+		},
+		additionalProperties: false
+	},
+	ejecutar: (args, foto, hoy) => {
+		const anio = anioDe(args, hoy);
+		const reduccionRaw = args.reduccion;
+		const reduccion = reduccionRaw == null || reduccionRaw === "" ? 50 : Number(reduccionRaw);
+		if (!Number.isFinite(reduccion) || reduccion < 0 || reduccion > 100) throw new ConsultaError("\"reduccion\" tiene que ser un porcentaje entre 0 y 100.");
+		const fincas = fincasDeJose(foto.propiedades);
+		const porFinca = fincas.map((p) => {
+			const r = rendimientoIrpfPropiedad(p, foto.transacciones, anio, 0);
+			return {
+				nombre: p.nombre,
+				tipo: p.tipo,
+				ingresos: r2(r.ingresos),
+				gastos: r2(r.gastos),
+				amortizacion: r2(r.amortizacion),
+				neto: r2(r.ingresos - r.gastos)
+			};
+		}).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+		const estimacion = estimarAhorroRenta(fincas, foto.transacciones, foto.ingresosExternos, anio, reduccion);
+		return {
+			ambito: AMBITO,
+			anio,
+			porFinca,
+			totales: {
+				ingresos: r2(porFinca.reduce((s, f) => s + f.ingresos, 0)),
+				gastos: r2(porFinca.reduce((s, f) => s + f.gastos, 0)),
+				amortizacion: r2(porFinca.reduce((s, f) => s + f.amortizacion, 0)),
+				neto: r2(porFinca.reduce((s, f) => s + f.neto, 0))
+			},
+			estimador: {
+				nota: "Aproximación del estimador de la app, no la declaración.",
+				reduccionViviendaPct: reduccion,
+				rendimientoInmobiliario: r2(estimacion.rendimientoInmobiliarioTotal),
+				otrosIngresos: r2(estimacion.otrosIngresosTotal),
+				baseImponible: r2(estimacion.baseImponibleTotal),
+				cuotaTotal: r2(estimacion.cuotaTotal),
+				retenido: r2(estimacion.totalRetenido),
+				aGuardar: r2(estimacion.aGuardar)
+			}
+		};
+	}
+};
+function propiedadesDelGrupo(propiedades, grupo) {
+	if (!grupo) return propiedades;
+	const lista = propiedades.filter((p) => (p.grupo ?? "").trim() === grupo);
+	if (lista.length === 0) throw new ConsultaError(`No hay ninguna finca en el grupo "${grupo}".`);
+	return lista;
+}
+function subtotalesPorGrupo(propiedades, transacciones, desde, hasta, hoy) {
+	const porGrupo = /* @__PURE__ */ new Map();
+	for (const p of propiedades) {
+		const grupo = p.grupo?.trim();
+		if (!grupo) continue;
+		const lista = porGrupo.get(grupo);
+		if (lista) lista.push(p);
+		else porGrupo.set(grupo, [p]);
+	}
+	return [...porGrupo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es")).map(([grupo, lista]) => ({
+		grupo,
+		...rentabilidadCartera(lista, transacciones, desde, hasta, hoy)
+	}));
+}
+var herramientas = [
+	listarFincas,
+	cobrosPendientes,
+	huecos,
+	avisos,
+	resumen,
+	modelo420,
+	rendimiento,
 	{
-		name: "modelo_420",
-		description: "Modelo 420 y 115 de los locales de Jose. El IGIC se devenga con la renta pactada de cada mes ya empezado, se haya cobrado o no, y la cuota es la suma del IGIC de cada mes. El IRPF del 115 sigue la fecha de cobro. El IGIC soportado de los gastos se resta solo si el trimestre tiene renta devengada.",
+		name: "rentabilidad",
+		description: "Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales agrupa con la misma cuenta de rentabilidadCartera. No es el ranking de la app.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				anio: {
 					type: "string",
-					description: "YYYY. Por defecto el año actual."
+					description: "Año natural YYYY. Por defecto el año actual. Los últimos 12 meses no dependen de este año."
 				},
-				trimestre: {
-					type: "integer",
-					description: "1 a 4. Por defecto el trimestre actual."
+				grupo: {
+					type: "string",
+					description: "Opcional. Solo las fincas cuyo grupo coincide exactamente. Si no hay ninguna, falla."
 				}
 			},
 			additionalProperties: false
 		},
 		ejecutar: (args, foto, hoy) => {
 			const anio = anioDe(args, hoy);
-			const trimestre = trimestreDeNumero(args, hoy);
-			const filas = fincasDeJose(foto.propiedades).filter((p) => p.tipo === "local").map((p) => {
-				const devengo = devengoIgicLocalTrimestre(p, anio, trimestre, hoy);
-				const irpf = r2(calcularRentaLocal(baseDesdeRentaNeta(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "ingreso" && t.categoria === "Alquiler mensual" && t.fecha.startsWith(anio) && trimestreDeFecha(t.fecha) === trimestre).reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0))).irpf);
-				const mesesSinCobrar = devengo.meses.filter((m) => {
-					return baseDesdeRentaNeta(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "ingreso" && t.categoria === "Alquiler mensual" && mesDelCobroAlquiler(t) === m.mes).reduce((s, t) => s + miParte(t.importe, p, t.soloMio), 0)) + .02 < m.base;
-				}).map((m) => m.mes);
-				const igicSoportado = devengo.base > 0 ? r2(foto.transacciones.filter((t) => t.propiedadId === p.id && t.tipo === "gasto" && t.fecha.startsWith(anio) && trimestreDeFecha(t.fecha) === trimestre).reduce((s, t) => s + miParte(t.igicSoportado ?? 0, p, t.soloMio), 0)) : 0;
-				return {
-					nombre: p.nombre,
-					base: devengo.base,
-					igic: devengo.igic,
-					igicSoportado,
-					igicAIngresar: r2(devengo.igic - igicSoportado),
-					irpfRetenido: irpf,
-					meses: devengo.meses,
-					mesesSinCobrar
-				};
+			const grupo = textoOpcional(args, "grupo");
+			const propiedades = propiedadesDelGrupo(foto.propiedades, grupo);
+			const [desdeAnio, hastaAnio] = rangoAnio(anio);
+			const ventana = rangoUltimosMeses(hoy, 12);
+			const periodo = (desde, hasta) => ({
+				...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
+				subtotales: subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy)
 			});
 			return {
 				ambito: AMBITO,
-				anio,
-				trimestre,
-				base: r2(filas.reduce((s, f) => s + f.base, 0)),
-				igic: r2(filas.reduce((s, f) => s + f.igic, 0)),
-				igicSoportado: r2(filas.reduce((s, f) => s + f.igicSoportado, 0)),
-				igicAIngresar: r2(filas.reduce((s, f) => s + f.igicAIngresar, 0)),
-				irpfRetenido: r2(filas.reduce((s, f) => s + f.irpfRetenido, 0)),
-				locales: filas
-			};
-		}
-	},
-	{
-		name: "rendimiento",
-		description: "Rendimiento de la pestaña Fiscal, sin la reducción por vivienda. El bloque \"estimador\" aplica esa reducción (por defecto 50) y es una aproximación, no la cuota oficial. Importes a la parte de Jose.",
-		inputSchema: {
-			type: "object",
-			properties: {
-				anio: {
-					type: "string",
-					description: "YYYY. Por defecto el año actual."
-				},
-				reduccion: {
-					type: "number",
-					description: "Porcentaje de reducción por vivienda en el estimador. Por defecto 50."
-				}
-			},
-			additionalProperties: false
-		},
-		ejecutar: (args, foto, hoy) => {
-			const anio = anioDe(args, hoy);
-			const reduccionRaw = args.reduccion;
-			const reduccion = reduccionRaw == null || reduccionRaw === "" ? 50 : Number(reduccionRaw);
-			if (!Number.isFinite(reduccion) || reduccion < 0 || reduccion > 100) throw new ConsultaError("\"reduccion\" tiene que ser un porcentaje entre 0 y 100.");
-			const fincas = fincasDeJose(foto.propiedades);
-			const porFinca = fincas.map((p) => {
-				const r = rendimientoIrpfPropiedad(p, foto.transacciones, anio, 0);
-				return {
-					nombre: p.nombre,
-					tipo: p.tipo,
-					ingresos: r2(r.ingresos),
-					gastos: r2(r.gastos),
-					amortizacion: r2(r.amortizacion),
-					neto: r2(r.ingresos - r.gastos)
-				};
-			}).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-			const estimacion = estimarAhorroRenta(fincas, foto.transacciones, foto.ingresosExternos, anio, reduccion);
-			return {
-				ambito: AMBITO,
-				anio,
-				porFinca,
-				totales: {
-					ingresos: r2(porFinca.reduce((s, f) => s + f.ingresos, 0)),
-					gastos: r2(porFinca.reduce((s, f) => s + f.gastos, 0)),
-					amortizacion: r2(porFinca.reduce((s, f) => s + f.amortizacion, 0)),
-					neto: r2(porFinca.reduce((s, f) => s + f.neto, 0))
-				},
-				estimador: {
-					nota: "Aproximación del estimador de la app, no la declaración.",
-					reduccionViviendaPct: reduccion,
-					rendimientoInmobiliario: r2(estimacion.rendimientoInmobiliarioTotal),
-					otrosIngresos: r2(estimacion.otrosIngresosTotal),
-					baseImponible: r2(estimacion.baseImponibleTotal),
-					cuotaTotal: r2(estimacion.cuotaTotal),
-					retenido: r2(estimacion.totalRetenido),
-					aGuardar: r2(estimacion.aGuardar)
-				}
-			};
-		}
-	},
-	{
-		name: "rentabilidad",
-		description: "Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. No es el ranking de la app.",
-		inputSchema: {
-			type: "object",
-			properties: { anio: {
-				type: "string",
-				description: "Año natural YYYY. Por defecto el año actual. Los últimos 12 meses no dependen de este año."
-			} },
-			additionalProperties: false
-		},
-		ejecutar: (args, foto, hoy) => {
-			const anio = anioDe(args, hoy);
-			const [desdeAnio, hastaAnio] = rangoAnio(anio);
-			const ventana = rangoUltimosMeses(hoy, 12);
-			return {
-				ambito: AMBITO,
 				hoy: fechaISO(hoy),
-				ultimos12Meses: rentabilidadCartera(foto.propiedades, foto.transacciones, ventana.desde, ventana.hasta, hoy),
+				...grupo ? { grupo } : {},
+				ultimos12Meses: periodo(ventana.desde, ventana.hasta),
 				anio: {
 					anio,
-					...rentabilidadCartera(foto.propiedades, foto.transacciones, desdeAnio, hastaAnio, hoy)
+					...periodo(desdeAnio, hastaAnio)
 				}
 			};
 		}
 	},
 	{
 		name: "resumen_irpf",
-		description: "Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. A la parte de Jose. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.",
+		description: "Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no, prorrateado por esos días y por la cuota, a la parte de Jose. Sin valorCatastral el estado es pendiente de dato. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.",
 		inputSchema: {
 			type: "object",
 			properties: { anio: {
@@ -2499,7 +2622,7 @@ var fichasEscritura = [
 	},
 	{
 		name: "fijar_ficha",
-		description: "Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.",
+		description: "Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral (una por inmueble), valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia, construcción y valorCatastral (total, no menor que la construcción; el suelo se calcula y no se guarda), anioRevisionCatastral (año entero de 1980 al actual), grupo (texto de 1 a 60), cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -2509,7 +2632,7 @@ var fichasEscritura = [
 				},
 				campos: {
 					type: "object",
-					description: "Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo.",
+					description: "Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, valorCatastral (total €, >= valorConstruccion), anioRevisionCatastral (entero, 1980–año actual), grupo (texto 1–60), cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo. Una referencia catastral es un inmueble.",
 					properties: {
 						referenciaCatastral: { type: "string" },
 						valorAdquisicion: { type: "number" },
@@ -2520,6 +2643,18 @@ var fichasEscritura = [
 						fechaValorMercado: { type: "string" },
 						valorReferencia: { type: "number" },
 						valorConstruccion: { type: "number" },
+						valorCatastral: {
+							type: "number",
+							description: "Valor catastral total en euros. No puede ser menor que valorConstruccion."
+						},
+						anioRevisionCatastral: {
+							type: "integer",
+							description: "Año de la revisión catastral, entre 1980 y el año actual."
+						},
+						grupo: {
+							type: "string",
+							description: "Agrupación opcional, de 1 a 60 caracteres."
+						},
 						cuotaPropiedad: {},
 						sinRenta: { type: "boolean" },
 						financiacion: { type: "object" },
@@ -2793,6 +2928,9 @@ var COLUMNAS_FICHA = {
 	fechaValorMercado: "fecha_valor_mercado",
 	valorReferencia: "valor_referencia",
 	valorConstruccion: "valor_construccion",
+	valorCatastral: "valor_catastral",
+	anioRevisionCatastral: "anio_revision_catastral",
+	grupo: "grupo",
 	sinRenta: "sin_renta"
 };
 function sqlFicha(id, parche, extra = {}) {
@@ -2900,6 +3038,12 @@ function ordenFicha(finca, entrada, confirmar, clave, hoy, transacciones) {
 	}
 	const cambios = cambiosDeFicha(finca, parche);
 	let siguiente = fusionarFicha(finca, parche);
+	if ("valorCatastral" in parche || "valorConstruccion" in parche) try {
+		comprobarValorCatastral(siguiente.valorCatastral, siguiente.valorConstruccion);
+	} catch (err) {
+		if (err instanceof FichaError) throw new ConsultaError(err.message);
+		throw err;
+	}
 	const extraSql = {};
 	if ("aguaLuz" in extra) {
 		const agua = leerAguaLuz(extra.aguaLuz);
@@ -3445,7 +3589,7 @@ async function responder(mensaje, ctx) {
 				name: "finca",
 				version: "0.1.0"
 			},
-			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF, salvo la vista previa de editar_registro y borrar_registro. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. Un gasto puede llevar número de factura y periodo; el mismo número en la misma finca se rechaza. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe. editar_registro y borrar_registro corrigen un error en una fila que ya existe: sin confirmar no escriben y la vista previa enseña el antes y el después."
+			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF, salvo la vista previa de editar_registro y borrar_registro. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. Un gasto puede llevar número de factura y periodo; el mismo número en la misma finca se rechaza. fijar_ficha carga la escritura (referencia, herencia, cuota, valor catastral y grupo) de un inmueble que ya existe. Una referencia catastral es un inmueble. resumen_irpf imputa la renta inmobiliaria de lo que no es vivienda habitual ni está alquilado. rentabilidad puede filtrar por grupo y devuelve el subtotal de cada grupo. editar_registro y borrar_registro corrigen un error en una fila que ya existe: sin confirmar no escriben y la vista previa enseña el antes y el después."
 		});
 	}
 	if (method === "notifications/initialized" || method === "notifications/cancelled") return null;
@@ -3650,6 +3794,9 @@ function filaAPropiedad(fila) {
 		deudaDesde: texto(fila, "deuda_desde"),
 		rentaRevisadaDesde: texto(fila, "renta_revisada_desde"),
 		valorConstruccion: numero(fila, "valor_construccion"),
+		valorCatastral: numero(fila, "valor_catastral"),
+		anioRevisionCatastral: numero(fila, "anio_revision_catastral"),
+		grupo: texto(fila, "grupo"),
 		certificadoEnergeticoVencimiento: dia(fila, "certificado_energetico_vencimiento"),
 		fianzaImporte: numero(fila, "fianza_importe"),
 		fianzaDepositadaDesde: texto(fila, "fianza_depositada_desde"),

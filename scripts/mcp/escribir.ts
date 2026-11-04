@@ -7,6 +7,7 @@ import {
   CATEGORIAS_INGRESO,
   FichaError,
   aplicarCambioCondiciones,
+  comprobarValorCatastral,
   alquilerVigente,
   cambiosDeFicha,
   diaAnteriorISO,
@@ -142,7 +143,7 @@ export const fichasEscritura: FichaEscritura[] = [
   {
     name: 'fijar_ficha',
     description:
-      'Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral, valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia y construcción, cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.',
+      'Actualiza la ficha de un inmueble que ya existe. Escritura: referencia catastral (una por inmueble), valor y fecha de adquisición (herencia, donación o compra; el valor declarado va en valorAdquisicion), m², valores de mercado, referencia, construcción y valorCatastral (total, no menor que la construcción; el suelo se calcula y no se guarda), anioRevisionCatastral (año entero de 1980 al actual), grupo (texto de 1 a 60), cuota (número o fracción 1/12), sinRenta, financiación y copropietarios (solo nombre y %). Contrato: alquilerMensual abre un tramo desde fechaEfecto (no pisa la renta anterior), aguaLuz (incluido, no_incluido o parcial_conjunto) y conceptosFijos (importes que el inquilino paga cada mes además de la renta, p.ej. basura). Sin confirmar:true no escribe y devuelve el antes y el después. Si cambia la renta, la vista previa trae el importe anterior, el nuevo y la fecha. Al confirmar hace falta clave. No crea inmuebles: uno nuevo se da de alta en la app. No toca DNI, email, teléfono ni NIF.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -150,7 +151,7 @@ export const fichasEscritura: FichaEscritura[] = [
         campos: {
           type: 'object',
           description:
-            'Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo.',
+            'Solo los campos a cambiar. referenciaCatastral, valorAdquisicion, fechaAdquisicion, tipoAdquisicion (herencia|donacion|compra), metrosCuadrados, valorMercado, fechaValorMercado, valorReferencia, valorConstruccion, valorCatastral (total €, >= valorConstruccion), anioRevisionCatastral (entero, 1980–año actual), grupo (texto 1–60), cuotaPropiedad (número o texto a/b), sinRenta, financiacion {capitalPendiente, cuotaMensual, tipoInteres, fechaFin}, copropietarios [{nombre, porcentaje}] que sumen 100, alquilerMensual (>0, obliga a fechaEfecto YYYY-MM-DD y abre un tramo), aguaLuz {modo: incluido|no_incluido|parcial_conjunto, importeMensual si es parcial_conjunto}, conceptosFijos [{concepto, importeMensual}]. null borra el campo. Una referencia catastral es un inmueble.',
           properties: {
             referenciaCatastral: { type: 'string' },
             valorAdquisicion: { type: 'number' },
@@ -161,6 +162,9 @@ export const fichasEscritura: FichaEscritura[] = [
             fechaValorMercado: { type: 'string' },
             valorReferencia: { type: 'number' },
             valorConstruccion: { type: 'number' },
+            valorCatastral: { type: 'number', description: 'Valor catastral total en euros. No puede ser menor que valorConstruccion.' },
+            anioRevisionCatastral: { type: 'integer', description: 'Año de la revisión catastral, entre 1980 y el año actual.' },
+            grupo: { type: 'string', description: 'Agrupación opcional, de 1 a 60 caracteres.' },
             cuotaPropiedad: {},
             sinRenta: { type: 'boolean' },
             financiacion: { type: 'object' },
@@ -413,6 +417,9 @@ const COLUMNAS_FICHA: Partial<Record<keyof CamposFicha, string>> = {
   fechaValorMercado: 'fecha_valor_mercado',
   valorReferencia: 'valor_referencia',
   valorConstruccion: 'valor_construccion',
+  valorCatastral: 'valor_catastral',
+  anioRevisionCatastral: 'anio_revision_catastral',
+  grupo: 'grupo',
   sinRenta: 'sin_renta',
 }
 
@@ -545,6 +552,14 @@ function ordenFicha(
   }
   const cambios: { campo: string; antes: unknown; despues: unknown }[] = cambiosDeFicha(finca, parche)
   let siguiente = fusionarFicha(finca, parche)
+  if ('valorCatastral' in parche || 'valorConstruccion' in parche) {
+    try {
+      comprobarValorCatastral(siguiente.valorCatastral, siguiente.valorConstruccion)
+    } catch (err) {
+      if (err instanceof FichaError) throw new ConsultaError(err.message)
+      throw err
+    }
+  }
   const extraSql: ExtraSql = {}
 
   if ('aguaLuz' in extra) {

@@ -497,6 +497,68 @@ describe('consultar', () => {
     expect(json).not.toContain('nif')
   })
 
+  it("rentabilidad con grupo 'Av. Venezuela' suma solo sus 4 inmuebles y da subtotal", () => {
+    const hoy = new Date(2026, 10, 3)
+    const cuota = { numerador: 1, denominador: 2, valor: 0.5 }
+    const unidad = (id: string, nombre: string, tipo: Propiedad['tipo'], renta: number): Propiedad =>
+      propiedad({
+        id,
+        nombre,
+        tipo,
+        estado: 'alquilado',
+        contratoInicio: '2020-01-01',
+        grupo: 'Av. Venezuela',
+        cuotaPropiedad: cuota,
+        valorMercado: 100000,
+        alquilerMensual: renta,
+      })
+    const local = unidad('v1', 'Venezuela local', 'local', 400)
+    const piso1 = unidad('v2', 'Venezuela piso 1', 'piso', 300)
+    const piso2 = unidad('v3', 'Venezuela piso 2', 'piso', 200)
+    const piso3 = unidad('v4', 'Venezuela piso 3', 'piso', 100)
+    const otra = propiedad({
+      id: 'otra',
+      nombre: 'Otra finca',
+      estado: 'alquilado',
+      contratoInicio: '2020-01-01',
+      grupo: 'Otro',
+      valorMercado: 200000,
+      alquilerMensual: 900,
+    })
+    const txs = [local, piso1, piso2, piso3, otra].map((p) =>
+      transaccion({
+        id: `t-${p.id}`,
+        propiedadId: p.id,
+        importe: p.alquilerMensual ?? 0,
+        fecha: '2026-03-05',
+        periodoInicio: undefined,
+        periodoFin: undefined,
+      }),
+    )
+    const datos = ejecutar(
+      'rentabilidad',
+      { anio: '2026', grupo: 'Av. Venezuela' },
+      foto({ propiedades: [local, piso1, piso2, piso3, otra], transacciones: txs }),
+      hoy,
+    ) as {
+      anio: RentabilidadPeriodo & {
+        subtotales: ({ grupo: string } & RentabilidadPeriodo)[]
+      }
+    }
+    expect(datos.anio.porFinca).toHaveLength(4)
+    expect(datos.anio.porFinca.map((f) => f.nombre)).not.toContain('Otra finca')
+    const rentas = datos.anio.porFinca.reduce((s, f) => s + f.rentas, 0)
+    expect(rentas).toBe(1000)
+    expect(datos.anio.total.rentas).toBe(1000)
+    expect(datos.anio.subtotales).toEqual([
+      expect.objectContaining({
+        grupo: 'Av. Venezuela',
+        total: expect.objectContaining({ rentas: 1000 }),
+      }),
+    ])
+    expect(datos.anio.subtotales[0].porFinca).toHaveLength(4)
+  })
+
   it('el resumen de IRPF coincide con la app, redondea a céntimos y no lleva datos personales', () => {
     const piso = propiedad({
       tipo: 'piso',

@@ -36,6 +36,7 @@ import {
   validarReferenciaCatastral,
   valorarPropiedad,
   valorPatrimonioJose,
+  valorSuelo,
   valoresProporcionales,
   estimarAhorroRenta,
   generarGastosPendientes,
@@ -55,6 +56,7 @@ import {
   rentaPendiente,
   rentabilidadCartera,
   rentabilidadEnRango,
+  resumenIrpf,
   resumenIrpfFinca,
   siguienteNumeroFactura,
   tareaVencida,
@@ -2216,5 +2218,57 @@ describe('resumen IRPF', () => {
     expect(fila.arrastreAplicado).toBe(400)
     expect(fila.gastosDeducibles).toBe(400)
     expect(fila.excesoAnio).toBe(0)
+  })
+})
+
+describe('valor catastral', () => {
+  it('el suelo es el total menos la construcción', () => {
+    expect(valorSuelo({ valorCatastral: 100000, valorConstruccion: 40000 })).toBe(60000)
+  })
+
+  it('imputa el 1,1 % con revisión reciente y el 2 % sin ella', () => {
+    const base = {
+      tipo: 'piso' as const,
+      estado: 'vacio' as const,
+      valorCatastral: 100000,
+    }
+    const reciente = resumenIrpf([propiedad({ ...base, nombre: 'Reciente', anioRevisionCatastral: 2020 })], [], '2026')
+    expect(reciente.imputaciones).toEqual([
+      expect.objectContaining({ nombre: 'Reciente', estado: 'calculada', tipo: 1.1, importe: 1100, diasNoAlquilados: 365 }),
+    ])
+    const sinRevision = resumenIrpf([propiedad({ ...base, nombre: 'Sin revisión' })], [], '2026')
+    expect(sinRevision.imputaciones).toEqual([
+      expect.objectContaining({ nombre: 'Sin revisión', estado: 'calculada', tipo: 2, importe: 2000, diasNoAlquilados: 365 }),
+    ])
+  })
+
+  it('un garaje 1/12 sin renta todo el año prorratea la cuota', () => {
+    const hoja = resumenIrpf(
+      [
+        propiedad({
+          tipo: 'garaje',
+          estado: 'vacio',
+          sinRenta: true,
+          valorCatastral: 120000,
+          cuotaPropiedad: { numerador: 1, denominador: 12, valor: 0.083333 },
+        }),
+      ],
+      [],
+      '2026',
+    )
+    expect(hoja.imputaciones[0]).toMatchObject({
+      estado: 'calculada',
+      tipo: 2,
+      importe: 200,
+      diasNoAlquilados: 365,
+      diasAnio: 365,
+    })
+  })
+
+  it('sin valor catastral queda pendiente de dato', () => {
+    const hoja = resumenIrpf([propiedad({ tipo: 'piso', estado: 'vacio', sinRenta: true })], [], '2026')
+    expect(hoja.imputaciones[0].estado).toBe('pendiente de dato')
+    expect(hoja.imputaciones[0].importe).toBeNull()
+    expect(hoja.totales.imputacion).toBeNull()
   })
 })

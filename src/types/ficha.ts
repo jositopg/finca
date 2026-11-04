@@ -36,6 +36,9 @@ export interface CamposFicha {
   fechaValorMercado?: string
   valorReferencia?: number
   valorConstruccion?: number
+  valorCatastral?: number
+  anioRevisionCatastral?: number
+  grupo?: string
   cuotaPropiedad?: CuotaPropiedad
   sinRenta?: boolean
   financiacion?: Financiacion
@@ -52,6 +55,9 @@ export const CAMPOS_FICHA = [
   'fechaValorMercado',
   'valorReferencia',
   'valorConstruccion',
+  'valorCatastral',
+  'anioRevisionCatastral',
+  'grupo',
   'cuotaPropiedad',
   'sinRenta',
   'financiacion',
@@ -230,6 +236,29 @@ export function valoresProporcionales(p: {
   }
 }
 
+// El suelo no se guarda. Solo existe si hay valor catastral total.
+export function valorSuelo(p: {
+  valorCatastral?: number | null
+  valorConstruccion?: number | null
+}): number | null {
+  if (p.valorCatastral == null || !Number.isFinite(p.valorCatastral)) return null
+  const construccion =
+    p.valorConstruccion != null && Number.isFinite(p.valorConstruccion) ? p.valorConstruccion : 0
+  return Math.round((p.valorCatastral - construccion) * 100) / 100
+}
+
+// Si falta uno de los dos, no hay nada que comparar. El total no puede
+// quedar por debajo de la construcción: el suelo sería negativo.
+export function comprobarValorCatastral(
+  valorCatastral: number | null | undefined,
+  valorConstruccion: number | null | undefined,
+): void {
+  if (valorCatastral == null || valorConstruccion == null) return
+  if (valorCatastral < valorConstruccion) {
+    throw new FichaError('El valor catastral no puede ser menor que el valor de la construcción.')
+  }
+}
+
 // Valor de patrimonio de Jose: parte de la cuota × % de propiedad.
 // Mercado, o el valor de referencia si no hay mercado. Un tercero no cuenta.
 // Un inmueble sin renta sí cuenta.
@@ -346,6 +375,26 @@ export function validarCopropietarios(raw: unknown): Copropietario[] {
   return lista
 }
 
+function validarAnioRevision(raw: unknown, hoy: string): number {
+  if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+    throw new FichaError('"anioRevisionCatastral" tiene que ser un año entero.')
+  }
+  const tope = Number(hoy.slice(0, 4))
+  if (raw < 1980 || raw > tope) {
+    throw new FichaError(`"anioRevisionCatastral" tiene que estar entre 1980 y ${tope}.`)
+  }
+  return raw
+}
+
+function validarGrupo(raw: unknown): string {
+  if (typeof raw !== 'string') throw new FichaError('"grupo" tiene que ser texto.')
+  const texto = raw.trim()
+  if (texto.length < 1 || texto.length > 60) {
+    throw new FichaError('"grupo" tiene que tener entre 1 y 60 caracteres.')
+  }
+  return texto
+}
+
 function asignar(parche: ParcheFicha, clave: ClaveFicha, valor: CamposFicha[ClaveFicha] | null) {
   ;(parche as Record<string, unknown>)[clave] = valor
 }
@@ -382,10 +431,16 @@ export function interpretarCamposFicha(entrada: unknown, hoy: string): ParcheFic
   leer('fechaValorMercado', (valor) => validarFechaNoFutura(valor, 'fechaValorMercado', hoy))
   leer('valorReferencia', (valor) => validarImporte(valor, 'valorReferencia'))
   leer('valorConstruccion', (valor) => validarImporte(valor, 'valorConstruccion'))
+  leer('valorCatastral', (valor) => validarImporte(valor, 'valorCatastral'))
+  leer('anioRevisionCatastral', (valor) => validarAnioRevision(valor, hoy))
+  leer('grupo', (valor) => validarGrupo(valor))
   leer('cuotaPropiedad', (valor) => validarCuota(valor))
   leer('sinRenta', (valor) => validarBandera(valor, 'sinRenta'))
   leer('financiacion', (valor) => validarFinanciacion(valor))
   leer('copropietarios', (valor) => validarCopropietarios(valor))
+  if ('valorCatastral' in datos && 'valorConstruccion' in datos) {
+    comprobarValorCatastral(parche.valorCatastral ?? null, parche.valorConstruccion ?? null)
+  }
   return parche
 }
 

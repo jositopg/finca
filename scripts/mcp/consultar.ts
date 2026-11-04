@@ -32,6 +32,7 @@ import {
   rendimientoIrpfPropiedad,
   rentabilidadCartera,
   resumenIrpf,
+  valorSuelo,
   valoresProporcionales,
   repartoEfectivo,
   resumenEnRango,
@@ -262,6 +263,10 @@ export function fichaPublica(p: Propiedad, hoy: Date, transacciones: Transaccion
     fechaValorMercado: p.fechaValorMercado ?? null,
     valorReferencia: p.valorReferencia ?? null,
     valorConstruccion: p.valorConstruccion ?? null,
+    valorCatastral: p.valorCatastral ?? null,
+    anioRevisionCatastral: p.anioRevisionCatastral ?? null,
+    valorSuelo: valorSuelo(p),
+    grupo: p.grupo ?? null,
     cuota: valores.cuota,
     valores,
     financiacion: p.financiacion ?? null,
@@ -286,7 +291,7 @@ const sinParametros = { type: 'object', properties: {}, additionalProperties: fa
 const listarFincas: Herramienta = {
   name: 'listar_fincas',
   description:
-    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura y, si están guardados, el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
+    'Lista todas las fincas, también las de terceros, las de uso propio y las que no tienen renta. Devuelve la ficha de escritura (una referencia catastral por inmueble), valorCatastral, anioRevisionCatastral, valorSuelo (valorCatastral − valorConstruccion, calculado) y grupo. Si están guardados, también el contrato, la fianza, el seguro, la revisión anual de la renta, el certificado energético, el mes del IBI y los avisos de vencimiento a 60 días. alquilerMensual es la renta vigente. Si hay conceptos fijos que paga el inquilino (p.ej. basura), los devuelve en conceptosFijos. El contrato, el resguardo y las facturas salen como enlace de Drive, no como id. No incluye DNI, email, teléfono ni NIF. Los totales de las otras herramientas ignoran las que no son de Jose o no están en alquiler.',
   inputSchema: sinParametros,
   ejecutar: (_args, foto, hoy) => ({
     fincas: [...foto.propiedades]
@@ -560,10 +565,40 @@ const rendimiento: Herramienta = {
   },
 }
 
+function propiedadesDelGrupo(propiedades: Propiedad[], grupo: string | undefined): Propiedad[] {
+  if (!grupo) return propiedades
+  const lista = propiedades.filter((p) => (p.grupo ?? '').trim() === grupo)
+  if (lista.length === 0) throw new ConsultaError(`No hay ninguna finca en el grupo "${grupo}".`)
+  return lista
+}
+
+function subtotalesPorGrupo(
+  propiedades: Propiedad[],
+  transacciones: Parameters<typeof rentabilidadCartera>[1],
+  desde: string,
+  hasta: string,
+  hoy: Date,
+) {
+  const porGrupo = new Map<string, Propiedad[]>()
+  for (const p of propiedades) {
+    const grupo = p.grupo?.trim()
+    if (!grupo) continue
+    const lista = porGrupo.get(grupo)
+    if (lista) lista.push(p)
+    else porGrupo.set(grupo, [p])
+  }
+  return [...porGrupo.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+    .map(([grupo, lista]) => ({
+      grupo,
+      ...rentabilidadCartera(lista, transacciones, desde, hasta, hoy),
+    }))
+}
+
 const rentabilidad: Herramienta = {
   name: 'rentabilidad',
   description:
-    'Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. No es el ranking de la app.',
+    'Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales agrupa con la misma cuenta de rentabilidadCartera. No es el ranking de la app.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -571,21 +606,29 @@ const rentabilidad: Herramienta = {
         type: 'string',
         description: 'Año natural YYYY. Por defecto el año actual. Los últimos 12 meses no dependen de este año.',
       },
+      grupo: {
+        type: 'string',
+        description: 'Opcional. Solo las fincas cuyo grupo coincide exactamente. Si no hay ninguna, falla.',
+      },
     },
     additionalProperties: false,
   },
   ejecutar: (args, foto, hoy) => {
     const anio = anioDe(args, hoy)
+    const grupo = textoOpcional(args, 'grupo')
+    const propiedades = propiedadesDelGrupo(foto.propiedades, grupo)
     const [desdeAnio, hastaAnio] = rangoAnio(anio)
     const ventana = rangoUltimosMeses(hoy, 12)
+    const periodo = (desde: string, hasta: string) => ({
+      ...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
+      subtotales: subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy),
+    })
     return {
       ambito: AMBITO,
       hoy: fechaISO(hoy),
-      ultimos12Meses: rentabilidadCartera(foto.propiedades, foto.transacciones, ventana.desde, ventana.hasta, hoy),
-      anio: {
-        anio,
-        ...rentabilidadCartera(foto.propiedades, foto.transacciones, desdeAnio, hastaAnio, hoy),
-      },
+      ...(grupo ? { grupo } : {}),
+      ultimos12Meses: periodo(ventana.desde, ventana.hasta),
+      anio: { anio, ...periodo(desdeAnio, hastaAnio) },
     }
   },
 }
@@ -593,7 +636,7 @@ const rentabilidad: Herramienta = {
 const resumenIrpfHerramienta: Herramienta = {
   name: 'resumen_irpf',
   description:
-    'Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. A la parte de Jose. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.',
+    'Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no, prorrateado por esos días y por la cuota, a la parte de Jose. Sin valorCatastral el estado es pendiente de dato. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.',
   inputSchema: {
     type: 'object',
     properties: {
