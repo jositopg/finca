@@ -44,10 +44,40 @@ export interface Orden {
   resultado: Record<string, unknown>
 }
 
-const CLAVES = new Set(['registrar_cobro', 'registrar_gasto', 'cerrar_tarea', 'fijar_ficha'])
+const CLAVES = new Set([
+  'registrar_cobro',
+  'registrar_gasto',
+  'cerrar_tarea',
+  'fijar_ficha',
+  'editar_registro',
+  'borrar_registro',
+])
+
+export const TABLAS_CORRECCION = [
+  'propiedades',
+  'transacciones',
+  'tareas',
+  'datos_facturacion',
+  'ingresos_externos',
+] as const
+
+export type TablaCorreccion = (typeof TABLAS_CORRECCION)[number]
+
+export interface PedidoCorreccion {
+  herramienta: 'editar_registro' | 'borrar_registro'
+  tabla: TablaCorreccion
+  id: string
+  campos: Record<string, unknown>
+  confirmar: boolean
+  clave?: string
+}
 
 export function esEscritura(nombre: string): boolean {
   return CLAVES.has(nombre)
+}
+
+export function esCorreccion(nombre: string): nombre is PedidoCorreccion['herramienta'] {
+  return nombre === 'editar_registro' || nombre === 'borrar_registro'
 }
 
 const esquemaComun = {
@@ -177,6 +207,47 @@ export const fichasEscritura: FichaEscritura[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'editar_registro',
+    description:
+      'Corrige un error en una fila que ya existe. Vale en propiedades, transacciones, tareas, datos_facturacion e ingresos_externos: también un DNI, un email, un teléfono, un NIF, una renta ya cobrada, un gasto o un contrato. Sin confirmar:true no escribe. La vista previa enseña el antes y el después de los campos tocados, con el valor real. Al confirmar hace falta clave. No crea filas ni cambia id, created_at, user_id ni owner.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabla: {
+          type: 'string',
+          description: 'propiedades, transacciones, tareas, datos_facturacion o ingresos_externos.',
+        },
+        id: { type: 'string', description: 'Id de la fila.' },
+        campos: {
+          type: 'object',
+          description: 'Columnas a corregir. La clave es el nombre en la base y el valor es el nuevo. null vacía la columna.',
+          additionalProperties: true,
+        },
+        ...esquemaComun,
+      },
+      required: ['tabla', 'id', 'campos'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'borrar_registro',
+    description:
+      'Borra una fila guardada por error. Vale en propiedades, transacciones, tareas, datos_facturacion e ingresos_externos. Sin confirmar:true no borra. La vista previa enseña el antes y el después: el antes es la fila entera, también si trae DNI, email, teléfono o NIF, y el después queda vacío. Al confirmar hace falta clave.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabla: {
+          type: 'string',
+          description: 'propiedades, transacciones, tareas, datos_facturacion o ingresos_externos.',
+        },
+        id: { type: 'string', description: 'Id de la fila.' },
+        ...esquemaComun,
+      },
+      required: ['tabla', 'id'],
+      additionalProperties: false,
+    },
+  },
 ]
 
 function argsDe(args: unknown): Record<string, unknown> {
@@ -236,6 +307,29 @@ export function intencionDe(args: unknown): { confirmar: boolean; clave?: string
   const datos = argsDe(args)
   const confirmar = confirmarDe(datos)
   return { confirmar, clave: claveDe(datos, confirmar) }
+}
+
+export function pedidoCorreccion(nombre: string, args: unknown): PedidoCorreccion {
+  if (!esCorreccion(nombre)) throw new ConsultaError(`"${nombre}" no corrige una fila.`)
+  const datos = argsDe(args)
+  const { confirmar, clave } = intencionDe(datos)
+  const tabla = texto(datos, 'tabla')
+  if (!tabla) throw new ConsultaError('Falta "tabla".')
+  if (!(TABLAS_CORRECCION as readonly string[]).includes(tabla)) {
+    throw new ConsultaError(`"${tabla}" no es una tabla. Usa una de: ${TABLAS_CORRECCION.join(', ')}.`)
+  }
+  const id = texto(datos, 'id')
+  if (!id) throw new ConsultaError('Falta "id".')
+  if (nombre === 'borrar_registro') {
+    return { herramienta: nombre, tabla: tabla as TablaCorreccion, id, campos: {}, confirmar, clave }
+  }
+  const entrada = datos.campos
+  if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)) {
+    throw new ConsultaError('"campos" tiene que ser un objeto.')
+  }
+  const campos = entrada as Record<string, unknown>
+  if (Object.keys(campos).length === 0) throw new ConsultaError('No hay ningún campo que guardar.')
+  return { herramienta: nombre, tabla: tabla as TablaCorreccion, id, campos, confirmar, clave }
 }
 
 function mesDe(args: Record<string, unknown>, fecha: string): string {
@@ -571,6 +665,7 @@ function resolverTarea(foto: Foto, args: Record<string, unknown>): { tarea: Tare
 
 export function planificar(nombre: string, args: unknown, foto: Foto, hoy: Date = new Date()): Orden {
   if (!esEscritura(nombre)) throw new ConsultaError(`"${nombre}" no escribe.`)
+  if (esCorreccion(nombre)) throw new ConsultaError(`"${nombre}" se aplica sobre la base.`)
   const datos = argsDe(args)
   const confirmar = confirmarDe(datos)
   const clave = claveDe(datos, confirmar)

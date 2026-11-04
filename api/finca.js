@@ -150,7 +150,7 @@ function cuotaEfectiva(cuota) {
 function parteDeCuota(total, cuota) {
 	return Math.round(total * cuota.numerador * 100 / cuota.denominador) / 100;
 }
-function valorDe(total, cuota) {
+function valorDe$1(total, cuota) {
 	if (total == null || !Number.isFinite(total)) return {
 		total: null,
 		parteJose: null
@@ -165,10 +165,10 @@ function valoresProporcionales(p) {
 	const cuota = cuotaEfectiva(p.cuotaPropiedad);
 	return {
 		cuota,
-		mercado: valorDe(p.valorMercado, cuota),
-		referencia: valorDe(p.valorReferencia, cuota),
-		construccion: valorDe(p.valorConstruccion, cuota),
-		adquisicion: valorDe(p.valorAdquisicion, cuota)
+		mercado: valorDe$1(p.valorMercado, cuota),
+		referencia: valorDe$1(p.valorReferencia, cuota),
+		construccion: valorDe$1(p.valorConstruccion, cuota),
+		adquisicion: valorDe$1(p.valorAdquisicion, cuota)
 	};
 }
 function validarFecha(raw, campo) {
@@ -2378,10 +2378,22 @@ var CLAVES = /* @__PURE__ */ new Set([
 	"registrar_cobro",
 	"registrar_gasto",
 	"cerrar_tarea",
-	"fijar_ficha"
+	"fijar_ficha",
+	"editar_registro",
+	"borrar_registro"
 ]);
+var TABLAS_CORRECCION = [
+	"propiedades",
+	"transacciones",
+	"tareas",
+	"datos_facturacion",
+	"ingresos_externos"
+];
 function esEscritura(nombre) {
 	return CLAVES.has(nombre);
+}
+function esCorreccion(nombre) {
+	return nombre === "editar_registro" || nombre === "borrar_registro";
 }
 var esquemaComun = {
 	clave: {
@@ -2577,6 +2589,55 @@ var fichasEscritura = [
 			},
 			additionalProperties: false
 		}
+	},
+	{
+		name: "editar_registro",
+		description: "Corrige un error en una fila que ya existe. Vale en propiedades, transacciones, tareas, datos_facturacion e ingresos_externos: también un DNI, un email, un teléfono, un NIF, una renta ya cobrada, un gasto o un contrato. Sin confirmar:true no escribe. La vista previa enseña el antes y el después de los campos tocados, con el valor real. Al confirmar hace falta clave. No crea filas ni cambia id, created_at, user_id ni owner.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				tabla: {
+					type: "string",
+					description: "propiedades, transacciones, tareas, datos_facturacion o ingresos_externos."
+				},
+				id: {
+					type: "string",
+					description: "Id de la fila."
+				},
+				campos: {
+					type: "object",
+					description: "Columnas a corregir. La clave es el nombre en la base y el valor es el nuevo. null vacía la columna.",
+					additionalProperties: true
+				},
+				...esquemaComun
+			},
+			required: [
+				"tabla",
+				"id",
+				"campos"
+			],
+			additionalProperties: false
+		}
+	},
+	{
+		name: "borrar_registro",
+		description: "Borra una fila guardada por error. Vale en propiedades, transacciones, tareas, datos_facturacion e ingresos_externos. Sin confirmar:true no borra. La vista previa enseña el antes y el después: el antes es la fila entera, también si trae DNI, email, teléfono o NIF, y el después queda vacío. Al confirmar hace falta clave.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				tabla: {
+					type: "string",
+					description: "propiedades, transacciones, tareas, datos_facturacion o ingresos_externos."
+				},
+				id: {
+					type: "string",
+					description: "Id de la fila."
+				},
+				...esquemaComun
+			},
+			required: ["tabla", "id"],
+			additionalProperties: false
+		}
 	}
 ];
 function argsDe(args) {
@@ -2631,6 +2692,36 @@ function intencionDe(args) {
 	return {
 		confirmar,
 		clave: claveDe(datos, confirmar)
+	};
+}
+function pedidoCorreccion(nombre, args) {
+	if (!esCorreccion(nombre)) throw new ConsultaError(`"${nombre}" no corrige una fila.`);
+	const datos = argsDe(args);
+	const { confirmar, clave } = intencionDe(datos);
+	const tabla = texto$2(datos, "tabla");
+	if (!tabla) throw new ConsultaError("Falta \"tabla\".");
+	if (!TABLAS_CORRECCION.includes(tabla)) throw new ConsultaError(`"${tabla}" no es una tabla. Usa una de: ${TABLAS_CORRECCION.join(", ")}.`);
+	const id = texto$2(datos, "id");
+	if (!id) throw new ConsultaError("Falta \"id\".");
+	if (nombre === "borrar_registro") return {
+		herramienta: nombre,
+		tabla,
+		id,
+		campos: {},
+		confirmar,
+		clave
+	};
+	const entrada = datos.campos;
+	if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) throw new ConsultaError("\"campos\" tiene que ser un objeto.");
+	const campos = entrada;
+	if (Object.keys(campos).length === 0) throw new ConsultaError("No hay ningún campo que guardar.");
+	return {
+		herramienta: nombre,
+		tabla,
+		id,
+		campos,
+		confirmar,
+		clave
 	};
 }
 function mesDe(args, fecha) {
@@ -2954,6 +3045,7 @@ function resolverTarea(foto, args) {
 }
 function planificar(nombre, args, foto, hoy = /* @__PURE__ */ new Date()) {
 	if (!esEscritura(nombre)) throw new ConsultaError(`"${nombre}" no escribe.`);
+	if (esCorreccion(nombre)) throw new ConsultaError(`"${nombre}" se aplica sobre la base.`);
 	const datos = argsDe(args);
 	const confirmar = confirmarDe(datos);
 	const clave = claveDe(datos, confirmar);
@@ -3078,6 +3170,7 @@ async function resultadoDeClave(db, clave) {
 	if (guardada && typeof guardada === "object") return guardada;
 }
 async function aplicarEscritura(nombre, args, deps) {
+	if (esCorreccion(nombre)) return aplicarCorreccion(nombre, args, deps);
 	const hoy = deps.hoy ?? /* @__PURE__ */ new Date();
 	const { confirmar, clave } = intencionDe(args);
 	if (!confirmar) return planificar(nombre, args, deps.foto, hoy).vista;
@@ -3099,7 +3192,7 @@ async function aplicarEscritura(nombre, args, deps) {
 		await cliente.end();
 	}
 }
-async function ejecutarOrden(db, orden) {
+async function ejecutarOrden(db, orden, completar) {
 	if (!orden.clave) throw new ConsultaError("Para escribir hace falta \"clave\".");
 	await db.query("begin");
 	try {
@@ -3112,21 +3205,185 @@ async function ejecutarOrden(db, orden) {
 				repetida: true
 			};
 		}
-		for (const sentencia of orden.sentencias) {
+		const efectiva = completar ? await completar(db) : orden;
+		for (const sentencia of efectiva.sentencias) {
 			const hecha = await db.query(sentencia.sql, sentencia.params);
-			if (orden.herramienta === "cerrar_tarea" && (hecha.rowCount ?? 0) === 0) throw new ConsultaError("Esa tarea ya no está pendiente.");
+			if (efectiva.herramienta === "cerrar_tarea" && (hecha.rowCount ?? 0) === 0) throw new ConsultaError("Esa tarea ya no está pendiente.");
+			if ((efectiva.herramienta === "editar_registro" || efectiva.herramienta === "borrar_registro") && (hecha.rowCount ?? 0) === 0) throw new ConsultaError("Esa fila ya no existe.");
 		}
 		await db.query("insert into agente_escrituras (clave, herramienta, resultado) values ($1, $2, $3::jsonb)", [
 			orden.clave,
-			orden.herramienta,
-			JSON.stringify(orden.resultado)
+			efectiva.herramienta,
+			JSON.stringify(efectiva.resultado)
 		]);
 		await db.query("commit");
-		return orden.resultado;
+		return efectiva.resultado;
 	} catch (err) {
 		await db.query("rollback");
 		throw err;
 	}
+}
+var COLUMNAS_BLOQUEADAS = /* @__PURE__ */ new Set([
+	"id",
+	"created_at",
+	"user_id",
+	"owner"
+]);
+var IDENTIFICADOR = /^[a-z_][a-z0-9_]*$/;
+function citar(nombre) {
+	if (!IDENTIFICADOR.test(nombre)) throw new ConsultaError(`"${nombre}" no es un nombre válido.`);
+	return `"${nombre}"`;
+}
+async function conBase(deps, correr) {
+	if (deps.db) return correr(deps.db);
+	const cliente = await abrir();
+	try {
+		return await correr(cliente);
+	} finally {
+		await cliente.end();
+	}
+}
+async function aplicarCorreccion(nombre, args, deps) {
+	const pedido = pedidoCorreccion(nombre, args);
+	return conBase(deps, async (db) => {
+		if (pedido.confirmar && pedido.clave) {
+			const ya = await resultadoDeClave(db, pedido.clave);
+			if (ya) return {
+				...ya,
+				repetida: true
+			};
+		}
+		if (!pedido.confirmar) return (await ordenDeCorreccion(db, pedido)).vista;
+		return ejecutarOrden(db, ordenPendiente(pedido), (tx) => ordenDeCorreccion(tx, pedido));
+	});
+}
+function ordenPendiente(pedido) {
+	return {
+		herramienta: pedido.herramienta,
+		confirmar: true,
+		clave: pedido.clave,
+		vista: {},
+		sentencias: [],
+		resultado: {}
+	};
+}
+async function columnasEditables(db, tabla) {
+	const leidas = await db.query(`select column_name, udt_name from information_schema.columns where table_schema = 'public' and table_name = $1`, [tabla]);
+	if (leidas.rows.length === 0) throw new ConsultaError(`No se encuentra la tabla "${tabla}".`);
+	const mapa = /* @__PURE__ */ new Map();
+	for (const fila of leidas.rows) {
+		const columna = typeof fila.column_name === "string" ? fila.column_name : "";
+		if (!IDENTIFICADOR.test(columna) || COLUMNAS_BLOQUEADAS.has(columna)) continue;
+		mapa.set(columna, typeof fila.udt_name === "string" ? fila.udt_name : "");
+	}
+	return mapa;
+}
+function exigirCampos(tabla, campos, columnas) {
+	for (const columna of Object.keys(campos)) {
+		if (COLUMNAS_BLOQUEADAS.has(columna)) throw new ConsultaError(`No se puede cambiar "${columna}".`);
+		if (!columnas.has(columna)) throw new ConsultaError(`"${columna}" no es una columna de ${tabla}.`);
+	}
+}
+async function leerFila(db, tabla, id) {
+	const fila = (await db.query(`select * from ${citar(tabla)} where "id" = $1`, [id])).rows[0];
+	if (!fila) throw new ConsultaError(`No hay ninguna fila con id "${id}" en ${tabla}.`);
+	return fila;
+}
+function valorDe(valor, udt) {
+	const json = udt === "json" || udt === "jsonb";
+	if (valor !== null && typeof valor === "object") return {
+		valor: JSON.stringify(valor),
+		cast: json ? `::${udt}` : ""
+	};
+	if (json && typeof valor === "string") return {
+		valor,
+		cast: `::${udt}`
+	};
+	return {
+		valor,
+		cast: json ? `::${udt}` : ""
+	};
+}
+function cambiosDe(pedido, columnas, fila) {
+	const sets = [];
+	const params = [];
+	const antes = {};
+	const despues = {};
+	for (const [columna, valor] of Object.entries(pedido.campos)) {
+		if (valor === void 0) throw new ConsultaError(`Falta el valor de "${columna}".`);
+		const udt = columnas.get(columna);
+		if (udt === void 0 || !IDENTIFICADOR.test(columna)) throw new ConsultaError(`"${columna}" no es una columna de ${pedido.tabla}.`);
+		const preparado = valorDe(valor, udt);
+		params.push(preparado.valor);
+		sets.push(`${citar(columna)} = $${params.length}${preparado.cast}`);
+		antes[columna] = fila[columna] ?? null;
+		despues[columna] = valor;
+	}
+	params.push(pedido.id);
+	return {
+		sql: `update ${citar(pedido.tabla)} set ${sets.join(", ")} where "id" = $${params.length}`,
+		params,
+		antes,
+		despues
+	};
+}
+async function ordenDeCorreccion(db, pedido) {
+	const columnas = await columnasEditables(db, pedido.tabla);
+	if (pedido.herramienta === "editar_registro") exigirCampos(pedido.tabla, pedido.campos, columnas);
+	const fila = await leerFila(db, pedido.tabla, pedido.id);
+	if (pedido.herramienta === "borrar_registro") {
+		const comun = {
+			tabla: pedido.tabla,
+			id: pedido.id,
+			antes: { ...fila },
+			despues: null
+		};
+		return {
+			herramienta: pedido.herramienta,
+			confirmar: pedido.confirmar,
+			clave: pedido.clave,
+			vista: {
+				escrito: false,
+				vistaPrevia: true,
+				...comun
+			},
+			sentencias: [{
+				sql: `delete from ${citar(pedido.tabla)} where "id" = $1`,
+				params: [pedido.id]
+			}],
+			resultado: {
+				escrito: true,
+				repetida: false,
+				...comun
+			}
+		};
+	}
+	const cambio = cambiosDe(pedido, columnas, fila);
+	const comun = {
+		tabla: pedido.tabla,
+		id: pedido.id,
+		antes: cambio.antes,
+		despues: cambio.despues
+	};
+	return {
+		herramienta: pedido.herramienta,
+		confirmar: pedido.confirmar,
+		clave: pedido.clave,
+		vista: {
+			escrito: false,
+			vistaPrevia: true,
+			...comun
+		},
+		sentencias: [{
+			sql: cambio.sql,
+			params: cambio.params
+		}],
+		resultado: {
+			escrito: true,
+			repetida: false,
+			...comun
+		}
+	};
 }
 //#endregion
 //#region scripts/mcp/protocolo.ts
@@ -3188,7 +3445,7 @@ async function responder(mensaje, ctx) {
 				name: "finca",
 				version: "0.1.0"
 			},
-			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. Un gasto puede llevar número de factura y periodo; el mismo número en la misma finca se rechaza. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe."
+			instructions: "Lectura y escritura de Las Fincas, con las mismas cifras que la app. No devuelve DNI, email, teléfono ni NIF, salvo la vista previa de editar_registro y borrar_registro. La ficha añade el contrato, la fianza, los vencimientos a 60 días y el enlace de cada archivo, nunca el id suelto. Los totales y la fiscalidad cuentan solo las fincas de Jose en alquiler; un inmueble sin renta entra en el listado y en el patrimonio, no en cobros ni huecos. registrar_cobro, registrar_gasto, cerrar_tarea y fijar_ficha no guardan nada si confirmar no es true, y al guardar hace falta una clave estable para no duplicar. Un gasto puede llevar número de factura y periodo; el mismo número en la misma finca se rechaza. fijar_ficha carga la escritura (referencia, herencia, cuota) de un inmueble que ya existe. editar_registro y borrar_registro corrigen un error en una fila que ya existe: sin confirmar no escriben y la vista previa enseña el antes y el después."
 		});
 	}
 	if (method === "notifications/initialized" || method === "notifications/cancelled") return null;

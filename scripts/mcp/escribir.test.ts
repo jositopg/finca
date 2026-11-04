@@ -391,3 +391,140 @@ describe('aplicarEscritura', () => {
     ).toThrow(/fechaEfecto/)
   })
 })
+
+describe('corregir un registro', () => {
+  const foto = fotoDe([finca({ id: 'p1', nombre: 'Local Quimel', tipo: 'local' })])
+
+  function memoria(opciones: { columnas: Record<string, unknown>[]; fila: Record<string, unknown> | null }) {
+    const estado: { guardado?: unknown; cambios: string[] } = { cambios: [] }
+    const db: ConsultaSql & { cambios: string[] } = {
+      cambios: estado.cambios,
+      async query(sql: string, params?: unknown[]) {
+        if (sql === 'begin' || sql === 'commit' || sql === 'rollback' || sql.startsWith('create table')) {
+          return { rows: [], rowCount: null }
+        }
+        if (sql.startsWith('select resultado')) {
+          return { rows: estado.guardado ? [{ resultado: estado.guardado }] : [], rowCount: estado.guardado ? 1 : 0 }
+        }
+        if (sql.includes('information_schema.columns')) {
+          return { rows: opciones.columnas, rowCount: opciones.columnas.length }
+        }
+        if (sql.startsWith('select *')) {
+          return { rows: opciones.fila ? [opciones.fila] : [], rowCount: opciones.fila ? 1 : 0 }
+        }
+        if (sql.startsWith('update ') || sql.startsWith('delete ')) {
+          estado.cambios.push(sql)
+          return { rows: [], rowCount: 1 }
+        }
+        if (sql.startsWith('insert into agente_escrituras')) {
+          estado.guardado = JSON.parse(String(params?.[2]))
+          estado.cambios.push('auditoria')
+          return { rows: [], rowCount: 1 }
+        }
+        throw new Error(`sql inesperada: ${sql}`)
+      },
+    }
+    return db
+  }
+
+  it('una tabla fuera de la lista falla', async () => {
+    const db: ConsultaSql = {
+      async query() {
+        throw new Error('no debía abrir la base')
+      },
+    }
+    await expect(
+      aplicarEscritura('editar_registro', { tabla: 'inquilinos', id: 'p1', campos: { nombre: 'Ana' } }, { foto, hoy, db }),
+    ).rejects.toThrow(/no es una tabla/)
+    await expect(aplicarEscritura('borrar_registro', { tabla: 'inquilinos', id: 'p1' }, { foto, hoy, db })).rejects.toThrow(
+      /no es una tabla/,
+    )
+  })
+
+  it('la columna id falla', async () => {
+    const db = memoria({
+      columnas: [{ column_name: 'id' }, { column_name: 'importe', udt_name: 'numeric' }],
+      fila: { id: 'tx1', importe: 100 },
+    })
+    await expect(
+      aplicarEscritura(
+        'editar_registro',
+        { tabla: 'transacciones', id: 'tx1', campos: { id: 'otro' } },
+        { foto, hoy, db },
+      ),
+    ).rejects.toThrow(ConsultaError)
+    expect(db.cambios).toEqual([])
+  })
+
+  it('sin confirmar no escribe y devuelve el antes y el después', async () => {
+    const editar = memoria({
+      columnas: [
+        { column_name: 'id' },
+        { column_name: 'inquilino_dni', udt_name: 'text' },
+        { column_name: 'inquilino_email', udt_name: 'text' },
+      ],
+      fila: { id: 'p1', inquilino_dni: '11111111H', inquilino_email: 'ana@ejemplo.es' },
+    })
+    const previa = await aplicarEscritura(
+      'editar_registro',
+      { tabla: 'propiedades', id: 'p1', campos: { inquilino_dni: '22222222J' } },
+      { foto, hoy, db: editar },
+    )
+    expect(editar.cambios).toEqual([])
+    expect(previa).toEqual({
+      escrito: false,
+      vistaPrevia: true,
+      tabla: 'propiedades',
+      id: 'p1',
+      antes: { inquilino_dni: '11111111H' },
+      despues: { inquilino_dni: '22222222J' },
+    })
+
+    const fila = { id: 'f1', nombre: 'Jose', nif: '12345678Z', direccion: 'Calle' }
+    const borrar = memoria({
+      columnas: [
+        { column_name: 'id' },
+        { column_name: 'nombre', udt_name: 'text' },
+        { column_name: 'nif', udt_name: 'text' },
+        { column_name: 'direccion', udt_name: 'text' },
+      ],
+      fila,
+    })
+    const previaBorrado = await aplicarEscritura('borrar_registro', { tabla: 'datos_facturacion', id: 'f1' }, { foto, hoy, db: borrar })
+    expect(borrar.cambios).toEqual([])
+    expect(previaBorrado).toEqual({
+      escrito: false,
+      vistaPrevia: true,
+      tabla: 'datos_facturacion',
+      id: 'f1',
+      antes: fila,
+      despues: null,
+    })
+  })
+
+  it('la misma clave no escribe dos veces', async () => {
+    const db = memoria({
+      columnas: [{ column_name: 'id' }, { column_name: 'importe', udt_name: 'numeric' }],
+      fila: { id: 'tx1', importe: 100 },
+    })
+    const args = {
+      tabla: 'transacciones',
+      id: 'tx1',
+      campos: { importe: 80 },
+      confirmar: true,
+      clave: 'corrige-tx1-importe',
+    }
+    const primera = await aplicarEscritura('editar_registro', args, { foto, hoy, db })
+    const segunda = await aplicarEscritura('editar_registro', args, { foto, hoy, db })
+    expect(db.cambios).toEqual(['update "transacciones" set "importe" = $1 where "id" = $2', 'auditoria'])
+    expect(primera).toMatchObject({
+      escrito: true,
+      repetida: false,
+      tabla: 'transacciones',
+      id: 'tx1',
+      antes: { importe: 100 },
+      despues: { importe: 80 },
+    })
+    expect(segunda).toMatchObject({ escrito: true, repetida: true, antes: { importe: 100 }, despues: { importe: 80 } })
+  })
+})
