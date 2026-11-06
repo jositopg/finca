@@ -578,7 +578,7 @@ function subtotalesPorGrupo(
   desde: string,
   hasta: string,
   hoy: Date,
-) {
+): Record<string, ReturnType<typeof rentabilidadCartera>> {
   const porGrupo = new Map<string, Propiedad[]>()
   for (const p of propiedades) {
     const grupo = p.grupo?.trim()
@@ -587,18 +587,17 @@ function subtotalesPorGrupo(
     if (lista) lista.push(p)
     else porGrupo.set(grupo, [p])
   }
-  return [...porGrupo.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0], 'es'))
-    .map(([grupo, lista]) => ({
-      grupo,
-      ...rentabilidadCartera(lista, transacciones, desde, hasta, hoy),
-    }))
+  const salida: Record<string, ReturnType<typeof rentabilidadCartera>> = {}
+  for (const [grupo, lista] of [...porGrupo.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))) {
+    salida[grupo] = rentabilidadCartera(lista, transacciones, desde, hasta, hoy)
+  }
+  return salida
 }
 
 const rentabilidad: Herramienta = {
   name: 'rentabilidad',
   description:
-    'Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales agrupa con la misma cuenta de rentabilidadCartera. No es el ranking de la app.',
+    'Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales y subtotalesPorGrupo agrupan con la misma cuenta de rentabilidadCartera. Sin grupos, subtotalesPorGrupo es {}. No es el ranking de la app.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -619,10 +618,14 @@ const rentabilidad: Herramienta = {
     const propiedades = propiedadesDelGrupo(foto.propiedades, grupo)
     const [desdeAnio, hastaAnio] = rangoAnio(anio)
     const ventana = rangoUltimosMeses(hoy, 12)
-    const periodo = (desde: string, hasta: string) => ({
-      ...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
-      subtotales: subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy),
-    })
+    const periodo = (desde: string, hasta: string) => {
+      const subtotalesPorGrupoMapa = subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy)
+      return {
+        ...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
+        subtotales: Object.entries(subtotalesPorGrupoMapa).map(([grupo, datos]) => ({ grupo, ...datos })),
+        subtotalesPorGrupo: subtotalesPorGrupoMapa,
+      }
+    }
     return {
       ambito: AMBITO,
       hoy: fechaISO(hoy),
@@ -636,7 +639,7 @@ const rentabilidad: Herramienta = {
 const resumenIrpfHerramienta: Herramienta = {
   name: 'resumen_irpf',
   description:
-    'Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no, prorrateado por esos días y por la cuota, a la parte de Jose. Sin valorCatastral el estado es pendiente de dato. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.',
+    'Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. La proporción de amortización es valorConstruccion / valorCatastral cuando los dos están; la base es el mayor entre valorAdquisicion por esa proporción y valorConstruccion. Si falta valorAdquisicion, la base es valorConstruccion. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no. Sin año de revisión el 2 % lleva provisional: true. Un solar o valorConstruccion 0 imputa 0. Sin valorCatastral el estado es pendiente de dato. totales.imputacion y totales.amortizacion suman las fincas calculadas y no son null. totales.pendientes lista {finca, motivo}. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.',
   inputSchema: {
     type: 'object',
     properties: {

@@ -2269,6 +2269,7 @@ describe('valor catastral', () => {
     const hoja = resumenIrpf([propiedad({ tipo: 'piso', estado: 'vacio', sinRenta: true })], [], '2026')
     expect(hoja.imputaciones[0].estado).toBe('pendiente de dato')
     expect(hoja.imputaciones[0].importe).toBeNull()
-    expect(hoja.totales.imputacion).toBeNull()
+    expect(hoja.totales.imputacion).toBe(0)
+    expect(hoja.totales.pendientes).toEqual([{ finca: 'Piso test', motivo: 'valor catastral' }])
   })
 })

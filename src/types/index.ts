@@ -2742,10 +2742,11 @@ export interface TotalesIrpf {
   gastosDeducibles: number
   excesoAnio: number
   arrastreAplicado: number
-  amortizacion: number | null
+  amortizacion: number
   rendimientoNeto: number | null
   rendimientoNetoReducido: number | null
-  imputacion: number | null
+  imputacion: number
+  pendientes: { finca: string; motivo: string }[]
 }
 
 // Imputación de renta inmobiliaria de lo que no es vivienda habitual y no
@@ -2756,6 +2757,8 @@ export interface ImputacionRentaInmobiliaria {
   estado: 'calculada' | 'pendiente de dato'
   importe: number | null
   tipo: 1.1 | 2 | null
+  /** 2 % porque no hay año de revisión. No se pone si el año está guardado. */
+  provisional?: boolean
   diasNoAlquilados: number
   diasAnio: number
 }
@@ -2888,25 +2891,28 @@ function proporcionValida(valor: number | undefined): number | null {
 function baseAmortizacionIrpf(propiedad: FincaIrpf): { baseParte: number | null; pendiente: string[] } {
   if (propiedad.sinRenta) return { baseParte: null, pendiente: [] }
   const pendiente: string[] = []
-  const catastral =
+  const construccion =
     propiedad.valorConstruccion != null && propiedad.valorConstruccion >= 0 ? propiedad.valorConstruccion : null
-  if (catastral == null) pendiente.push(FALTA_CONSTRUCCION)
-  const proporcion = proporcionValida(propiedad.proporcionConstruccion)
+  if (construccion == null) pendiente.push(FALTA_CONSTRUCCION)
+  const totalCatastral =
+    propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null
+  // Art. 23 LIRPF: la proporción es construcción / valor catastral cuando los dos están.
+  const proporcionDerivada = construccion != null && totalCatastral != null ? construccion / totalCatastral : null
+  const proporcion = proporcionDerivada ?? proporcionValida(propiedad.proporcionConstruccion)
   const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null
   let porAdquisicion: number | null = null
   if (coste != null && proporcion != null) porAdquisicion = coste * proporcion
-  else {
+  else if (proporcionDerivada == null) {
     if (proporcion == null) pendiente.push(FALTA_PROPORCION)
     if (coste == null) {
       pendiente.push(propiedad.tipoAdquisicion === 'herencia' ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION)
     }
   }
-  const candidatos = [catastral, porAdquisicion].filter((n): n is number => n != null && n >= 0)
+  const candidatos = [construccion, porAdquisicion].filter((n): n is number => n != null && n >= 0)
   if (candidatos.length === 0) return { baseParte: null, pendiente }
   const base = Math.max(...candidatos)
   const parte = round2(miParte(parteDeCuota(base, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad))
-  const incompleta = catastral == null || porAdquisicion == null
-  return { baseParte: parte, pendiente: incompleta ? pendiente : [] }
+  return { baseParte: parte, pendiente }
 }
 
 function amortizacionIrpfAnio(propiedad: FincaIrpf, anio: string) {
@@ -3028,10 +3034,10 @@ export function resumenIrpfFinca(propiedad: FincaIrpf, transacciones: Transaccio
   }
 }
 
-function totalesIrpf(filas: ResumenIrpfFinca[]): Omit<TotalesIrpf, 'imputacion'> {
+function totalesIrpf(filas: ResumenIrpfFinca[]): Omit<TotalesIrpf, 'imputacion' | 'pendientes'> {
   const suma = (campo: 'ingresosIntegros' | 'gastosDeducibles' | 'excesoAnio' | 'arrastreAplicado') =>
     round2(filas.reduce((s, f) => s + f[campo], 0))
-  const sumaONull = (campo: 'amortizacion' | 'rendimientoNeto' | 'rendimientoNetoReducido') => {
+  const sumaONull = (campo: 'rendimientoNeto' | 'rendimientoNetoReducido') => {
     if (filas.some((f) => f[campo] == null)) return null
     return round2(filas.reduce((s, f) => s + (f[campo] ?? 0), 0))
   }
@@ -3040,7 +3046,7 @@ function totalesIrpf(filas: ResumenIrpfFinca[]): Omit<TotalesIrpf, 'imputacion'>
     gastosDeducibles: suma('gastosDeducibles'),
     excesoAnio: suma('excesoAnio'),
     arrastreAplicado: suma('arrastreAplicado'),
-    amortizacion: sumaONull('amortizacion'),
+    amortizacion: round2(filas.reduce((s, f) => s + (f.amortizacion ?? 0), 0)),
     rendimientoNeto: sumaONull('rendimientoNeto'),
     rendimientoNetoReducido: sumaONull('rendimientoNetoReducido'),
   }
@@ -3059,6 +3065,28 @@ function tipoImputacion(anioRevision: number | undefined, ejercicio: number): 1.
   return 2
 }
 
+function esSolar(propiedad: Pick<Propiedad, 'nombre'>): boolean {
+  return /\bsolar\b/i.test(propiedad.nombre)
+}
+
+function imputacionCalculada(
+  propiedad: FincaIrpf,
+  tipo: 1.1 | 2,
+  importe: number,
+  diasNoAlquilados: number,
+  diasAnio: number,
+): ImputacionRentaInmobiliaria {
+  return {
+    nombre: propiedad.nombre,
+    estado: 'calculada',
+    importe,
+    tipo,
+    ...(propiedad.anioRevisionCatastral == null ? { provisional: true } : {}),
+    diasNoAlquilados,
+    diasAnio,
+  }
+}
+
 function imputacionesRenta(propiedades: readonly FincaIrpf[], anio: string): ImputacionRentaInmobiliaria[] {
   const ejercicio = Number(anio)
   const filas: ImputacionRentaInmobiliaria[] = []
@@ -3067,6 +3095,12 @@ function imputacionesRenta(propiedades: readonly FincaIrpf[], anio: string): Imp
     const diasAnio = diasDelAnio(anio)
     const diasNoAlquilados = diasNoAlquiladosEnAnio(propiedad, anio)
     if (diasNoAlquilados <= 0) continue
+    const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio)
+    // Art. 85 LIRPF: el suelo no edificado no imputa. Construcción 0 es ese caso.
+    if (propiedad.valorConstruccion === 0 || esSolar(propiedad)) {
+      filas.push(imputacionCalculada(propiedad, tipo, 0, diasNoAlquilados, diasAnio))
+      continue
+    }
     const catastral =
       propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null
     if (catastral == null) {
@@ -3080,23 +3114,41 @@ function imputacionesRenta(propiedades: readonly FincaIrpf[], anio: string): Imp
       })
       continue
     }
-    const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio)
     const parte = miParte(parteDeCuota(catastral, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad)
-    filas.push({
-      nombre: propiedad.nombre,
-      estado: 'calculada',
-      importe: round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)),
-      tipo,
-      diasNoAlquilados,
-      diasAnio,
-    })
+    filas.push(
+      imputacionCalculada(
+        propiedad,
+        tipo,
+        round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)),
+        diasNoAlquilados,
+        diasAnio,
+      ),
+    )
   }
   return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
 }
 
-function totalImputacion(filas: ImputacionRentaInmobiliaria[]): number | null {
-  if (filas.some((f) => f.importe == null)) return null
+function totalImputacion(filas: ImputacionRentaInmobiliaria[]): number {
   return round2(filas.reduce((s, f) => s + (f.importe ?? 0), 0))
+}
+
+function pendientesIrpf(
+  porFinca: ResumenIrpfFinca[],
+  imputaciones: ImputacionRentaInmobiliaria[],
+): { finca: string; motivo: string }[] {
+  const lista: { finca: string; motivo: string }[] = []
+  for (const fila of porFinca) {
+    if (fila.amortizacion != null) continue
+    lista.push({
+      finca: fila.nombre,
+      motivo: fila.pendiente.length > 0 ? fila.pendiente.join(', ') : 'amortización',
+    })
+  }
+  for (const fila of imputaciones) {
+    if (fila.importe != null) continue
+    lista.push({ finca: fila.nombre, motivo: 'valor catastral' })
+  }
+  return lista
 }
 
 export function resumenIrpf(propiedades: readonly FincaIrpf[], transacciones: Transaccion[], anio: string): ResumenIrpfAnio {
@@ -3110,7 +3162,11 @@ export function resumenIrpf(propiedades: readonly FincaIrpf[], transacciones: Tr
     anio,
     porFinca,
     imputaciones,
-    totales: { ...totalesIrpf(porFinca), imputacion: totalImputacion(imputaciones) },
+    totales: {
+      ...totalesIrpf(porFinca),
+      imputacion: totalImputacion(imputaciones),
+      pendientes: pendientesIrpf(porFinca, imputaciones),
+    },
   }
 }
 

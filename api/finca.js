@@ -1586,24 +1586,26 @@ function baseAmortizacionIrpf(propiedad) {
 		pendiente: []
 	};
 	const pendiente = [];
-	const catastral = propiedad.valorConstruccion != null && propiedad.valorConstruccion >= 0 ? propiedad.valorConstruccion : null;
-	if (catastral == null) pendiente.push(FALTA_CONSTRUCCION);
-	const proporcion = proporcionValida(propiedad.proporcionConstruccion);
+	const construccion = propiedad.valorConstruccion != null && propiedad.valorConstruccion >= 0 ? propiedad.valorConstruccion : null;
+	if (construccion == null) pendiente.push(FALTA_CONSTRUCCION);
+	const totalCatastral = propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null;
+	const proporcionDerivada = construccion != null && totalCatastral != null ? construccion / totalCatastral : null;
+	const proporcion = proporcionDerivada ?? proporcionValida(propiedad.proporcionConstruccion);
 	const coste = propiedad.valorAdquisicion != null && propiedad.valorAdquisicion > 0 ? propiedad.valorAdquisicion : null;
 	let porAdquisicion = null;
 	if (coste != null && proporcion != null) porAdquisicion = coste * proporcion;
-	else {
+	else if (proporcionDerivada == null) {
 		if (proporcion == null) pendiente.push(FALTA_PROPORCION);
 		if (coste == null) pendiente.push(propiedad.tipoAdquisicion === "herencia" ? FALTA_ADQUISICION_HERENCIA : FALTA_ADQUISICION);
 	}
-	const candidatos = [catastral, porAdquisicion].filter((n) => n != null && n >= 0);
+	const candidatos = [construccion, porAdquisicion].filter((n) => n != null && n >= 0);
 	if (candidatos.length === 0) return {
 		baseParte: null,
 		pendiente
 	};
 	return {
 		baseParte: round2(miParte(parteDeCuota(Math.max(...candidatos), cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad)),
-		pendiente: catastral == null || porAdquisicion == null ? pendiente : []
+		pendiente
 	};
 }
 function amortizacionIrpfAnio(propiedad, anio) {
@@ -1740,7 +1742,7 @@ function totalesIrpf(filas) {
 		gastosDeducibles: suma("gastosDeducibles"),
 		excesoAnio: suma("excesoAnio"),
 		arrastreAplicado: suma("arrastreAplicado"),
-		amortizacion: sumaONull("amortizacion"),
+		amortizacion: round2(filas.reduce((s, f) => s + (f.amortizacion ?? 0), 0)),
 		rendimientoNeto: sumaONull("rendimientoNeto"),
 		rendimientoNetoReducido: sumaONull("rendimientoNetoReducido")
 	};
@@ -1754,6 +1756,20 @@ function tipoImputacion(anioRevision, ejercicio) {
 	if (anioRevision != null && anioRevision >= ejercicio - 10 && anioRevision <= ejercicio) return 1.1;
 	return 2;
 }
+function esSolar(propiedad) {
+	return /\bsolar\b/i.test(propiedad.nombre);
+}
+function imputacionCalculada(propiedad, tipo, importe, diasNoAlquilados, diasAnio) {
+	return {
+		nombre: propiedad.nombre,
+		estado: "calculada",
+		importe,
+		tipo,
+		...propiedad.anioRevisionCatastral == null ? { provisional: true } : {},
+		diasNoAlquilados,
+		diasAnio
+	};
+}
 function imputacionesRenta(propiedades, anio) {
 	const ejercicio = Number(anio);
 	const filas = [];
@@ -1762,6 +1778,11 @@ function imputacionesRenta(propiedades, anio) {
 		const diasAnio = diasDelAnio(anio);
 		const diasNoAlquilados = diasNoAlquiladosEnAnio(propiedad, anio);
 		if (diasNoAlquilados <= 0) continue;
+		const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio);
+		if (propiedad.valorConstruccion === 0 || esSolar(propiedad)) {
+			filas.push(imputacionCalculada(propiedad, tipo, 0, diasNoAlquilados, diasAnio));
+			continue;
+		}
 		const catastral = propiedad.valorCatastral != null && propiedad.valorCatastral > 0 ? propiedad.valorCatastral : null;
 		if (catastral == null) {
 			filas.push({
@@ -1774,22 +1795,31 @@ function imputacionesRenta(propiedades, anio) {
 			});
 			continue;
 		}
-		const tipo = tipoImputacion(propiedad.anioRevisionCatastral, ejercicio);
 		const parte = miParte(parteDeCuota(catastral, cuotaEfectiva(propiedad.cuotaPropiedad)), propiedad);
-		filas.push({
-			nombre: propiedad.nombre,
-			estado: "calculada",
-			importe: round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)),
-			tipo,
-			diasNoAlquilados,
-			diasAnio
-		});
+		filas.push(imputacionCalculada(propiedad, tipo, round2(parte * (tipo / 100) * (diasNoAlquilados / diasAnio)), diasNoAlquilados, diasAnio));
 	}
 	return filas.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 function totalImputacion(filas) {
-	if (filas.some((f) => f.importe == null)) return null;
 	return round2(filas.reduce((s, f) => s + (f.importe ?? 0), 0));
+}
+function pendientesIrpf(porFinca, imputaciones) {
+	const lista = [];
+	for (const fila of porFinca) {
+		if (fila.amortizacion != null) continue;
+		lista.push({
+			finca: fila.nombre,
+			motivo: fila.pendiente.length > 0 ? fila.pendiente.join(", ") : "amortización"
+		});
+	}
+	for (const fila of imputaciones) {
+		if (fila.importe != null) continue;
+		lista.push({
+			finca: fila.nombre,
+			motivo: "valor catastral"
+		});
+	}
+	return lista;
 }
 function resumenIrpf(propiedades, transacciones, anio) {
 	const porFinca = propiedades.filter((p) => esDeJose(p) && esRendimientoAlquiler(p)).map((p) => resumenIrpfFinca(p, transacciones, anio)).sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
@@ -1801,7 +1831,8 @@ function resumenIrpf(propiedades, transacciones, anio) {
 		imputaciones,
 		totales: {
 			...totalesIrpf(porFinca),
-			imputacion: totalImputacion(imputaciones)
+			imputacion: totalImputacion(imputaciones),
+			pendientes: pendientesIrpf(porFinca, imputaciones)
 		}
 	};
 }
@@ -2295,10 +2326,9 @@ function subtotalesPorGrupo(propiedades, transacciones, desde, hasta, hoy) {
 		if (lista) lista.push(p);
 		else porGrupo.set(grupo, [p]);
 	}
-	return [...porGrupo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es")).map(([grupo, lista]) => ({
-		grupo,
-		...rentabilidadCartera(lista, transacciones, desde, hasta, hoy)
-	}));
+	const salida = {};
+	for (const [grupo, lista] of [...porGrupo.entries()].sort((a, b) => a[0].localeCompare(b[0], "es"))) salida[grupo] = rentabilidadCartera(lista, transacciones, desde, hasta, hoy);
+	return salida;
 }
 var herramientas = [
 	listarFincas,
@@ -2310,7 +2340,7 @@ var herramientas = [
 	rendimiento,
 	{
 		name: "rentabilidad",
-		description: "Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales agrupa con la misma cuenta de rentabilidadCartera. No es el ranking de la app.",
+		description: "Rentabilidad bruta y neta sobre el valor de mercado, por finca y en total, de los últimos 12 meses y de un año natural. Bruta = rentas / valor. Neta = (rentas − gastos) / valor. Sin valor de mercado, bruta y neta son null y viene el motivo. Los meses vacíos son meses ya empezados sin contrato vigente. grupo filtra por el texto exacto. subtotales y subtotalesPorGrupo agrupan con la misma cuenta de rentabilidadCartera. Sin grupos, subtotalesPorGrupo es {}. No es el ranking de la app.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -2331,10 +2361,17 @@ var herramientas = [
 			const propiedades = propiedadesDelGrupo(foto.propiedades, grupo);
 			const [desdeAnio, hastaAnio] = rangoAnio(anio);
 			const ventana = rangoUltimosMeses(hoy, 12);
-			const periodo = (desde, hasta) => ({
-				...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
-				subtotales: subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy)
-			});
+			const periodo = (desde, hasta) => {
+				const subtotalesPorGrupoMapa = subtotalesPorGrupo(propiedades, foto.transacciones, desde, hasta, hoy);
+				return {
+					...rentabilidadCartera(propiedades, foto.transacciones, desde, hasta, hoy),
+					subtotales: Object.entries(subtotalesPorGrupoMapa).map(([grupo, datos]) => ({
+						grupo,
+						...datos
+					})),
+					subtotalesPorGrupo: subtotalesPorGrupoMapa
+				};
+			};
 			return {
 				ambito: AMBITO,
 				hoy: fechaISO(hoy),
@@ -2349,7 +2386,7 @@ var herramientas = [
 	},
 	{
 		name: "resumen_irpf",
-		description: "Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no, prorrateado por esos días y por la cuota, a la parte de Jose. Sin valorCatastral el estado es pendiente de dato. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.",
+		description: "Resumen anual de IRPF por finca: ingresos íntegros, gastos deducibles (intereses y reparación limitados a los ingresos, con arrastre de 4 años), amortización del 3 % por días alquilados y reducción por alquiler de vivienda. La proporción de amortización es valorConstruccion / valorCatastral cuando los dos están; la base es el mayor entre valorAdquisicion por esa proporción y valorConstruccion. Si falta valorAdquisicion, la base es valorConstruccion. imputaciones es la renta inmobiliaria de lo que no es vivienda habitual y no está alquilado (sinRenta o días vacíos): 1,1 % del valorCatastral si la revisión cae en el ejercicio o en los 10 años anteriores, 2 % si no. Sin año de revisión el 2 % lleva provisional: true. Un solar o valorConstruccion 0 imputa 0. Sin valorCatastral el estado es pendiente de dato. totales.imputacion y totales.amortizacion suman las fincas calculadas y no son null. totales.pendientes lista {finca, motivo}. Si falta un dato para elegir la reducción, lo dice y no inventa el porcentaje. Es orientativo y hay que revisarlo con la declaración. No incluye DNI, email, teléfono ni NIF.",
 		inputSchema: {
 			type: "object",
 			properties: { anio: {

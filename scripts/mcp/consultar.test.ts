@@ -601,4 +601,83 @@ describe('consultar', () => {
     expect(json).not.toContain('drive')
     expect(json).not.toContain('nif')
   })
+
+  it('un solar imputa 0', () => {
+    const solar = propiedad({
+      id: 'solar',
+      nombre: 'Solar tacoronte',
+      tipo: 'otro',
+      estado: 'uso_propio',
+      contratoInicio: undefined,
+      valorCatastral: 100000,
+    })
+    const datos = ejecutar('resumen_irpf', { anio: '2026' }, foto({ propiedades: [solar] }), HOY) as ResumenIrpfAnio
+    expect(datos.imputaciones[0]).toMatchObject({
+      nombre: 'Solar tacoronte',
+      estado: 'calculada',
+      importe: 0,
+      tipo: 2,
+      provisional: true,
+    })
+  })
+
+  it('la base de amortización usa la proporción y la mayor de las dos', () => {
+    const piso = propiedad({
+      nombre: 'Con proporción',
+      estado: 'alquilado',
+      contratoInicio: '2020-01-01',
+      valorConstruccion: 40000,
+      valorCatastral: 100000,
+      valorAdquisicion: 200000,
+    })
+    const datos = ejecutar('resumen_irpf', { anio: '2026' }, foto({ propiedades: [piso] }), HOY) as ResumenIrpfAnio
+    expect(datos.porFinca[0].baseAmortizacion).toBe(80000)
+    expect(datos.porFinca[0].amortizacion).toBe(2400)
+    expect(datos.porFinca[0].pendiente).not.toContain('proporción de construcción')
+  })
+
+  it('los totales suman aunque falte una finca y la listan en pendientes', () => {
+    const alquila = propiedad({
+      id: 'alquila',
+      nombre: 'Alquila',
+      estado: 'alquilado',
+      contratoInicio: '2020-01-01',
+      valorConstruccion: 10000,
+    })
+    const imputa = propiedad({
+      id: 'imputa',
+      nombre: 'Imputa',
+      tipo: 'garaje',
+      estado: 'vacio',
+      sinRenta: true,
+      contratoInicio: undefined,
+      valorCatastral: 100000,
+      anioRevisionCatastral: 2020,
+    })
+    const falta = propiedad({
+      id: 'falta',
+      nombre: 'Falta',
+      estado: 'vacio',
+      sinRenta: true,
+      contratoInicio: undefined,
+    })
+    const datos = ejecutar(
+      'resumen_irpf',
+      { anio: '2026' },
+      foto({ propiedades: [alquila, imputa, falta] }),
+      HOY,
+    ) as ResumenIrpfAnio
+    expect(datos.totales.amortizacion).toBe(300)
+    expect(datos.totales.imputacion).toBe(1100)
+    expect(datos.totales.pendientes).toEqual([{ finca: 'Falta', motivo: 'valor catastral' }])
+  })
+
+  it('subtotalesPorGrupo es {} sin grupos', () => {
+    const datos = ejecutar('rentabilidad', { anio: '2026' }, foto(), HOY) as {
+      anio: { subtotalesPorGrupo: Record<string, unknown> }
+      ultimos12Meses: { subtotalesPorGrupo: Record<string, unknown> }
+    }
+    expect(datos.anio.subtotalesPorGrupo).toEqual({})
+    expect(datos.ultimos12Meses.subtotalesPorGrupo).toEqual({})
+  })
 })
